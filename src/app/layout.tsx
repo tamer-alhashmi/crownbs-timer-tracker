@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Hotel Time Tracker",
-  description: "Time tracking system for hotel cleaners and admin teams",
-  manifest: "/manifest.json",
+  title: 'Hotel Time Tracker',
+  description: 'Hotel Operations Suite',
+  manifest: '/manifest.json',
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

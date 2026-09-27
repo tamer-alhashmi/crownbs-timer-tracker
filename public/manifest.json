@@ -1,21 +1,23 @@
 {
-  "name": "Hotel Time Tracker",
-  "short_name": "Tracker",
-  "description": "Time tracking for hotel cleaners and admin teams",
+  "name": "CrownBS Time Tracker",
+  "short_name": "Time Tracker",
+  "description": "Hotel Operations Suite & Housekeeping Time Tracker",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0f172a",
-  "theme_color": "#0f172a",
+  "background_color": "#0b0f19",
+  "theme_color": "#0b0f19",
   "icons": [
     {
       "src": "/icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
       "src": "/icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }
