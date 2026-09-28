@@ -13,7 +13,7 @@ export default async function CleanerDashboardPage() {
   }
 
   const supabase = createPrivilegedServerSupabaseClient();
-  const [{ data: profile }, { data: hotels }, { data: services }, { data: rooms }, { data: shift }, { data: logs }, { data: payroll }, brief] = await Promise.all([
+  const [{ data: profile }, { data: hotels }, { data: services }, { data: rooms }, { data: shift }, { data: logs }, brief] = await Promise.all([
     supabase.from("users").select("full_name").eq("id", user.userId).maybeSingle(),
     supabase.from("hotels").select("id, name, location").eq("is_active", true).order("name"),
     supabase.from("services_config").select("id, name, description, default_rate").eq("is_active", true).order("name"),
@@ -24,13 +24,6 @@ export default async function CleanerDashboardPage() {
       .select("id, shift_id, hotel_id, service_id, start_time, end_time, task_date, status, rooms_completed, room_ids, room_number, room_numbers, notes, manager_approved, owner_approved, is_locked, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, service_name_snapshot, service_description_snapshot")
       .eq("user_id", user.userId)
       .order("task_date", { ascending: false })
-      .order("start_time", { ascending: false }),
-    supabase
-      .from("work_logs")
-      .select("id, start_time, end_time, task_date, rooms_completed, services_config(name, default_rate)")
-      .eq("user_id", user.userId)
-      .eq("status", "completed")
-      .eq("is_locked", true)
       .order("start_time", { ascending: false }),
     getCleanerOperationalBrief(user.userId),
   ]);
@@ -74,7 +67,6 @@ export default async function CleanerDashboardPage() {
       rooms={rooms ?? []}
       shift={shift}
       logs={logsWithNames}
-      payroll={payroll ?? []}
       brief={brief}
       roomMedia={roomMedia}
       roomMediaConfigured={roomMediaConfigured}

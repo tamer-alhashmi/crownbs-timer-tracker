@@ -6,7 +6,6 @@ import { BriefcaseBusiness, CalendarDays, Clock3, MapPin } from "lucide-react";
 import { clockIn, clockOut, endTask, startTask, switchHotel, updateTask } from "./actions";
 import { UserProfileMenu } from "@/components/layout/UserProfileMenu";
 import { OperationalBrief } from "@/components/dashboard/OperationalBrief";
-import { PayrollSummary } from "@/components/dashboard/PayrollSummary";
 import { ServiceCard } from "@/components/dashboard/ServiceCard";
 import type { BriefTask, CleanerBrief } from "@/lib/operationalBrief";
 import { RoomMediaCapture } from "./RoomMediaCapture";
@@ -50,7 +49,6 @@ type Props = {
   rooms: RoomRecord[];
   shift: Shift;
   logs: WorkLog[];
-  payroll: { id: string; start_time: string; end_time: string | null; task_date: string; rooms_completed: number; services_config?: { name: string; default_rate: number }[] }[];
   brief: CleanerBrief;
   roomMedia: RoomMediaItem[];
   roomMediaConfigured: boolean;
@@ -59,7 +57,7 @@ type Props = {
 const PAGE_SIZE = 10;
 const dateLabel = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString("en-GB", { timeZone: "Europe/London", dateStyle: "medium" });
 
-export default function CleanerDashboard({ user, hotels, services, rooms, shift, logs, payroll, brief, roomMedia, roomMediaConfigured }: Props) {
+export default function CleanerDashboard({ user, hotels, services, rooms, shift, logs, brief, roomMedia, roomMediaConfigured }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const activeTask = logs.find((log) => log.status === "active");
@@ -189,7 +187,6 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
   return <main className="min-h-screen bg-slate-100 pb-24"><div className="mx-auto max-w-2xl px-4 pb-8 pt-6">
     <header className="mb-5 rounded-3xl bg-slate-900 p-5 text-white shadow-lg"><div className="flex items-center justify-between gap-3"><div className="min-w-0"><p className="text-xs uppercase tracking-[0.25em] text-slate-400">Shift overview</p><h1 className="mt-1 text-2xl font-bold">{user.fullName}</h1><p className="mt-1 text-sm text-slate-400">{user.email}</p></div><UserProfileMenu name={user.fullName} email={user.email} role="cleaner" settingsHref="/settings" /></div><div className="mt-4 flex items-center justify-between rounded-2xl bg-slate-800/70 p-3 text-sm"><span className="flex items-center gap-2 text-slate-300"><Clock3 className="h-4 w-4" /> Master shift</span><span className="font-semibold text-white">{shift ? "Clocked in" : "Not clocked in"}</span></div></header>
     <OperationalBrief brief={brief} />
-    <PayrollSummary logs={payroll} />
     <section className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200"><div className="flex items-center justify-between"><div><p className="text-xs uppercase tracking-[0.2em] text-slate-500">Hotel switch</p><h2 className="mt-1 text-lg font-bold text-slate-900">Current property</h2></div><MapPin className="h-5 w-5 text-sky-700" /></div><select value={hotelId} onChange={(event) => chooseHotel(event.target.value)} disabled={isPending || Boolean(activeTask)} className="mt-4 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-900"><option value="">Select an active hotel</option>{hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select></section>
     <section className="mt-5 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200"><div className="flex items-center justify-between"><div><p className="text-xs uppercase tracking-[0.2em] text-slate-500">Master shift control</p><h2 className="mt-1 text-lg font-bold text-slate-900">Workday attendance</h2></div><Clock3 className="h-5 w-5 text-amber-700" /></div><div className="mt-4 flex gap-2"><button type="button" disabled={isPending || Boolean(shift)} onClick={() => run(() => clockIn(), "Master shift started.")} className="flex-1 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white disabled:bg-slate-200 disabled:text-slate-500">Clock in</button><button type="button" disabled={isPending || !shift || Boolean(activeTask)} onClick={() => run(() => clockOut(), "Master shift completed.")} className="flex-1 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:bg-slate-200 disabled:text-slate-500">Clock out</button></div>{activeTask && <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800">End the active task before clocking out.</p>}</section>
     <section className="mt-5 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200"><div className="flex items-center justify-between"><div><p className="text-xs uppercase tracking-[0.2em] text-slate-500">Task selection</p><h2 className="mt-1 text-lg font-bold text-slate-900">{editingId ? "Modify task" : "Start a task"}</h2></div><BriefcaseBusiness className="h-5 w-5 text-violet-700" /></div><form onSubmit={submitTask} className="mt-4 space-y-3"><label className="block text-xs font-semibold text-slate-600">Service<select value={serviceId} onChange={(event) => { setServiceId(event.target.value); setRoomIds([]); }} disabled={isPending || Boolean(activeTask && !editingId)} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-normal text-slate-900"><option value="">Select a service</option>{services.map((service) => <option key={service.id} value={service.id}>{service.name} - GBP {Number(service.default_rate).toFixed(2)}</option>)}</select></label>
