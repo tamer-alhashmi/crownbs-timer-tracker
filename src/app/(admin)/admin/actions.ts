@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getSessionUser } from "@/lib/auth";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { getManagementOperationalBrief } from "@/lib/operationalBrief";
-import { calculateHourlyEarnings, resolveHourlyRate } from "@/lib/payroll";
+import type { ServicePricing } from "@/lib/servicePricing";
 import { requireFeatureAccess } from "@/lib/featureAccess";
 
 type ApprovalRole = "manager" | "owner";
@@ -56,13 +56,13 @@ export async function getManagementOverview(period?: { from: string; to: string 
     });
   const hotelIds = visibleHotels.map((hotel) => hotel.id);
   const hotelFilter = user.role === "admin" ? null : hotelIds;
-  const cleanersQuery = supabase.from("users").select("id, full_name, email, role, primary_hotel_id, hourly_rate").eq("role", "cleaner");
-  const logsQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, hotels(name), users(full_name, email), services_config(name, description, default_rate)").order("start_time", { ascending: false });
-  const payrollQuery = supabase.from("work_logs").select("id, user_id, hotel_id, start_time, end_time, task_date, rooms_completed, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, hotels(name), users(full_name, email), services_config(name, description, default_rate)").eq("is_locked", true).eq("status", "completed").order("start_time", { ascending: false });
+  const cleanersQuery = supabase.from("users").select("id, full_name, email, role, primary_hotel_id").eq("role", "cleaner");
+  const logsQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, hotels(name), users(full_name, email), services_config(name, description, default_rate, unit)").order("start_time", { ascending: false });
+  const payrollQuery = supabase.from("work_logs").select("id, user_id, hotel_id, start_time, end_time, task_date, rooms_completed, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, hotels(name), users(full_name, email), services_config(name, description, default_rate, unit)").eq("is_locked", true).eq("status", "completed").order("start_time", { ascending: false });
   if (hotelFilter) { logsQuery.in("hotel_id", hotelIds); payrollQuery.in("hotel_id", hotelIds); }
   const [{ data: cleaners }, { data: services }, { data: workLogs }, { data: payroll }] = await Promise.all([
     cleanersQuery,
-    supabase.from("services_config").select("id, name, default_rate, is_active").order("name"),
+    supabase.from("services_config").select("id, name, description, unit, default_rate, is_active, created_at").order("name"),
     logsQuery,
     payrollQuery,
   ]);
@@ -70,26 +70,18 @@ export async function getManagementOverview(period?: { from: string; to: string 
   const { data: currentUser } = await supabase.from("users").select("full_name, email").eq("id", user.userId).maybeSingle();
   const hotelsById = new Map(visibleHotels.map((hotel) => [hotel.id, hotel.name]));
   const cleanersById = new Map((cleaners ?? []).map((cleaner) => [cleaner.id, cleaner.full_name || cleaner.email]));
-  const cleanerRatesById = new Map((cleaners ?? []).map((cleaner) => [cleaner.id, cleaner.hourly_rate]));
   const workLogsWithNames = (workLogs ?? []).map((log) => ({
     ...log,
     cleanerName: cleanersById.get(log.user_id) ?? "Unknown cleaner",
-    cleanerHourlyRate: cleanerRatesById.get(log.user_id) ?? null,
     hotelName: hotelsById.get(log.hotel_id) ?? "Unknown hotel",
   }));
   const payrollWithNames = (payroll ?? []).map((log) => {
-    const cleanerHourlyRate = resolveHourlyRate(cleanerRatesById.get(log.user_id));
     const service = Array.isArray(log.services_config) ? log.services_config[0] : log.services_config;
-    const serviceName = log.service_name_snapshot ?? service?.name ?? "Service";
-    const hours = log.end_time ? Math.max(0, (new Date(log.end_time).getTime() - new Date(log.start_time).getTime()) / 3_600_000) : 0;
-    const hourlyEarnings = calculateHourlyEarnings(hours, cleanerHourlyRate);
-    const displayRate = /per room/i.test(serviceName) && log.rooms_completed > 0 ? hourlyEarnings / log.rooms_completed : cleanerHourlyRate;
     return {
       ...log,
       cleanerName: cleanersById.get(log.user_id) ?? "Unknown cleaner",
-      cleanerHourlyRate,
       hotelName: hotelsById.get(log.hotel_id) ?? "Unknown hotel",
-      services_config: [{ name: serviceName, default_rate: displayRate }],
+      services_config: [{ name: log.service_name_snapshot ?? service?.name ?? "Service", default_rate: service?.default_rate ?? 0, unit: service?.unit ?? "hourly" }] as [ServicePricing],
     };
   });
   const brief = await briefPromise;
@@ -127,7 +119,7 @@ export async function approveWorkLog(logId: string, role: ApprovalRole) {
   }
   if (log.is_locked) throw new Error("This log is already locked.");
   const now = new Date().toISOString();
-  const payload = role === "manager" ? { manager_approved: true, manager_rejected: false, manager_approved_at: now } : { owner_approved: true, owner_rejected: false, owner_approved_at: now };
+  const payload = role === "manager" ? { manager_approved: true, manager_rejected: false, manager_approved_at: now, rejection_notes: null } : { owner_approved: true, owner_rejected: false, owner_approved_at: now, rejection_notes: null };
   const lock = role === "manager" ? log.owner_approved : log.manager_approved;
   const { data: updated, error } = await supabase.from("work_logs").update({ ...payload, is_locked: lock, updated_at: now }).eq("id", logId).select("*").single();
   if (error || !updated) throw new Error(error?.message ?? "Unable to approve work log.");

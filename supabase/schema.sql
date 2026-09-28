@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS services_config (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
     name TEXT NOT NULL UNIQUE,
     description TEXT NOT NULL DEFAULT '',
+    unit TEXT NOT NULL DEFAULT 'hourly' CHECK (unit IN ('hourly', 'per_room', 'fixed')),
     default_rate NUMERIC(10, 2) NOT NULL DEFAULT 0,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -336,32 +337,21 @@ CREATE TRIGGER work_log_responsibility_snapshot
 BEFORE INSERT OR UPDATE ON work_logs
 FOR EACH ROW EXECUTE FUNCTION capture_work_log_responsibility_snapshot();
 
--- Example operational service catalog for the UK hotel model.
-INSERT INTO
-    services_config (name, default_rate, is_active)
-VALUES (
-        'Cleaning (Hourly)',
-        15.00,
-        TRUE
-    ),
-    (
-        'Cleaning (Per Room)',
-        8.50,
-        TRUE
-    ),
-    ('Maintenance', 18.00, TRUE),
-    (
-        'Linen Distribution',
-        10.00,
-        TRUE
-    ),
-    (
-        'Product Delivery',
-        9.50,
-        TRUE
-    ),
-    ('Night Shift', 20.00, TRUE),
-    ('Reception', 16.00, TRUE) ON CONFLICT (name) DO NOTHING;
+INSERT INTO services_config (name, description, unit, default_rate, is_active)
+VALUES
+  ('Cleaning (Hourly)', 'Cleaning service charged for each recorded hour.', 'hourly', 15.00, TRUE),
+  ('Cleaning (Per Room)', 'Cleaning service charged for each completed room.', 'per_room', 8.50, TRUE),
+  ('Linen Distribution', 'Linen distribution charged per completed room.', 'per_room', 10.00, TRUE),
+  ('Maintenance', 'Maintenance and repair work charged for each recorded hour.', 'hourly', 18.00, TRUE),
+  ('Night Shift', 'Night shift service charged for each recorded hour.', 'hourly', 20.00, TRUE),
+  ('Product Delivery', 'Product delivery charged as a fixed task rate.', 'fixed', 9.50, TRUE),
+  ('Reception', 'Reception service charged for each recorded hour.', 'hourly', 16.00, TRUE)
+ON CONFLICT (name) DO UPDATE SET
+  description = EXCLUDED.description,
+  unit = EXCLUDED.unit,
+  default_rate = EXCLUDED.default_rate,
+  is_active = TRUE,
+  updated_at = NOW();
 
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES ('room-media', 'room-media', FALSE, 52428800, ARRAY['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/quicktime', 'video/webm']::TEXT[])
@@ -372,7 +362,8 @@ SET name = EXCLUDED.name,
     allowed_mime_types = EXCLUDED.allowed_mime_types;
 
 ALTER TABLE services_config
-ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
+ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '',
+ADD COLUMN IF NOT EXISTS unit TEXT NOT NULL DEFAULT 'hourly';
 
 UPDATE services_config
 SET

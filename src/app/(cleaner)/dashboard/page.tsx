@@ -14,9 +14,9 @@ export default async function CleanerDashboardPage() {
 
   const supabase = createPrivilegedServerSupabaseClient();
   const [{ data: profile }, { data: hotels }, { data: services }, { data: rooms }, { data: shift }, { data: logs }, brief] = await Promise.all([
-    supabase.from("users").select("full_name, hourly_rate").eq("id", user.userId).maybeSingle(),
+    supabase.from("users").select("full_name").eq("id", user.userId).maybeSingle(),
     supabase.from("hotels").select("id, name, location").eq("is_active", true).order("name"),
-    supabase.from("services_config").select("id, name, description, default_rate").eq("is_active", true).order("name"),
+    supabase.from("services_config").select("id, name, description, default_rate, unit").eq("is_active", true).order("name"),
     supabase.from("rooms").select("id, hotel_id, room_name, category").eq("status", "active").order("room_name"),
     supabase.from("master_shifts").select("id, start_time, end_time, status").eq("user_id", user.userId).eq("status", "active").maybeSingle(),
     supabase
@@ -57,11 +57,12 @@ export default async function CleanerDashboardPage() {
     serviceName: log.service_name_snapshot ?? serviceById.get(log.service_id) ?? "Service",
     serviceDescription: log.service_description_snapshot ?? log.service_name_snapshot ?? serviceById.get(log.service_id) ?? "Service",
     serviceRate: Number(services?.find((service) => service.id === log.service_id)?.default_rate ?? 0),
+    serviceUnit: services?.find((service) => service.id === log.service_id)?.unit ?? "hourly",
   }));
 
   return (
     <CleanerDashboard
-      user={{ fullName: profile?.full_name ?? user.email, email: user.email, hotelId: user.hotelId ?? null, hourlyRate: profile?.hourly_rate }}
+      user={{ fullName: profile?.full_name ?? user.email, email: user.email, hotelId: user.hotelId ?? null }}
       hotels={hotels ?? []}
       services={services ?? []}
       rooms={rooms ?? []}

@@ -21,13 +21,13 @@ async function validateSelection(hotelId: string, serviceId: string, roomIds: st
   const uniqueRoomIds = [...new Set(roomIds)];
   const [{ data: hotel }, { data: service }, roomResult] = await Promise.all([
     supabase.from("hotels").select("id").eq("id", hotelId).eq("is_active", true).maybeSingle(),
-    supabase.from("services_config").select("id, name, description").eq("id", serviceId).eq("is_active", true).maybeSingle(),
+    supabase.from("services_config").select("id, name, description, unit").eq("id", serviceId).eq("is_active", true).maybeSingle(),
     uniqueRoomIds.length ? supabase.from("rooms").select("id, room_name").in("id", uniqueRoomIds).eq("hotel_id", hotelId).eq("status", "active") : Promise.resolve({ data: [] }),
   ]);
   if (!hotel || !service) throw new Error("Select an active hotel and service.");
   const selectedRooms = roomResult.data ?? [];
   if (selectedRooms.length !== uniqueRoomIds.length) throw new Error("Every selected room must belong to the active hotel.");
-  if (/per room|maintenance|cleaning\s*\(hourly\)/i.test(service.name) && selectedRooms.length === 0) throw new Error("Select at least one room for this service.");
+  if ((service.unit === "per_room" || /maintenance|cleaning\s*\(hourly\)/i.test(service.name)) && selectedRooms.length === 0) throw new Error("Select at least one room for this service.");
   return { supabase, service, selectedRooms };
 }
 

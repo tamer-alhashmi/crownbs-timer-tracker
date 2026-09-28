@@ -1,0 +1,30 @@
+.enterprise-dashboard .overflow-x-auto:has(> table) {
+  max-height: min(600px, calc(100vh - 350px));
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.enterprise-dashboard .overflow-x-auto > table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.enterprise-dashboard .overflow-x-auto > table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #f8fafc;
+}
+
+.enterprise-dashboard .overflow-x-auto > table tfoot td {
+  position: sticky;
+  bottom: 0;
+  z-index: 9;
+  background: #fff;
+  box-shadow: 0 -1px 0 #e2e8f0;
+}
+
+.enterprise-dashboard .overflow-x-auto > table tbody tr:hover {
+  background: #f8fafc;
+}

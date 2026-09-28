@@ -8,12 +8,12 @@ import { UserProfileMenu } from "@/components/layout/UserProfileMenu";
 import { OperationalBrief } from "@/components/dashboard/OperationalBrief";
 import { ServiceCard } from "@/components/dashboard/ServiceCard";
 import type { BriefTask, CleanerBrief } from "@/lib/operationalBrief";
-import { calculateHourlyEarnings, resolveHourlyRate } from "@/lib/payroll";
+import { calculateServiceCost, resolveBillingUnit, resolveServiceRate } from "@/lib/servicePricing";
 import { RoomMediaCapture } from "./RoomMediaCapture";
 import { getWorkLogRoomMedia, type RoomMediaGalleryItem, type RoomMediaItem } from "./roomMediaActions";
 
 type HotelRecord = { id: string; name: string; location: string };
-type ServiceRecord = { id: string; name: string; default_rate: number; description: string };
+type ServiceRecord = { id: string; name: string; default_rate: number; unit: string; description: string };
 type RoomRecord = { id: string; hotel_id: string; room_name: string; category: string };
 type Shift = { id: string; start_time: string; end_time: string | null; status: "active" | "completed" } | null;
 type WorkLog = {
@@ -42,9 +42,10 @@ type WorkLog = {
   serviceName: string;
   serviceDescription: string;
   serviceRate: number;
+  serviceUnit: string;
 };
 type Props = {
-  user: { fullName: string; email: string; hotelId: string | null; hourlyRate: number | null };
+  user: { fullName: string; email: string; hotelId: string | null };
   hotels: HotelRecord[];
   services: ServiceRecord[];
   rooms: RoomRecord[];
@@ -81,7 +82,7 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
   const hotelRooms = rooms.filter((room) => room.hotel_id === hotelId);
   const selectedRooms = hotelRooms.filter((room) => roomIds.includes(room.id));
   const visibleHotelRooms = hotelRooms.filter((room) => `${room.room_name} ${room.category}`.toLowerCase().includes(roomSearch.trim().toLowerCase()));
-  const requiresRooms = /per room|maintenance|cleaning\s*\(hourly\)/i.test(selectedService?.name ?? "");
+  const requiresRooms = selectedService?.unit === "per_room" || /maintenance|cleaning\s*\(hourly\)/i.test(selectedService?.name ?? "");
   const requiresNotes = /maintenance|linen|delivery/i.test(selectedService?.name ?? "");
   const completedLogs = logs.filter((log) => log.status === "completed");
   const filteredLogs = completedLogs.filter((log) => (!fromDate || log.task_date >= fromDate) && (!toDate || log.task_date <= toDate));
@@ -157,7 +158,8 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
 
   const toBriefTask = (log: WorkLog): BriefTask => {
     const hours = log.end_time ? Math.max(0, (Date.parse(log.end_time) - Date.parse(log.start_time)) / 3_600_000) : 0;
-    const rate = resolveHourlyRate(user.hourlyRate);
+    const rate = resolveServiceRate({ name: log.serviceName, unit: log.serviceUnit, default_rate: log.serviceRate });
+    const unit = resolveBillingUnit(log.serviceUnit, log.serviceName);
     return {
       id: log.id,
       cleaner: user.fullName,
@@ -177,7 +179,7 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
       rooms: log.rooms_completed,
       hours,
       rate,
-      cost: calculateHourlyEarnings(hours, rate),
+      cost: calculateServiceCost(hours, log.rooms_completed, { name: log.serviceName, unit, default_rate: rate }),
       notes: log.notes ?? "",
       managerApproved: log.manager_approved,
       ownerApproved: log.owner_approved,
