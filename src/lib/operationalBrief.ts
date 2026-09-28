@@ -1,5 +1,6 @@
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import type { AppUserSession } from "@/lib/auth";
+import { calculateHourlyEarnings, resolveHourlyRate } from "@/lib/payroll";
 
 export type CleanerBrief = {
   kind: "cleaner";
@@ -72,7 +73,7 @@ export async function getCleanerOperationalBrief(userId: string): Promise<Cleane
   const supabase = createPrivilegedServerSupabaseClient();
   const { data: logs, error } = await supabase
     .from("work_logs")
-    .select("id, start_time, end_time, task_date, rooms_completed, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, rejection_notes, hotels(name), services_config(name, description, default_rate)")
+    .select("id, start_time, end_time, task_date, rooms_completed, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, rejection_notes, hotels(name), users(hourly_rate), services_config(name, description, default_rate)")
     .eq("user_id", userId)
     .eq("status", "completed")
     .gte("start_time", periodStart(8))
@@ -88,11 +89,12 @@ export async function getCleanerOperationalBrief(userId: string): Promise<Cleane
     const serviceConfig = Array.isArray(log.services_config) ? log.services_config[0] : log.services_config;
     const serviceName = log.service_name_snapshot ?? serviceConfig?.name ?? "Unknown service";
     const serviceDescription = log.service_description_snapshot ?? serviceConfig?.description ?? serviceName;
-    const rate = Number(serviceConfig?.default_rate ?? 0);
+    const cleanerProfile = Array.isArray(log.users) ? log.users[0] : log.users;
+    const rate = resolveHourlyRate(cleanerProfile?.hourly_rate);
     const hours = hoursBetween(log.start_time, log.end_time);
     const rooms = log.rooms_completed ?? 0;
     serviceCounts.set(serviceName, (serviceCounts.get(serviceName) ?? 0) + 1);
-    tasks.push({ id: log.id, cleaner: "You", hotel: log.hotels?.[0]?.name ?? "Hotel", service: serviceName, serviceDescription, taskDate: log.task_date ?? log.start_time.slice(0, 10), status: "completed", startTime: log.start_time, endTime: log.end_time, ownerId: log.owner_id, ownerName: log.owner_name ?? "Unassigned owner", managerId: log.manager_id, managerName: log.manager_name ?? "Unassigned manager", responsibilityRecordedAt: log.responsibility_recorded_at ?? log.start_time, room: (log.room_numbers ?? []).join(", ") || log.room_number || "", rooms, hours, rate, cost: /per room/i.test(serviceName) ? rooms * rate : hours * rate, notes: log.notes ?? "", managerApproved: log.manager_approved, ownerApproved: log.owner_approved, managerRejected: log.manager_rejected, ownerRejected: log.owner_rejected, isLocked: log.is_locked, rejectionNotes: log.rejection_notes ?? "" });
+    tasks.push({ id: log.id, cleaner: "You", hotel: log.hotels?.[0]?.name ?? "Hotel", service: serviceName, serviceDescription, taskDate: log.task_date ?? log.start_time.slice(0, 10), status: "completed", startTime: log.start_time, endTime: log.end_time, ownerId: log.owner_id, ownerName: log.owner_name ?? "Unassigned owner", managerId: log.manager_id, managerName: log.manager_name ?? "Unassigned manager", responsibilityRecordedAt: log.responsibility_recorded_at ?? log.start_time, room: (log.room_numbers ?? []).join(", ") || log.room_number || "", rooms, hours, rate, cost: calculateHourlyEarnings(hours, rate), notes: log.notes ?? "", managerApproved: log.manager_approved, ownerApproved: log.owner_approved, managerRejected: log.manager_rejected, ownerRejected: log.owner_rejected, isLocked: log.is_locked, rejectionNotes: log.rejection_notes ?? "" });
   }
   return {
     kind: "cleaner",
@@ -115,7 +117,7 @@ export async function getManagementOperationalBrief(user: AppUserSession, period
   if (user.role === "manager") hotelsQuery = hotelsQuery.eq("manager_id", user.userId);
   let logQuery = supabase
     .from("work_logs")
-    .select("id, hotel_id, user_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, rejection_notes, hotels(name), users(full_name, email), services_config(name, description, default_rate)")
+    .select("id, hotel_id, user_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, rejection_notes, hotels(name), users(full_name, email, hourly_rate), services_config(name, description, default_rate)")
     .order("start_time", { ascending: false });
   if (period) {
     logQuery = logQuery.gte("start_time", period.from).lt("start_time", period.to);
@@ -161,8 +163,8 @@ export async function getManagementOperationalBrief(user: AppUserSession, period
     serviceCounts.set(log.hotel_id, counts);
     const hours = hoursBetween(log.start_time, log.end_time);
     const rooms = log.rooms_completed ?? 0;
-    const rate = Number(serviceConfig?.default_rate ?? 0);
-    const cost = /per room/i.test(service) ? rooms * rate : hours * rate;
+    const rate = resolveHourlyRate(userProfile?.hourly_rate);
+    const cost = calculateHourlyEarnings(hours, rate);
     hotel.hours += hours;
     hotel.rooms += rooms;
     hotel.cost += cost;

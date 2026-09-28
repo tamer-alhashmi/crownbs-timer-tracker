@@ -4,12 +4,14 @@ import { revalidatePath } from "next/cache";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { FEATURE_KEYS, type FeatureKey, type FeaturePermission } from "./permissionConfig";
 import { requireFeatureAccess } from "@/lib/featureAccess";
+import { DEFAULT_HOURLY_RATE } from "@/lib/payroll";
 
 export type ManagedUser = {
   id: string;
   full_name: string;
   email: string;
   role: "admin" | "owner" | "manager" | "cleaner";
+  hourly_rate: number | null;
   pin_code: string | null;
   primary_hotel_id: string | null;
   hotelName: string;
@@ -21,6 +23,7 @@ type UserInput = {
   email: string;
   role: ManagedUser["role"];
   pinCode: string;
+  hourlyRate?: string;
   hotelId: string;
   password?: string;
 };
@@ -45,9 +48,11 @@ function validateInput(input: UserInput) {
   const fullName = input.fullName.trim();
   const email = input.email.trim().toLowerCase();
   const pinCode = input.pinCode.trim();
+  const hourlyRate = Number(input.hourlyRate ?? DEFAULT_HOURLY_RATE);
   if (!fullName || !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Enter a valid name and email.");
   if (pinCode && !/^\d{4}$/.test(pinCode)) throw new Error("PIN must be exactly 4 digits.");
-  return { ...input, fullName, email, pinCode };
+  if (!Number.isFinite(hourlyRate) || hourlyRate < 0) throw new Error("Hourly rate must be a non-negative number.");
+  return { ...input, fullName, email, pinCode, hourlyRate };
 }
 
 async function assertTargetScope(targetId: string, targetRole: ManagedUser["role"], hotelId: string | null, actor: Awaited<ReturnType<typeof requireSettingsAccess>>) {
@@ -58,7 +63,7 @@ async function assertTargetScope(targetId: string, targetRole: ManagedUser["role
 
 export async function getSettingsData() {
   const context = await requireSettingsAccess();
-  const { data: users, error } = await context.supabase.from("users").select("id, full_name, email, role, pin_code, primary_hotel_id").order("full_name");
+  const { data: users, error } = await context.supabase.from("users").select("id, full_name, email, role, hourly_rate, pin_code, primary_hotel_id").order("full_name");
   if (error) throw new Error(error.message);
   const { data: permissions, error: permissionsError } = await context.supabase.from("user_feature_permissions").select("user_id, feature_key, can_view, can_create, can_edit, can_delete");
   if (permissionsError && permissionsError.code !== "PGRST205") throw new Error(permissionsError.message);
@@ -98,7 +103,7 @@ export async function createManagedUser(input: UserInput) {
   const password = values.password?.trim() || `${crypto.randomUUID()}Aa1!`;
   const { data: authUser, error: authError } = await context.supabase.auth.admin.createUser({ email: values.email, password, email_confirm: true });
   if (authError || !authUser.user) throw new Error(authError?.message ?? "Unable to create login account.");
-  const { error: profileError } = await context.supabase.from("users").insert({ id: authUser.user.id, full_name: values.fullName, email: values.email, role: values.role, pin_code: values.pinCode || null, primary_hotel_id: values.hotelId || null });
+  const { error: profileError } = await context.supabase.from("users").insert({ id: authUser.user.id, full_name: values.fullName, email: values.email, role: values.role, hourly_rate: values.hourlyRate || DEFAULT_HOURLY_RATE, pin_code: values.pinCode || null, primary_hotel_id: values.hotelId || null });
   if (profileError) {
     await context.supabase.auth.admin.deleteUser(authUser.user.id);
     throw new Error(profileError.message);
@@ -129,7 +134,7 @@ export async function updateManagedUser(userId: string, input: UserInput) {
   await assertTargetScope(userId, values.role, values.hotelId || null, context);
   const { error: authError } = await context.supabase.auth.admin.updateUserById(userId, { email: values.email, ...(values.password?.trim() ? { password: values.password.trim() } : {}) });
   if (authError) throw new Error(authError.message);
-  const { error } = await context.supabase.from("users").update({ full_name: values.fullName, email: values.email, role: values.role, pin_code: values.pinCode || null, primary_hotel_id: values.hotelId || null, updated_at: new Date().toISOString() }).eq("id", userId);
+  const { error } = await context.supabase.from("users").update({ full_name: values.fullName, email: values.email, role: values.role, ...(input.hourlyRate !== undefined ? { hourly_rate: values.hourlyRate || DEFAULT_HOURLY_RATE } : {}), pin_code: values.pinCode || null, primary_hotel_id: values.hotelId || null, updated_at: new Date().toISOString() }).eq("id", userId);
   if (error) throw new Error(error.message);
   if ((values.role === "owner" || values.role === "manager") && values.hotelId) await assignManagedUserToHotel(userId, values.hotelId);
   revalidatePath("/settings");

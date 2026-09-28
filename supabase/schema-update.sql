@@ -3,38 +3,44 @@
 -- Safe to run more than once.
 
 ALTER TABLE public.hotels
-  ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+
+ALTER TABLE public.users
+ADD COLUMN IF NOT EXISTS hourly_rate NUMERIC(10, 2) NOT NULL DEFAULT 12.00;
 
 CREATE TABLE IF NOT EXISTS public.rooms (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  hotel_id UUID NOT NULL REFERENCES public.hotels(id) ON DELETE CASCADE,
-  room_name TEXT NOT NULL,
-  category TEXT NOT NULL DEFAULT '',
-  max_capacity INTEGER NOT NULL DEFAULT 0 CHECK (max_capacity >= 0),
-  adult INTEGER NOT NULL DEFAULT 0 CHECK (adult >= 0),
-  children INTEGER NOT NULL DEFAULT 0 CHECK (children >= 0),
-  bedroom INTEGER NOT NULL DEFAULT 0 CHECK (bedroom >= 0),
-  bed_configs TEXT NOT NULL DEFAULT '',
-  photos TEXT NOT NULL DEFAULT '',
-  amenities TEXT NOT NULL DEFAULT '',
-  status TEXT NOT NULL DEFAULT 'active',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT rooms_hotel_room_category_key UNIQUE (hotel_id, room_name, category)
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+    hotel_id UUID NOT NULL REFERENCES public.hotels (id) ON DELETE CASCADE,
+    room_name TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT '',
+    max_capacity INTEGER NOT NULL DEFAULT 0 CHECK (max_capacity >= 0),
+    adult INTEGER NOT NULL DEFAULT 0 CHECK (adult >= 0),
+    children INTEGER NOT NULL DEFAULT 0 CHECK (children >= 0),
+    bedroom INTEGER NOT NULL DEFAULT 0 CHECK (bedroom >= 0),
+    bed_configs TEXT NOT NULL DEFAULT '',
+    photos TEXT NOT NULL DEFAULT '',
+    amenities TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT rooms_hotel_room_category_key UNIQUE (hotel_id, room_name, category)
 );
 
 ALTER TABLE public.services_config
-  ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
+ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS public.master_shifts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-  start_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  end_time TIMESTAMPTZ,
-  status work_status NOT NULL DEFAULT 'active',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT master_shifts_valid_time CHECK (end_time IS NULL OR end_time >= start_time)
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+    user_id UUID NOT NULL REFERENCES public.users (id) ON DELETE CASCADE,
+    start_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    end_time TIMESTAMPTZ,
+    status work_status NOT NULL DEFAULT 'active',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT master_shifts_valid_time CHECK (
+        end_time IS NULL
+        OR end_time >= start_time
+    )
 );
 
 ALTER TABLE public.work_logs
@@ -66,62 +72,98 @@ SET room_ids = ARRAY(
 WHERE cardinality(COALESCE(log.room_ids, '{}'::UUID[])) = 0;
 
 CREATE TABLE IF NOT EXISTS public.work_log_audit (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  work_log_id UUID NOT NULL REFERENCES public.work_logs(id) ON DELETE CASCADE,
-  actor_id UUID NOT NULL REFERENCES public.users(id) ON DELETE RESTRICT,
-  action TEXT NOT NULL CHECK (action IN ('created', 'edited', 'approved', 'rejected', 'unapproved')),
-  previous_values JSONB,
-  new_values JSONB,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+    work_log_id UUID NOT NULL REFERENCES public.work_logs (id) ON DELETE CASCADE,
+    actor_id UUID NOT NULL REFERENCES public.users (id) ON DELETE RESTRICT,
+    action TEXT NOT NULL CHECK (
+        action IN (
+            'created',
+            'edited',
+            'approved',
+            'rejected',
+            'unapproved'
+        )
+    ),
+    previous_values JSONB,
+    new_values JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS public.room_media (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  work_log_id UUID NOT NULL REFERENCES public.work_logs(id) ON DELETE CASCADE,
-  room_id UUID NOT NULL REFERENCES public.rooms(id) ON DELETE CASCADE,
-  bucket_id TEXT NOT NULL DEFAULT 'room-media',
-  storage_path TEXT NOT NULL,
-  media_type TEXT NOT NULL CHECK (media_type IN ('image', 'video')),
-  content_type TEXT NOT NULL,
-  original_name TEXT NOT NULL,
-  file_size_bytes BIGINT NOT NULL CHECK (file_size_bytes > 0 AND file_size_bytes <= 52428800),
-  uploaded_by UUID NOT NULL REFERENCES public.users(id) ON DELETE RESTRICT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT room_media_bucket_path_key UNIQUE (bucket_id, storage_path)
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+    work_log_id UUID NOT NULL REFERENCES public.work_logs (id) ON DELETE CASCADE,
+    room_id UUID NOT NULL REFERENCES public.rooms (id) ON DELETE CASCADE,
+    bucket_id TEXT NOT NULL DEFAULT 'room-media',
+    storage_path TEXT NOT NULL,
+    media_type TEXT NOT NULL CHECK (
+        media_type IN ('image', 'video')
+    ),
+    content_type TEXT NOT NULL,
+    original_name TEXT NOT NULL,
+    file_size_bytes BIGINT NOT NULL CHECK (
+        file_size_bytes > 0
+        AND file_size_bytes <= 52428800
+    ),
+    uploaded_by UUID NOT NULL REFERENCES public.users (id) ON DELETE RESTRICT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT room_media_bucket_path_key UNIQUE (bucket_id, storage_path)
 );
 
 ALTER TABLE public.room_media
-  ADD COLUMN IF NOT EXISTS work_log_id UUID,
-  ADD COLUMN IF NOT EXISTS content_type TEXT,
-  ADD COLUMN IF NOT EXISTS original_name TEXT,
-  ADD COLUMN IF NOT EXISTS file_size_bytes BIGINT;
+ADD COLUMN IF NOT EXISTS work_log_id UUID,
+ADD COLUMN IF NOT EXISTS content_type TEXT,
+ADD COLUMN IF NOT EXISTS original_name TEXT,
+ADD COLUMN IF NOT EXISTS file_size_bytes BIGINT;
 
 -- Repair any old invalid active rows before applying the lock trigger.
 UPDATE public.work_logs
-SET is_locked = FALSE,
+SET
+    is_locked = FALSE,
     manager_approved = FALSE,
     owner_approved = FALSE,
     manager_approved_at = NULL,
     owner_approved_at = NULL
-WHERE status <> 'completed' AND is_locked = TRUE;
+WHERE
+    status <> 'completed'
+    AND is_locked = TRUE;
 
-CREATE INDEX IF NOT EXISTS idx_rooms_hotel_id ON public.rooms(hotel_id);
-CREATE INDEX IF NOT EXISTS idx_rooms_status ON public.rooms(status);
-CREATE INDEX IF NOT EXISTS idx_master_shifts_user_id ON public.master_shifts(user_id);
-CREATE INDEX IF NOT EXISTS idx_master_shifts_status ON public.master_shifts(status);
-CREATE INDEX IF NOT EXISTS idx_work_logs_shift_id ON public.work_logs(shift_id);
-CREATE INDEX IF NOT EXISTS idx_work_logs_task_date ON public.work_logs(task_date);
-CREATE INDEX IF NOT EXISTS idx_work_logs_room_ids ON public.work_logs USING GIN(room_ids);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_room_media_bucket_path ON public.room_media(bucket_id, storage_path);
-CREATE INDEX IF NOT EXISTS idx_room_media_work_log_room ON public.room_media(work_log_id, room_id, created_at DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_work_logs_import_key ON public.work_logs(import_key) WHERE import_key IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_work_log_audit_log_id ON public.work_log_audit(work_log_id);
-CREATE INDEX IF NOT EXISTS idx_users_email_pin_code ON public.users(email, pin_code);
-CREATE INDEX IF NOT EXISTS idx_work_logs_user_status ON public.work_logs(user_id, status);
-CREATE INDEX IF NOT EXISTS idx_work_logs_shift_status ON public.work_logs(shift_id, status);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_master_shift_per_user
-  ON public.master_shifts(user_id)
-  WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_rooms_hotel_id ON public.rooms (hotel_id);
+
+CREATE INDEX IF NOT EXISTS idx_rooms_status ON public.rooms (status);
+
+CREATE INDEX IF NOT EXISTS idx_master_shifts_user_id ON public.master_shifts (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_master_shifts_status ON public.master_shifts (status);
+
+CREATE INDEX IF NOT EXISTS idx_work_logs_shift_id ON public.work_logs (shift_id);
+
+CREATE INDEX IF NOT EXISTS idx_work_logs_task_date ON public.work_logs (task_date);
+
+CREATE INDEX IF NOT EXISTS idx_work_logs_room_ids ON public.work_logs USING GIN (room_ids);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_room_media_bucket_path ON public.room_media (bucket_id, storage_path);
+
+CREATE INDEX IF NOT EXISTS idx_room_media_work_log_room ON public.room_media (
+    work_log_id,
+    room_id,
+    created_at DESC
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_work_logs_import_key ON public.work_logs (import_key)
+WHERE
+    import_key IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_work_log_audit_log_id ON public.work_log_audit (work_log_id);
+
+CREATE INDEX IF NOT EXISTS idx_users_email_pin_code ON public.users (email, pin_code);
+
+CREATE INDEX IF NOT EXISTS idx_work_logs_user_status ON public.work_logs (user_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_work_logs_shift_status ON public.work_logs (shift_id, status);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_master_shift_per_user ON public.master_shifts (user_id)
+WHERE
+    status = 'active';
 
 CREATE OR REPLACE FUNCTION public.enforce_work_log_approval_lock()
 RETURNS TRIGGER
@@ -140,21 +182,24 @@ END;
 $$;
 
 DROP TRIGGER IF EXISTS work_log_approval_lock ON public.work_logs;
+
 CREATE TRIGGER work_log_approval_lock
 BEFORE UPDATE ON public.work_logs
 FOR EACH ROW
 EXECUTE FUNCTION public.enforce_work_log_approval_lock();
 
 UPDATE public.services_config
-SET description = CASE name
-  WHEN 'Cleaning (Hourly)' THEN 'Cleaning service paid by recorded hours.'
-  WHEN 'Cleaning (Per Room)' THEN 'Room-based cleaning service paid per completed room.'
-  WHEN 'Maintenance' THEN 'Maintenance and repair work for selected rooms.'
-  WHEN 'Linen Distribution' THEN 'Linen distribution service.'
-  WHEN 'Product Delivery' THEN 'Hotel product delivery service.'
-  ELSE name
-END
-WHERE description = '';
+SET
+    description = CASE name
+        WHEN 'Cleaning (Hourly)' THEN 'Cleaning service paid by recorded hours.'
+        WHEN 'Cleaning (Per Room)' THEN 'Room-based cleaning service paid per completed room.'
+        WHEN 'Maintenance' THEN 'Maintenance and repair work for selected rooms.'
+        WHEN 'Linen Distribution' THEN 'Linen distribution service.'
+        WHEN 'Product Delivery' THEN 'Hotel product delivery service.'
+        ELSE name
+    END
+WHERE
+    description = '';
 
 UPDATE public.work_logs AS wl
 SET task_date = COALESCE(wl.task_date, (wl.start_time AT TIME ZONE 'Europe/London')::date),
@@ -168,9 +213,15 @@ FROM public.services_config AS service
 WHERE service.id = wl.service_id;
 
 ALTER TABLE public.work_logs
-  ALTER COLUMN task_date SET NOT NULL,
-  ALTER COLUMN service_name_snapshot SET NOT NULL,
-  ALTER COLUMN service_description_snapshot SET NOT NULL;
+ALTER COLUMN task_date
+SET
+    NOT NULL,
+ALTER COLUMN service_name_snapshot
+SET
+    NOT NULL,
+ALTER COLUMN service_description_snapshot
+SET
+    NOT NULL;
 
 CREATE OR REPLACE FUNCTION public.capture_work_log_task_context()
 RETURNS TRIGGER
@@ -215,6 +266,7 @@ END;
 $$;
 
 DROP TRIGGER IF EXISTS work_log_task_context ON public.work_logs;
+
 CREATE TRIGGER work_log_task_context
 BEFORE INSERT OR UPDATE ON public.work_logs
 FOR EACH ROW

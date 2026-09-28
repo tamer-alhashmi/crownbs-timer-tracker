@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getSessionUser } from "@/lib/auth";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { getManagementOperationalBrief } from "@/lib/operationalBrief";
+import { calculateHourlyEarnings, resolveHourlyRate } from "@/lib/payroll";
 import { requireFeatureAccess } from "@/lib/featureAccess";
 
 type ApprovalRole = "manager" | "owner";
@@ -55,7 +56,7 @@ export async function getManagementOverview(period?: { from: string; to: string 
     });
   const hotelIds = visibleHotels.map((hotel) => hotel.id);
   const hotelFilter = user.role === "admin" ? null : hotelIds;
-  const cleanersQuery = supabase.from("users").select("id, full_name, email, role, primary_hotel_id").eq("role", "cleaner");
+  const cleanersQuery = supabase.from("users").select("id, full_name, email, role, primary_hotel_id, hourly_rate").eq("role", "cleaner");
   const logsQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, hotels(name), users(full_name, email), services_config(name, description, default_rate)").order("start_time", { ascending: false });
   const payrollQuery = supabase.from("work_logs").select("id, user_id, hotel_id, start_time, end_time, task_date, rooms_completed, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, hotels(name), users(full_name, email), services_config(name, description, default_rate)").eq("is_locked", true).eq("status", "completed").order("start_time", { ascending: false });
   if (hotelFilter) { logsQuery.in("hotel_id", hotelIds); payrollQuery.in("hotel_id", hotelIds); }
@@ -69,16 +70,28 @@ export async function getManagementOverview(period?: { from: string; to: string 
   const { data: currentUser } = await supabase.from("users").select("full_name, email").eq("id", user.userId).maybeSingle();
   const hotelsById = new Map(visibleHotels.map((hotel) => [hotel.id, hotel.name]));
   const cleanersById = new Map((cleaners ?? []).map((cleaner) => [cleaner.id, cleaner.full_name || cleaner.email]));
+  const cleanerRatesById = new Map((cleaners ?? []).map((cleaner) => [cleaner.id, cleaner.hourly_rate]));
   const workLogsWithNames = (workLogs ?? []).map((log) => ({
     ...log,
     cleanerName: cleanersById.get(log.user_id) ?? "Unknown cleaner",
+    cleanerHourlyRate: cleanerRatesById.get(log.user_id) ?? null,
     hotelName: hotelsById.get(log.hotel_id) ?? "Unknown hotel",
   }));
-  const payrollWithNames = (payroll ?? []).map((log) => ({
-    ...log,
-    cleanerName: cleanersById.get(log.user_id) ?? "Unknown cleaner",
-    hotelName: hotelsById.get(log.hotel_id) ?? "Unknown hotel",
-  }));
+  const payrollWithNames = (payroll ?? []).map((log) => {
+    const cleanerHourlyRate = resolveHourlyRate(cleanerRatesById.get(log.user_id));
+    const service = Array.isArray(log.services_config) ? log.services_config[0] : log.services_config;
+    const serviceName = log.service_name_snapshot ?? service?.name ?? "Service";
+    const hours = log.end_time ? Math.max(0, (new Date(log.end_time).getTime() - new Date(log.start_time).getTime()) / 3_600_000) : 0;
+    const hourlyEarnings = calculateHourlyEarnings(hours, cleanerHourlyRate);
+    const displayRate = /per room/i.test(serviceName) && log.rooms_completed > 0 ? hourlyEarnings / log.rooms_completed : cleanerHourlyRate;
+    return {
+      ...log,
+      cleanerName: cleanersById.get(log.user_id) ?? "Unknown cleaner",
+      cleanerHourlyRate,
+      hotelName: hotelsById.get(log.hotel_id) ?? "Unknown hotel",
+      services_config: [{ name: serviceName, default_rate: displayRate }],
+    };
+  });
   const brief = await briefPromise;
   return { cleaners: cleaners ?? [], hotels: visibleHotels, services: services ?? [], rooms: rooms ?? [], workLogs: workLogsWithNames, payroll: payrollWithNames, userRole: user.role, userName: currentUser?.full_name ?? user.email, userEmail: currentUser?.email ?? user.email, brief };
 }

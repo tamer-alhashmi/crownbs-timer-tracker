@@ -2,78 +2,79 @@
 -- Date and time are stored in UTC in Supabase and rendered in local time zones in the app.
 
 CREATE TYPE user_role AS ENUM ('admin', 'owner', 'manager', 'cleaner');
+
 CREATE TYPE work_status AS ENUM ('active', 'completed');
 
 CREATE TABLE IF NOT EXISTS hotels (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,
-  location TEXT NOT NULL,
-  owner_id UUID,
-  manager_id UUID,
-  is_active BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-ALTER TABLE hotels ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
-
-CREATE TABLE IF NOT EXISTS users (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  email TEXT UNIQUE NOT NULL,
-  pin_code TEXT,
-  role user_role NOT NULL,
-  full_name TEXT NOT NULL,
-  primary_hotel_id UUID,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT fk_primary_hotel
-    FOREIGN KEY (primary_hotel_id)
-    REFERENCES hotels(id)
-    ON DELETE SET NULL
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+    name TEXT NOT NULL,
+    location TEXT NOT NULL,
+    owner_id UUID,
+    manager_id UUID,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 ALTER TABLE hotels
-  ADD CONSTRAINT fk_hotel_owner
-  FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE SET NULL,
-  ADD CONSTRAINT fk_hotel_manager
-  FOREIGN KEY (manager_id) REFERENCES users(id) ON DELETE SET NULL;
+ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+    email TEXT UNIQUE NOT NULL,
+    pin_code TEXT,
+    role user_role NOT NULL,
+    full_name TEXT NOT NULL,
+    hourly_rate NUMERIC(10, 2) NOT NULL DEFAULT 12.00 CHECK (hourly_rate >= 0),
+    primary_hotel_id UUID,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT fk_primary_hotel FOREIGN KEY (primary_hotel_id) REFERENCES hotels (id) ON DELETE SET NULL
+);
+
+ALTER TABLE hotels
+ADD CONSTRAINT fk_hotel_owner FOREIGN KEY (owner_id) REFERENCES users (id) ON DELETE SET NULL,
+ADD CONSTRAINT fk_hotel_manager FOREIGN KEY (manager_id) REFERENCES users (id) ON DELETE SET NULL;
 
 CREATE TABLE IF NOT EXISTS services_config (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL UNIQUE,
-  description TEXT NOT NULL DEFAULT '',
-  default_rate NUMERIC(10,2) NOT NULL DEFAULT 0,
-  is_active BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+    name TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
+    default_rate NUMERIC(10, 2) NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS rooms (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  hotel_id UUID NOT NULL REFERENCES hotels(id) ON DELETE CASCADE,
-  room_name TEXT NOT NULL,
-  category TEXT NOT NULL DEFAULT '',
-  max_capacity INTEGER NOT NULL DEFAULT 0 CHECK (max_capacity >= 0),
-  adult INTEGER NOT NULL DEFAULT 0 CHECK (adult >= 0),
-  children INTEGER NOT NULL DEFAULT 0 CHECK (children >= 0),
-  bedroom INTEGER NOT NULL DEFAULT 0 CHECK (bedroom >= 0),
-  bed_configs TEXT NOT NULL DEFAULT '',
-  photos TEXT NOT NULL DEFAULT '',
-  amenities TEXT NOT NULL DEFAULT '',
-  status TEXT NOT NULL DEFAULT 'active',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (hotel_id, room_name, category)
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+    hotel_id UUID NOT NULL REFERENCES hotels (id) ON DELETE CASCADE,
+    room_name TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT '',
+    max_capacity INTEGER NOT NULL DEFAULT 0 CHECK (max_capacity >= 0),
+    adult INTEGER NOT NULL DEFAULT 0 CHECK (adult >= 0),
+    children INTEGER NOT NULL DEFAULT 0 CHECK (children >= 0),
+    bedroom INTEGER NOT NULL DEFAULT 0 CHECK (bedroom >= 0),
+    bed_configs TEXT NOT NULL DEFAULT '',
+    photos TEXT NOT NULL DEFAULT '',
+    amenities TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (hotel_id, room_name, category)
 );
 
 CREATE TABLE IF NOT EXISTS master_shifts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  start_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  end_time TIMESTAMPTZ,
-  status work_status NOT NULL DEFAULT 'active',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CHECK (end_time IS NULL OR end_time >= start_time)
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+    user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    start_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    end_time TIMESTAMPTZ,
+    status work_status NOT NULL DEFAULT 'active',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (
+        end_time IS NULL
+        OR end_time >= start_time
+    )
 );
 
 CREATE TABLE IF NOT EXISTS work_logs (
@@ -143,77 +144,134 @@ ALTER TABLE work_logs
   ADD COLUMN IF NOT EXISTS is_locked BOOLEAN NOT NULL DEFAULT FALSE;
 
 UPDATE work_logs
-SET is_locked = FALSE,
+SET
+    is_locked = FALSE,
     manager_approved = FALSE,
     owner_approved = FALSE,
     manager_approved_at = NULL,
     owner_approved_at = NULL
-WHERE status <> 'completed' AND is_locked = TRUE;
+WHERE
+    status <> 'completed'
+    AND is_locked = TRUE;
 
 CREATE TABLE IF NOT EXISTS work_log_audit (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  work_log_id UUID NOT NULL REFERENCES work_logs(id) ON DELETE CASCADE,
-  actor_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-  action TEXT NOT NULL CHECK (action IN ('created', 'edited', 'approved', 'rejected', 'unapproved')),
-  previous_values JSONB,
-  new_values JSONB,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+    work_log_id UUID NOT NULL REFERENCES work_logs (id) ON DELETE CASCADE,
+    actor_id UUID NOT NULL REFERENCES users (id) ON DELETE RESTRICT,
+    action TEXT NOT NULL CHECK (
+        action IN (
+            'created',
+            'edited',
+            'approved',
+            'rejected',
+            'unapproved'
+        )
+    ),
+    previous_values JSONB,
+    new_values JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS room_media (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  work_log_id UUID NOT NULL REFERENCES work_logs(id) ON DELETE CASCADE,
-  room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
-  bucket_id TEXT NOT NULL DEFAULT 'room-media',
-  storage_path TEXT NOT NULL,
-  media_type TEXT NOT NULL CHECK (media_type IN ('image', 'video')),
-  content_type TEXT NOT NULL,
-  original_name TEXT NOT NULL,
-  file_size_bytes BIGINT NOT NULL CHECK (file_size_bytes > 0 AND file_size_bytes <= 52428800),
-  uploaded_by UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT room_media_bucket_path_key UNIQUE (bucket_id, storage_path)
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+    work_log_id UUID NOT NULL REFERENCES work_logs (id) ON DELETE CASCADE,
+    room_id UUID NOT NULL REFERENCES rooms (id) ON DELETE CASCADE,
+    bucket_id TEXT NOT NULL DEFAULT 'room-media',
+    storage_path TEXT NOT NULL,
+    media_type TEXT NOT NULL CHECK (
+        media_type IN ('image', 'video')
+    ),
+    content_type TEXT NOT NULL,
+    original_name TEXT NOT NULL,
+    file_size_bytes BIGINT NOT NULL CHECK (
+        file_size_bytes > 0
+        AND file_size_bytes <= 52428800
+    ),
+    uploaded_by UUID NOT NULL REFERENCES users (id) ON DELETE RESTRICT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT room_media_bucket_path_key UNIQUE (bucket_id, storage_path)
 );
 
 -- Recommended indexes for reporting and performance.
-CREATE INDEX IF NOT EXISTS idx_hotels_owner_id ON hotels(owner_id);
-CREATE INDEX IF NOT EXISTS idx_hotels_manager_id ON hotels(manager_id);
-CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
-CREATE INDEX IF NOT EXISTS idx_users_primary_hotel_id ON users(primary_hotel_id);
-CREATE INDEX IF NOT EXISTS idx_work_logs_user_id ON work_logs(user_id);
-CREATE INDEX IF NOT EXISTS idx_work_logs_hotel_id ON work_logs(hotel_id);
-CREATE INDEX IF NOT EXISTS idx_work_logs_service_id ON work_logs(service_id);
-CREATE INDEX IF NOT EXISTS idx_work_logs_status ON work_logs(status);
-CREATE INDEX IF NOT EXISTS idx_work_logs_locked ON work_logs(is_locked);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_work_logs_import_key ON work_logs(import_key) WHERE import_key IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_work_log_audit_log_id ON work_log_audit(work_log_id);
-CREATE INDEX IF NOT EXISTS idx_rooms_hotel_id ON rooms(hotel_id);
-CREATE INDEX IF NOT EXISTS idx_rooms_status ON rooms(status);
-CREATE INDEX IF NOT EXISTS idx_master_shifts_user_id ON master_shifts(user_id);
-CREATE INDEX IF NOT EXISTS idx_master_shifts_status ON master_shifts(status);
-CREATE INDEX IF NOT EXISTS idx_work_logs_shift_id ON work_logs(shift_id);
-CREATE INDEX IF NOT EXISTS idx_users_email_pin_code ON users(email, pin_code);
-CREATE INDEX IF NOT EXISTS idx_work_logs_user_status ON work_logs(user_id, status);
-CREATE INDEX IF NOT EXISTS idx_work_logs_shift_status ON work_logs(shift_id, status);
-CREATE INDEX IF NOT EXISTS idx_work_logs_owner_snapshot ON work_logs(owner_id, start_time);
-CREATE INDEX IF NOT EXISTS idx_work_logs_manager_snapshot ON work_logs(manager_id, start_time);
-CREATE INDEX IF NOT EXISTS idx_work_logs_responsibility_recorded_at ON work_logs(responsibility_recorded_at);
-CREATE INDEX IF NOT EXISTS idx_work_logs_task_date ON work_logs(task_date);
-CREATE INDEX IF NOT EXISTS idx_work_logs_room_ids ON work_logs USING GIN(room_ids);
-CREATE INDEX IF NOT EXISTS idx_room_media_work_log_room ON room_media(work_log_id, room_id, created_at DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_master_shift_per_user
-  ON master_shifts(user_id)
-  WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_hotels_owner_id ON hotels (owner_id);
+
+CREATE INDEX IF NOT EXISTS idx_hotels_manager_id ON hotels (manager_id);
+
+CREATE INDEX IF NOT EXISTS idx_users_role ON users (role);
+
+CREATE INDEX IF NOT EXISTS idx_users_primary_hotel_id ON users (primary_hotel_id);
+
+CREATE INDEX IF NOT EXISTS idx_work_logs_user_id ON work_logs (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_work_logs_hotel_id ON work_logs (hotel_id);
+
+CREATE INDEX IF NOT EXISTS idx_work_logs_service_id ON work_logs (service_id);
+
+CREATE INDEX IF NOT EXISTS idx_work_logs_status ON work_logs (status);
+
+CREATE INDEX IF NOT EXISTS idx_work_logs_locked ON work_logs (is_locked);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_work_logs_import_key ON work_logs (import_key)
+WHERE
+    import_key IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_work_log_audit_log_id ON work_log_audit (work_log_id);
+
+CREATE INDEX IF NOT EXISTS idx_rooms_hotel_id ON rooms (hotel_id);
+
+CREATE INDEX IF NOT EXISTS idx_rooms_status ON rooms (status);
+
+CREATE INDEX IF NOT EXISTS idx_master_shifts_user_id ON master_shifts (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_master_shifts_status ON master_shifts (status);
+
+CREATE INDEX IF NOT EXISTS idx_work_logs_shift_id ON work_logs (shift_id);
+
+CREATE INDEX IF NOT EXISTS idx_users_email_pin_code ON users (email, pin_code);
+
+CREATE INDEX IF NOT EXISTS idx_work_logs_user_status ON work_logs (user_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_work_logs_shift_status ON work_logs (shift_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_work_logs_owner_snapshot ON work_logs (owner_id, start_time);
+
+CREATE INDEX IF NOT EXISTS idx_work_logs_manager_snapshot ON work_logs (manager_id, start_time);
+
+CREATE INDEX IF NOT EXISTS idx_work_logs_responsibility_recorded_at ON work_logs (responsibility_recorded_at);
+
+CREATE INDEX IF NOT EXISTS idx_work_logs_task_date ON work_logs (task_date);
+
+CREATE INDEX IF NOT EXISTS idx_work_logs_room_ids ON work_logs USING GIN (room_ids);
+
+CREATE INDEX IF NOT EXISTS idx_room_media_work_log_room ON room_media (
+    work_log_id,
+    room_id,
+    created_at DESC
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_master_shift_per_user ON master_shifts (user_id)
+WHERE
+    status = 'active';
 
 CREATE TABLE IF NOT EXISTS user_feature_permissions (
-  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  feature_key TEXT NOT NULL CHECK (feature_key IN ('dashboard', 'work_log_approvals', 'payroll', 'rooms', 'historical_import', 'user_management', 'settings')),
-  can_view BOOLEAN NOT NULL DEFAULT FALSE,
-  can_create BOOLEAN NOT NULL DEFAULT FALSE,
-  can_edit BOOLEAN NOT NULL DEFAULT FALSE,
-  can_delete BOOLEAN NOT NULL DEFAULT FALSE,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (user_id, feature_key)
+    user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    feature_key TEXT NOT NULL CHECK (
+        feature_key IN (
+            'dashboard',
+            'work_log_approvals',
+            'payroll',
+            'rooms',
+            'historical_import',
+            'user_management',
+            'settings'
+        )
+    ),
+    can_view BOOLEAN NOT NULL DEFAULT FALSE,
+    can_create BOOLEAN NOT NULL DEFAULT FALSE,
+    can_edit BOOLEAN NOT NULL DEFAULT FALSE,
+    can_delete BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, feature_key)
 );
 
 ALTER TABLE user_feature_permissions ENABLE ROW LEVEL SECURITY;
@@ -231,6 +289,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS work_log_approval_lock ON work_logs;
+
 CREATE TRIGGER work_log_approval_lock
 BEFORE UPDATE ON work_logs
 FOR EACH ROW EXECUTE FUNCTION enforce_work_log_approval_lock();
@@ -272,21 +331,37 @@ END;
 $$;
 
 DROP TRIGGER IF EXISTS work_log_responsibility_snapshot ON work_logs;
+
 CREATE TRIGGER work_log_responsibility_snapshot
 BEFORE INSERT OR UPDATE ON work_logs
 FOR EACH ROW EXECUTE FUNCTION capture_work_log_responsibility_snapshot();
 
 -- Example operational service catalog for the UK hotel model.
-INSERT INTO services_config (name, default_rate, is_active)
-VALUES
-  ('Cleaning (Hourly)', 15.00, TRUE),
-  ('Cleaning (Per Room)', 8.50, TRUE),
-  ('Maintenance', 18.00, TRUE),
-  ('Linen Distribution', 10.00, TRUE),
-  ('Product Delivery', 9.50, TRUE),
-  ('Night Shift', 20.00, TRUE),
-  ('Reception', 16.00, TRUE)
-ON CONFLICT (name) DO NOTHING;
+INSERT INTO
+    services_config (name, default_rate, is_active)
+VALUES (
+        'Cleaning (Hourly)',
+        15.00,
+        TRUE
+    ),
+    (
+        'Cleaning (Per Room)',
+        8.50,
+        TRUE
+    ),
+    ('Maintenance', 18.00, TRUE),
+    (
+        'Linen Distribution',
+        10.00,
+        TRUE
+    ),
+    (
+        'Product Delivery',
+        9.50,
+        TRUE
+    ),
+    ('Night Shift', 20.00, TRUE),
+    ('Reception', 16.00, TRUE) ON CONFLICT (name) DO NOTHING;
 
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES ('room-media', 'room-media', FALSE, 52428800, ARRAY['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/quicktime', 'video/webm']::TEXT[])
@@ -297,18 +372,20 @@ SET name = EXCLUDED.name,
     allowed_mime_types = EXCLUDED.allowed_mime_types;
 
 ALTER TABLE services_config
-  ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
+ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
 
 UPDATE services_config
-SET description = CASE name
-  WHEN 'Cleaning (Hourly)' THEN 'Cleaning service paid by recorded hours.'
-  WHEN 'Cleaning (Per Room)' THEN 'Room-based cleaning service paid per completed room.'
-  WHEN 'Maintenance' THEN 'Maintenance and repair work for selected rooms.'
-  WHEN 'Linen Distribution' THEN 'Linen distribution service.'
-  WHEN 'Product Delivery' THEN 'Hotel product delivery service.'
-  ELSE name
-END
-WHERE description = '';
+SET
+    description = CASE name
+        WHEN 'Cleaning (Hourly)' THEN 'Cleaning service paid by recorded hours.'
+        WHEN 'Cleaning (Per Room)' THEN 'Room-based cleaning service paid per completed room.'
+        WHEN 'Maintenance' THEN 'Maintenance and repair work for selected rooms.'
+        WHEN 'Linen Distribution' THEN 'Linen distribution service.'
+        WHEN 'Product Delivery' THEN 'Hotel product delivery service.'
+        ELSE name
+    END
+WHERE
+    description = '';
 
 UPDATE work_logs AS wl
 SET task_date = COALESCE(wl.task_date, (wl.start_time AT TIME ZONE 'Europe/London')::date),
@@ -322,9 +399,15 @@ FROM services_config AS service
 WHERE service.id = wl.service_id;
 
 ALTER TABLE work_logs
-  ALTER COLUMN task_date SET NOT NULL,
-  ALTER COLUMN service_name_snapshot SET NOT NULL,
-  ALTER COLUMN service_description_snapshot SET NOT NULL;
+ALTER COLUMN task_date
+SET
+    NOT NULL,
+ALTER COLUMN service_name_snapshot
+SET
+    NOT NULL,
+ALTER COLUMN service_description_snapshot
+SET
+    NOT NULL;
 
 CREATE OR REPLACE FUNCTION capture_work_log_task_context()
 RETURNS TRIGGER
@@ -369,6 +452,7 @@ END;
 $$;
 
 DROP TRIGGER IF EXISTS work_log_task_context ON work_logs;
+
 CREATE TRIGGER work_log_task_context
 BEFORE INSERT OR UPDATE ON work_logs
 FOR EACH ROW EXECUTE FUNCTION capture_work_log_task_context();

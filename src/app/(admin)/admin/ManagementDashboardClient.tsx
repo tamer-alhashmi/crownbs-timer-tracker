@@ -7,12 +7,13 @@ import { OperationalBrief } from "@/components/dashboard/OperationalBrief";
 import { ServiceCard } from "@/components/dashboard/ServiceCard";
 import { UserProfileMenu } from "@/components/layout/UserProfileMenu";
 import type { BriefTask, ManagementBrief } from "@/lib/operationalBrief";
+import { calculateHourlyEarnings, resolveHourlyRate } from "@/lib/payroll";
 import { approveWorkLog as approveWorkLogAction, rejectWorkLog, updateWorkLog } from "./actions";
 import { importRoomsFromGoogleSheet } from "./roomImportActions";
 import { FullEditPanel } from "./FullEditPanel";
 
-type Log = { id: string; user_id: string; hotel_id: string; cleanerName: string; hotelName: string; start_time: string; end_time: string | null; task_date: string; status: string; rooms_completed: number; room_number: string | null; room_numbers: string[]; service_name_snapshot: string | null; service_description_snapshot: string | null; notes: string | null; owner_id: string | null; owner_name: string | null; manager_id: string | null; manager_name: string | null; responsibility_recorded_at: string | null; manager_approved: boolean; owner_approved: boolean; manager_rejected: boolean; owner_rejected: boolean; is_locked: boolean; rejection_notes?: string | null; services_config?: { name: string; default_rate: number }[] };
-type PayrollLog = { id: string; user_id: string; hotel_id: string; cleanerName: string; hotelName: string; start_time: string; end_time: string | null; task_date: string; rooms_completed: number; room_number: string | null; notes: string | null; owner_id: string | null; owner_name: string | null; manager_id: string | null; manager_name: string | null; responsibility_recorded_at: string | null; services_config?: { name: string; default_rate: number }[] };
+type Log = { id: string; user_id: string; hotel_id: string; cleanerName: string; cleanerHourlyRate: number | null; hotelName: string; start_time: string; end_time: string | null; task_date: string; status: string; rooms_completed: number; room_number: string | null; room_numbers: string[]; service_name_snapshot: string | null; service_description_snapshot: string | null; notes: string | null; owner_id: string | null; owner_name: string | null; manager_id: string | null; manager_name: string | null; responsibility_recorded_at: string | null; manager_approved: boolean; owner_approved: boolean; manager_rejected: boolean; owner_rejected: boolean; is_locked: boolean; rejection_notes?: string | null; services_config?: { name: string; default_rate: number }[] };
+type PayrollLog = { id: string; user_id: string; hotel_id: string; cleanerName: string; cleanerHourlyRate: number | null; hotelName: string; start_time: string; end_time: string | null; task_date: string; rooms_completed: number; room_number: string | null; notes: string | null; owner_id: string | null; owner_name: string | null; manager_id: string | null; manager_name: string | null; responsibility_recorded_at: string | null; services_config?: { name: string; default_rate: number }[] };
 type Room = { id: string; hotel_id: string; room_name: string; category: string; status?: string };
 type Props = { data: { userRole: string; userName: string; userEmail: string; hotels: { id: string; name: string }[]; services: { id: string; name: string; default_rate: number }[]; rooms: Room[]; workLogs: Log[]; payroll: PayrollLog[]; brief: ManagementBrief } };
 type Draft = { hotelId: string; serviceId: string; roomId: string; roomsCompleted: string; roomNumber: string; notes: string; startTime: string; endTime: string };
@@ -31,11 +32,11 @@ function durationHours(startTime: string, endTime: string) {
 }
 
 function toBriefTask(log: Log): BriefTask {
-  const service = log.services_config?.[0];
-  const rate = Number(service?.default_rate ?? 0);
+  const rate = resolveHourlyRate(log.cleanerHourlyRate);
   const hours = log.end_time ? durationHours(log.start_time, log.end_time) : 0;
+  const service = log.services_config?.[0];
   const serviceName = log.service_name_snapshot ?? service?.name ?? "Service";
-  return { id: log.id, cleaner: log.cleanerName, hotel: log.hotelName, service: serviceName, serviceDescription: log.service_description_snapshot ?? serviceName, taskDate: log.task_date, status: log.status, startTime: log.start_time, endTime: log.end_time, ownerId: log.owner_id, ownerName: log.owner_name ?? "Unassigned owner", managerId: log.manager_id, managerName: log.manager_name ?? "Unassigned manager", responsibilityRecordedAt: log.responsibility_recorded_at ?? log.start_time, room: log.room_numbers.join(", ") || log.room_number || "", rooms: log.rooms_completed, hours, rate, cost: /per room/i.test(serviceName) ? log.rooms_completed * rate : hours * rate, notes: log.notes ?? "", managerApproved: log.manager_approved, ownerApproved: log.owner_approved, managerRejected: log.manager_rejected, ownerRejected: log.owner_rejected, isLocked: log.is_locked, rejectionNotes: log.rejection_notes ?? "" };
+  return { id: log.id, cleaner: log.cleanerName, hotel: log.hotelName, service: serviceName, serviceDescription: log.service_description_snapshot ?? serviceName, taskDate: log.task_date, status: log.status, startTime: log.start_time, endTime: log.end_time, ownerId: log.owner_id, ownerName: log.owner_name ?? "Unassigned owner", managerId: log.manager_id, managerName: log.manager_name ?? "Unassigned manager", responsibilityRecordedAt: log.responsibility_recorded_at ?? log.start_time, room: log.room_numbers.join(", ") || log.room_number || "", rooms: log.rooms_completed, hours, rate, cost: calculateHourlyEarnings(hours, rate), notes: log.notes ?? "", managerApproved: log.manager_approved, ownerApproved: log.owner_approved, managerRejected: log.manager_rejected, ownerRejected: log.owner_rejected, isLocked: log.is_locked, rejectionNotes: log.rejection_notes ?? "" };
 }
 
 export default function ManagementDashboardClient({ data }: Props) {
@@ -107,11 +108,18 @@ export default function ManagementDashboardClient({ data }: Props) {
     setApprovalOverrides((current) => ({ ...current, [log.id]: { ...current[log.id], ...optimistic } }));
     const willLock = managerApproved && ownerApproved;
     if (willLock) {
+      const service = log.services_config?.[0];
+      const serviceName = log.service_name_snapshot ?? service?.name ?? "Service";
+      const cleanerHourlyRate = resolveHourlyRate(log.cleanerHourlyRate);
+      const hours = log.end_time ? durationHours(log.start_time, log.end_time) : 0;
+      const hourlyEarnings = calculateHourlyEarnings(hours, cleanerHourlyRate);
+      const displayRate = /per room/i.test(serviceName) && log.rooms_completed > 0 ? hourlyEarnings / log.rooms_completed : cleanerHourlyRate;
       const payrollLog: PayrollLog = {
         id: log.id,
         user_id: log.user_id,
         hotel_id: log.hotel_id,
         cleanerName: log.cleanerName,
+        cleanerHourlyRate,
         hotelName: log.hotelName,
         start_time: log.start_time,
         end_time: log.end_time,
@@ -124,7 +132,7 @@ export default function ManagementDashboardClient({ data }: Props) {
         manager_id: log.manager_id,
         manager_name: log.manager_name,
         responsibility_recorded_at: log.responsibility_recorded_at,
-        services_config: log.services_config,
+        services_config: [{ name: serviceName, default_rate: displayRate }],
       };
       setOptimisticPayrollLogs((current) => [payrollLog, ...current.filter((item) => item.id !== log.id)]);
     }
@@ -267,7 +275,7 @@ function PayrollFiltered({ logs }: { logs: PayrollLog[] }) {
   const [from, setFrom] = useState(monthStart);
   const [to, setTo] = useState(today);
   const filteredLogs = logs.filter((log) => log.task_date >= from && log.task_date <= to).sort((left, right) => right.start_time.localeCompare(left.start_time));
-  const total = filteredLogs.reduce((sum, log) => { const hours = log.end_time ? durationHours(log.start_time, log.end_time) : 0; const rate = Number(log.services_config?.[0]?.default_rate ?? 0); return sum + (/per room/i.test(log.services_config?.[0]?.name ?? "") ? log.rooms_completed * rate : hours * rate); }, 0);
+  const total = filteredLogs.reduce((sum, log) => { const hours = log.end_time ? durationHours(log.start_time, log.end_time) : 0; return sum + calculateHourlyEarnings(hours, log.cleanerHourlyRate); }, 0);
   const isMonthToDate = from === monthStart;
   return <section className="mt-6 rounded-3xl bg-white p-4 text-slate-900 shadow-sm ring-1 ring-slate-200"><div className="flex flex-col gap-4 border-b border-slate-100 pb-4 lg:flex-row lg:items-end lg:justify-between"><div><h2 className="text-xl font-bold">Payroll</h2><p className="mt-1 text-sm text-slate-500">{isMonthToDate ? "Month to date" : "Selected period"} · newest records first</p></div><div className="flex flex-wrap items-end gap-3"><label className="text-xs font-semibold uppercase tracking-wide text-slate-500">From<input type="date" value={from} max={to} onChange={(event) => setFrom(event.target.value)} className="mt-1 block rounded-lg border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900" /></label><label className="text-xs font-semibold uppercase tracking-wide text-slate-500">To<input type="date" value={to} min={from} max={today} onChange={(event) => setTo(event.target.value)} className="mt-1 block rounded-lg border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900" /></label><CalendarDays className="mb-2 h-5 w-5 text-sky-700" /></div></div><div className="my-4 grid gap-3 sm:grid-cols-3"><div className="rounded-2xl bg-slate-900 p-4 text-white"><p className="text-xs uppercase tracking-wide text-slate-300">Total {isMonthToDate ? "month to date" : "for period"}</p><p className="mt-1 text-2xl font-bold">GBP {total.toFixed(2)}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs text-slate-500">Payroll records</p><p className="mt-1 text-2xl font-bold text-slate-900">{filteredLogs.length}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs text-slate-500">Date range</p><p className="mt-1 text-sm font-semibold text-slate-900">{from} to {to}</p></div></div><div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead className="border-b border-slate-200 text-slate-500"><tr><th className="px-3 py-3">Task date/time</th><th className="px-3 py-3">Cleaner</th><th className="px-3 py-3">Hotel / service</th><th className="px-3 py-3">Hours</th><th className="px-3 py-3">Rooms</th><th className="px-3 py-3">Calculated wage</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredLogs.map((log) => { const hours = log.end_time ? durationHours(log.start_time, log.end_time) : 0; const rate = Number(log.services_config?.[0]?.default_rate ?? 0); const wage = /per room/i.test(log.services_config?.[0]?.name ?? "") ? log.rooms_completed * rate : hours * rate; return <tr key={log.id}><td className="px-3 py-3 text-slate-700">{new Date(log.start_time).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}</td><td className="px-3 py-3 font-medium text-slate-900">{log.cleanerName}</td><td className="px-3 py-3 text-slate-700">{log.hotelName}<br /><span className="text-xs">{log.services_config?.[0]?.name ?? "Service"} · GBP {rate.toFixed(2)}</span></td><td className="px-3 py-3 text-slate-700">{hours.toFixed(2)}</td><td className="px-3 py-3 text-slate-700">{log.rooms_completed}</td><td className="px-3 py-3 font-semibold text-slate-900">GBP {wage.toFixed(2)}</td></tr>; })}{filteredLogs.length === 0 && <tr><td colSpan={6} className="px-3 py-8 text-center text-slate-500">No locked payroll records in this date range.</td></tr>}</tbody></table></div></section>;
 }

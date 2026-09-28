@@ -8,6 +8,7 @@ import { UserProfileMenu } from "@/components/layout/UserProfileMenu";
 import { OperationalBrief } from "@/components/dashboard/OperationalBrief";
 import { ServiceCard } from "@/components/dashboard/ServiceCard";
 import type { BriefTask, CleanerBrief } from "@/lib/operationalBrief";
+import { calculateHourlyEarnings, resolveHourlyRate } from "@/lib/payroll";
 import { RoomMediaCapture } from "./RoomMediaCapture";
 import { getWorkLogRoomMedia, type RoomMediaGalleryItem, type RoomMediaItem } from "./roomMediaActions";
 
@@ -43,7 +44,7 @@ type WorkLog = {
   serviceRate: number;
 };
 type Props = {
-  user: { fullName: string; email: string; hotelId: string | null };
+  user: { fullName: string; email: string; hotelId: string | null; hourlyRate: number | null };
   hotels: HotelRecord[];
   services: ServiceRecord[];
   rooms: RoomRecord[];
@@ -156,7 +157,7 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
 
   const toBriefTask = (log: WorkLog): BriefTask => {
     const hours = log.end_time ? Math.max(0, (Date.parse(log.end_time) - Date.parse(log.start_time)) / 3_600_000) : 0;
-    const perRoom = /per room/i.test(log.serviceName);
+    const rate = resolveHourlyRate(user.hourlyRate);
     return {
       id: log.id,
       cleaner: user.fullName,
@@ -175,8 +176,8 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
       room: log.room_numbers.join(", ") || log.room_number || "",
       rooms: log.rooms_completed,
       hours,
-      rate: log.serviceRate,
-      cost: perRoom ? log.rooms_completed * log.serviceRate : hours * log.serviceRate,
+      rate,
+      cost: calculateHourlyEarnings(hours, rate),
       notes: log.notes ?? "",
       managerApproved: log.manager_approved,
       ownerApproved: log.owner_approved,
