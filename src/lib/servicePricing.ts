@@ -2,6 +2,7 @@ export type BillingUnit = "hourly" | "per_room" | "fixed";
 
 export type ServicePricing = {
   name?: string | null;
+  description?: string | null;
   unit?: string | null;
   default_rate?: number | string | null;
 };

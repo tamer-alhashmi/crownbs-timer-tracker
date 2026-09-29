@@ -7,20 +7,74 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { calculateServiceCost, resolveBillingUnit, resolveServiceRate } from "@/lib/servicePricing";
 
-type PayrollService = { name?: string | null; default_rate?: number | string | null; unit?: string | null };
-const EXPORT_COLUMNS = ["Task date/time", "Cleaner", "Hotel", "Service", "Unit", "Rate (GBP)", "Hours", "Rooms", "Cost (GBP)"] as const;
+type PayrollService = { name?: string | null; description?: string | null; default_rate?: number | string | null; unit?: string | null };
+const EXPORT_COLUMNS = [
+  "Work log ID", "User ID", "Hotel ID", "Service ID", "Shift ID", "Task date/time", "Started at (UTC)", "Ended at (UTC)", "Task date", "Status", "Payroll locked",
+  "Cleaner", "Cleaner email", "Hotel", "Hotel location", "Service", "Service description", "Billing unit", "Rate (GBP)",
+  "Duration hours", "Rooms completed", "Room number", "Room numbers", "Room IDs", "Travel time included", "Notes",
+  "Manager name", "Manager ID", "Manager approved", "Manager approved at", "Manager rejected", "Manager rejected at",
+  "Owner name", "Owner ID", "Owner approved", "Owner approved at", "Owner rejected", "Owner rejected at",
+  "Responsibility snapshot at", "Rejection notes", "Created at", "Updated at", "Import key", "Cost (GBP)",
+] as const;
 type ExportColumn = typeof EXPORT_COLUMNS[number];
-type ExportRow = Record<ExportColumn, string | number>;
-type PayrollLog = {
+type ExportRow = Record<ExportColumn, string | number | boolean>;
+export type PayrollLog = {
   id: string;
+  user_id?: string;
+  hotel_id?: string;
+  service_id?: string;
+  shift_id?: string | null;
   cleanerName: string;
+  cleanerEmail?: string;
   hotelName: string;
+  hotelLocation?: string;
   start_time: string;
   end_time: string | null;
   task_date: string;
+  status?: string;
   rooms_completed: number;
+  room_number?: string | null;
+  room_numbers?: string[];
+  room_ids?: string[];
+  service_name_snapshot?: string | null;
+  service_description_snapshot?: string | null;
+  notes?: string | null;
+  travel_time_included?: boolean;
+  manager_approved?: boolean;
+  owner_approved?: boolean;
+  manager_approved_at?: string | null;
+  owner_approved_at?: string | null;
+  manager_rejected?: boolean;
+  owner_rejected?: boolean;
+  manager_rejected_at?: string | null;
+  owner_rejected_at?: string | null;
+  rejection_notes?: string | null;
+  owner_id?: string | null;
+  owner_name?: string | null;
+  manager_id?: string | null;
+  manager_name?: string | null;
+  responsibility_recorded_at?: string | null;
+  import_key?: string | null;
+  is_locked?: boolean;
+  created_at?: string;
+  updated_at?: string;
   services_config: PayrollService[];
 };
+
+function excelColumn(index: number) {
+  let number = index + 1;
+  let result = "";
+  while (number > 0) {
+    const remainder = (number - 1) % 26;
+    result = String.fromCharCode(65 + remainder) + result;
+    number = Math.floor((number - 1) / 26);
+  }
+  return result;
+}
+
+function xmlEscape(value: string) {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&apos;");
+}
 
 function durationHours(log: PayrollLog) {
   return log.end_time ? Math.max(0, (Date.parse(log.end_time) - Date.parse(log.start_time)) / 3_600_000) : 0;
@@ -64,34 +118,71 @@ export function AdminPayrollTable({ logs }: { logs: PayrollLog[] }) {
     const rate = resolveServiceRate(service);
     const unit = resolveBillingUnit(service.unit, service.name ?? "");
     const hours = durationHours(log);
+    const serviceName = log.service_name_snapshot ?? service.name ?? "Service";
     return {
+      "Work log ID": log.id,
+      "User ID": log.user_id ?? "",
+      "Hotel ID": log.hotel_id ?? "",
+      "Service ID": log.service_id ?? "",
+      "Shift ID": log.shift_id ?? "",
       "Task date/time": new Date(log.start_time).toLocaleString("en-GB", { timeZone: "Africa/Cairo" }),
+      "Started at (UTC)": log.start_time,
+      "Ended at (UTC)": log.end_time ?? "",
+      "Task date": log.task_date,
+      Status: log.status ?? "completed",
+      "Payroll locked": log.is_locked ?? true,
       Cleaner: log.cleanerName,
+      "Cleaner email": log.cleanerEmail ?? "",
       Hotel: log.hotelName,
-      Service: service.name ?? "Service",
-      Unit: unit === "hourly" ? "Hourly" : unit === "per_room" ? "Per room" : "Fixed per task",
+      "Hotel location": log.hotelLocation ?? "",
+      Service: serviceName,
+      "Service description": log.service_description_snapshot ?? service.description ?? "",
+      "Billing unit": unit === "hourly" ? "Hourly" : unit === "per_room" ? "Per room" : "Fixed per task",
       "Rate (GBP)": rate,
-      Hours: Number(hours.toFixed(2)),
-      Rooms: log.rooms_completed,
+      "Duration hours": Number(hours.toFixed(2)),
+      "Rooms completed": log.rooms_completed,
+      "Room number": log.room_number ?? "",
+      "Room numbers": (log.room_numbers ?? []).join(", "),
+      "Room IDs": (log.room_ids ?? []).join(", "),
+      "Travel time included": log.travel_time_included ?? false,
+      Notes: log.notes ?? "",
+      "Manager name": log.manager_name ?? "",
+      "Manager ID": log.manager_id ?? "",
+      "Manager approved": log.manager_approved ?? false,
+      "Manager approved at": log.manager_approved_at ?? "",
+      "Manager rejected": log.manager_rejected ?? false,
+      "Manager rejected at": log.manager_rejected_at ?? "",
+      "Owner name": log.owner_name ?? "",
+      "Owner ID": log.owner_id ?? "",
+      "Owner approved": log.owner_approved ?? false,
+      "Owner approved at": log.owner_approved_at ?? "",
+      "Owner rejected": log.owner_rejected ?? false,
+      "Owner rejected at": log.owner_rejected_at ?? "",
+      "Responsibility snapshot at": log.responsibility_recorded_at ?? "",
+      "Rejection notes": log.rejection_notes ?? "",
+      "Created at": log.created_at ?? "",
+      "Updated at": log.updated_at ?? "",
+      "Import key": log.import_key ?? "",
       "Cost (GBP)": Number(calculateServiceCost(hours, log.rooms_completed, { ...service, default_rate: rate, unit }).toFixed(2)),
     };
   });
-  const exportSummary: ExportRow = {
-    "Task date/time": "FILTERED TOTALS",
-    Cleaner: "",
-    Hotel: selectedHotel || "All hotels",
-    Service: "",
-    Unit: "",
-    "Rate (GBP)": "",
-    Hours: Number(totals.hours.toFixed(2)),
-    Rooms: totals.rooms,
-    "Cost (GBP)": Number(totals.cost.toFixed(2)),
-  };
+  const exportSummary = Object.fromEntries(EXPORT_COLUMNS.map((column) => [column, ""])) as ExportRow;
+  exportSummary["Task date/time"] = "FILTERED TOTALS";
+  exportSummary["Work log ID"] = `${filteredLogs.length} tasks`;
+  exportSummary.Cleaner = selectedCleaner || "All cleaners";
+  exportSummary.Hotel = selectedHotel || "All hotels";
+  exportSummary["Duration hours"] = Number(totals.hours.toFixed(2));
+  exportSummary["Rooms completed"] = totals.rooms;
+  exportSummary["Cost (GBP)"] = Number(totals.cost.toFixed(2));
   const filterSuffix = [from, to, selectedHotel, selectedCleaner].filter(Boolean).join("-").replace(/[^a-z0-9-]/gi, "-");
   const filename = `payroll-${filterSuffix || "all-records"}`;
 
   const exportCsv = () => {
-    const csvCell = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`;
+    const csvCell = (value: string | number | boolean) => {
+      const text = String(value);
+      const safeText = typeof value === "string" && /^[\t\r ]*[=+\-@]/.test(text) ? `'${text}` : text;
+      return `"${safeText.replaceAll('"', '""')}"`;
+    };
     const csv = [EXPORT_COLUMNS, ...exportRows.map((row) => EXPORT_COLUMNS.map((column) => row[column])), EXPORT_COLUMNS.map((column) => exportSummary[column])]
       .map((row) => row.map(csvCell).join(","))
       .join("\r\n");
@@ -100,17 +191,16 @@ export function AdminPayrollTable({ logs }: { logs: PayrollLog[] }) {
 
   const exportExcel = () => {
     const rows = [EXPORT_COLUMNS, ...exportRows.map((row) => EXPORT_COLUMNS.map((column) => row[column])), EXPORT_COLUMNS.map((column) => exportSummary[column])];
-    const cellReference = (column: number, row: number) => `${String.fromCharCode(65 + column)}${row}`;
-    const xmlEscape = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&apos;");
     const worksheetRows = rows.map((row, rowIndex) => `<row r="${rowIndex + 1}">${row.map((value, columnIndex) => {
-      const reference = cellReference(columnIndex, rowIndex + 1);
+      const reference = `${excelColumn(columnIndex)}${rowIndex + 1}`;
       return typeof value === "number" && Number.isFinite(value)
         ? `<c r="${reference}"><v>${value}</v></c>`
         : `<c r="${reference}" t="inlineStr"><is><t xml:space="preserve">${xmlEscape(String(value))}</t></is></c>`;
     }).join("")}</row>`).join("");
     const lastDataRow = exportRows.length + 1;
     const lastRow = rows.length;
-    const worksheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:I${lastRow}"/><sheetViews><sheetView workbookViewId="0"/></sheetViews><sheetFormatPr defaultRowHeight="18"/><cols><col min="1" max="1" width="22" customWidth="1"/><col min="2" max="5" width="20" customWidth="1"/><col min="6" max="9" width="14" customWidth="1"/></cols><sheetData>${worksheetRows}</sheetData><autoFilter ref="A1:I${lastDataRow}"/></worksheet>`;
+    const lastColumn = excelColumn(EXPORT_COLUMNS.length - 1);
+    const worksheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:${lastColumn}${lastRow}"/><sheetViews><sheetView workbookViewId="0"/></sheetViews><sheetFormatPr defaultRowHeight="18"/><cols><col min="1" max="${EXPORT_COLUMNS.length}" width="22" customWidth="1"/></cols><sheetData>${worksheetRows}</sheetData><autoFilter ref="A1:${lastColumn}${lastDataRow}"/></worksheet>`;
     const workbookXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Payroll" sheetId="1" r:id="rId1"/></sheets></workbook>`;
     const workbookRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`;
     const rootRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
@@ -128,19 +218,26 @@ export function AdminPayrollTable({ logs }: { logs: PayrollLog[] }) {
   const exportPdf = () => {
     const pdf = new jsPDF({ orientation: "landscape" });
     pdf.setFontSize(16);
-    pdf.text("Payroll export", 14, 16);
+    pdf.text("Payroll task detail export", 14, 16);
     pdf.setFontSize(9);
     pdf.text(`Period: ${from} to ${to} · Hotel: ${selectedHotel || "All hotels"} · Cleaner: ${selectedCleaner || "All cleaners"}`, 14, 23);
+    const detailColumns = EXPORT_COLUMNS.filter((column) => !["Task date/time", "Cleaner", "Hotel", "Cost (GBP)"].includes(column));
     autoTable(pdf, {
       startY: 29,
-      head: [["Task date/time", "Cleaner", "Hotel", "Service", "Unit", "Rate GBP", "Hours", "Rooms", "Cost GBP"]],
-      body: exportRows.map((row) => [row["Task date/time"], row.Cleaner, row.Hotel, row.Service, row.Unit, Number(row["Rate (GBP)"]).toFixed(2), Number(row.Hours).toFixed(2), row.Rooms, Number(row["Cost (GBP)"]).toFixed(2)]),
-      foot: [["Filtered totals", "", selectedHotel || "All hotels", "", "", "", totals.hours.toFixed(2), String(totals.rooms), totals.cost.toFixed(2)]],
+      head: [["Task date/time", "Cleaner / hotel", "Complete task details", "Cost (GBP)"]],
+      body: exportRows.map((row) => [
+        String(row["Task date/time"]),
+        `${row.Cleaner}\n${row["Cleaner email"]}\n${row.Hotel}\n${row["Hotel location"]}`,
+        detailColumns.map((column) => `${column}: ${String(row[column])}`).join("\n"),
+        Number(row["Cost (GBP)"]).toFixed(2),
+      ]),
+      foot: [[`Filtered totals · ${filteredLogs.length} tasks`, "", `${totals.hours.toFixed(2)} hours · ${totals.rooms} rooms`, totals.cost.toFixed(2)]],
       showFoot: "lastPage",
-      styles: { fontSize: 8, cellPadding: 2.5 },
+      rowPageBreak: "avoid",
+      styles: { fontSize: 7, cellPadding: 2, overflow: "linebreak", valign: "top" },
       headStyles: { fillColor: [30, 41, 59] },
       footStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: "bold" },
-      columnStyles: { 5: { halign: "right" }, 6: { halign: "right" }, 7: { halign: "right" }, 8: { halign: "right" } },
+      columnStyles: { 0: { cellWidth: 32 }, 1: { cellWidth: 42 }, 2: { cellWidth: 165 }, 3: { cellWidth: 25, halign: "right" } },
     });
     pdf.save(`${filename}.pdf`);
   };

@@ -11,13 +11,12 @@ import { calculateServiceCost, resolveBillingUnit, resolveServiceRate, type Serv
 import { approveWorkLog as approveWorkLogAction, rejectWorkLog, updateWorkLog } from "./actions";
 import { importRoomsFromGoogleSheet } from "./roomImportActions";
 import { FullEditPanel } from "./FullEditPanel";
-import { AdminPayrollTable } from "./AdminPayrollTable";
+import { AdminPayrollTable, type PayrollLog } from "./AdminPayrollTable";
 import { ServicePricingManager } from "./ServicePricingManager";
 import type { BillingUnit } from "@/lib/servicePricing";
 import type { LucideIcon } from "lucide-react";
 
 type Log = { id: string; user_id: string; hotel_id: string; cleanerName: string; hotelName: string; start_time: string; end_time: string | null; task_date: string; status: string; rooms_completed: number; room_number: string | null; room_numbers: string[]; service_name_snapshot: string | null; service_description_snapshot: string | null; notes: string | null; owner_id: string | null; owner_name: string | null; manager_id: string | null; manager_name: string | null; responsibility_recorded_at: string | null; manager_approved: boolean; owner_approved: boolean; manager_rejected: boolean; owner_rejected: boolean; is_locked: boolean; rejection_notes?: string | null; services_config?: { name: string; default_rate: number; unit?: string }[] };
-type PayrollLog = { id: string; user_id: string; hotel_id: string; cleanerName: string; hotelName: string; start_time: string; end_time: string | null; task_date: string; rooms_completed: number; room_number: string | null; notes: string | null; owner_id: string | null; owner_name: string | null; manager_id: string | null; manager_name: string | null; responsibility_recorded_at: string | null; services_config: [ServicePricing] };
 type Room = { id: string; hotel_id: string; room_name: string; category: string; status?: string };
 type Props = { data: { userRole: string; userName: string; userEmail: string; hotels: { id: string; name: string }[]; services: { id: string; name: string; description: string; unit: BillingUnit; default_rate: number; is_active: boolean; created_at: string }[]; rooms: Room[]; workLogs: Log[]; payroll: PayrollLog[]; brief: ManagementBrief } };
 type Draft = { hotelId: string; serviceId: string; roomId: string; roomsCompleted: string; roomNumber: string; notes: string; startTime: string; endTime: string };

@@ -58,7 +58,7 @@ export async function getManagementOverview(period?: { from: string; to: string 
   const hotelFilter = user.role === "admin" ? null : hotelIds;
   const cleanersQuery = supabase.from("users").select("id, full_name, email, role, primary_hotel_id").eq("role", "cleaner");
   const logsQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, hotels(name), users(full_name, email), services_config(name, description, default_rate, unit)").order("start_time", { ascending: false });
-  const payrollQuery = supabase.from("work_logs").select("id, user_id, hotel_id, start_time, end_time, task_date, rooms_completed, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, hotels(name), users(full_name, email), services_config(name, description, default_rate, unit)").eq("is_locked", true).eq("status", "completed").order("start_time", { ascending: false });
+  const payrollQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, shift_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, room_ids, service_name_snapshot, service_description_snapshot, notes, travel_time_included, manager_approved, owner_approved, manager_approved_at, owner_approved_at, manager_rejected, owner_rejected, manager_rejected_at, owner_rejected_at, rejection_notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, import_key, is_locked, created_at, updated_at, hotels(name, location), users(full_name, email), services_config(name, description, default_rate, unit)").eq("is_locked", true).eq("status", "completed").order("start_time", { ascending: false });
   if (hotelFilter) { logsQuery.in("hotel_id", hotelIds); payrollQuery.in("hotel_id", hotelIds); }
   const [{ data: cleaners }, { data: services }, { data: workLogs }, { data: payroll }] = await Promise.all([
     cleanersQuery,
@@ -77,11 +77,15 @@ export async function getManagementOverview(period?: { from: string; to: string 
   }));
   const payrollWithNames = (payroll ?? []).map((log) => {
     const service = Array.isArray(log.services_config) ? log.services_config[0] : log.services_config;
+    const cleaner = Array.isArray(log.users) ? log.users[0] : log.users;
+    const hotel = Array.isArray(log.hotels) ? log.hotels[0] : log.hotels;
     return {
       ...log,
       cleanerName: cleanersById.get(log.user_id) ?? "Unknown cleaner",
       hotelName: hotelsById.get(log.hotel_id) ?? "Unknown hotel",
-      services_config: [{ name: log.service_name_snapshot ?? service?.name ?? "Service", default_rate: service?.default_rate ?? 0, unit: service?.unit ?? "hourly" }] as [ServicePricing],
+      cleanerEmail: cleaner?.email ?? "",
+      hotelLocation: hotel?.location ?? "",
+      services_config: [{ name: log.service_name_snapshot ?? service?.name ?? "Service", description: log.service_description_snapshot ?? service?.description ?? "", default_rate: service?.default_rate ?? 0, unit: service?.unit ?? "hourly" }] as [ServicePricing],
     };
   });
   const brief = await briefPromise;
