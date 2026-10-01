@@ -28,6 +28,7 @@ export function ConversationView({
     mutationFn: () => markConversationRead(contact.id),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["chat", "unread"] });
+      void queryClient.invalidateQueries({ queryKey: ["chat", "contacts"] });
       void queryClient.invalidateQueries({ queryKey });
     },
   });
@@ -50,17 +51,24 @@ export function ConversationView({
 
   return (
     <>
-      <div className="flex min-h-0 flex-1 flex-col bg-[#f5f7fb]">
-        <div className="flex-1 space-y-4 overflow-y-auto bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-white/80 via-[#f5f7fb] to-[#f5f7fb] px-5 py-6 sm:px-6">
+      <div className="flex min-h-0 flex-1 flex-col bg-[#efeae2] dark:bg-[#0b141a]">
+        <div
+          className="flex-1 space-y-2.5 overflow-y-auto px-3 py-5 sm:px-4"
+          style={{
+            backgroundImage:
+              "radial-gradient(circle at 20% 20%, rgba(120, 113, 100, 0.055) 1px, transparent 1.5px), radial-gradient(circle at 75% 65%, rgba(120, 113, 100, 0.045) 1px, transparent 1.5px)",
+            backgroundSize: "24px 24px, 31px 31px",
+          }}
+        >
           {readMutation.isError && (
-            <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
+            <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:bg-rose-950/50 dark:text-rose-200">
               {readMutation.error.message}
             </p>
           )}
           {isPending ? (
-            <p className="py-10 text-center text-sm text-slate-500">Loading conversation…</p>
+            <p className="py-10 text-center text-sm text-slate-600 dark:text-slate-300">Loading conversation…</p>
           ) : error ? (
-            <p role="alert" className="py-10 text-center text-sm text-rose-600">
+            <p role="alert" className="py-10 text-center text-sm text-rose-700 dark:text-rose-300">
               {error.message}
             </p>
           ) : data?.messages.length ? (
@@ -69,11 +77,11 @@ export function ConversationView({
             ))
           ) : (
             <div className="flex h-full flex-col items-center justify-center text-center">
-              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
+              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white/80 text-emerald-800 dark:bg-[#202c33] dark:text-emerald-200">
                 <ArrowLeft className="h-5 w-5 rotate-180" />
               </span>
-              <p className="mt-3 text-sm font-semibold text-slate-800">Start the conversation</p>
-              <p className="mt-1 max-w-52 text-xs leading-5 text-slate-500">
+              <p className="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-100">Start the conversation</p>
+              <p className="mt-1 max-w-52 text-xs leading-5 text-slate-700 dark:text-slate-300">
                 Messages are only visible to you and {contact.full_name}.
               </p>
             </div>
@@ -85,6 +93,7 @@ export function ConversationView({
           onSent={() => {
             void queryClient.invalidateQueries({ queryKey });
             void queryClient.invalidateQueries({ queryKey: ["chat", "unread"] });
+            void queryClient.invalidateQueries({ queryKey: ["chat", "contacts"] });
           }}
         />
       </div>

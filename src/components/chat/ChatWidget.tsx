@@ -1,11 +1,11 @@
 "use client";
 
-import { ArrowLeft, MessageCircle, X } from "lucide-react";
+import { ArrowLeft, MessageCircle, Minus, X } from "lucide-react";
 import type { AppUserSession } from "@/lib/auth";
+import { roleLabel } from "@/lib/chat/types";
 import { useChatStore } from "./chatStore";
 import { ContactList } from "./ContactList";
 import { ConversationView } from "./ConversationView";
-import { roleLabel } from "@/lib/chat/types";
 
 export function ChatWidget({ user }: { user: AppUserSession }) {
   const isChatOpen = useChatStore((state) => state.isChatOpen);
@@ -18,53 +18,64 @@ export function ChatWidget({ user }: { user: AppUserSession }) {
   return (
     <section
       aria-label="Chat"
-      className="fixed inset-0 z-50 flex h-[100dvh] flex-col overflow-hidden bg-white shadow-2xl sm:inset-auto sm:bottom-7 sm:right-7 sm:h-[min(44rem,calc(100dvh-3.5rem))] sm:w-[min(28rem,calc(100vw-3.5rem))] sm:rounded-[1.75rem] sm:border sm:border-slate-200/80"
+      className="chat-panel fixed inset-0 z-[60] flex h-[100dvh] flex-col overflow-hidden bg-white shadow-2xl sm:inset-auto sm:bottom-6 sm:right-6 sm:h-[min(680px,calc(100dvh-3rem))] sm:w-[400px] sm:rounded-3xl sm:border sm:border-slate-200"
     >
-      <header className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-indigo-950 to-indigo-800 px-5 pb-5 pt-5 text-white sm:px-6 sm:pt-6">
-        <div aria-hidden="true" className="pointer-events-none absolute -right-8 -top-16 h-48 w-48 rounded-full border-[24px] border-white/[0.06]" />
-        <div aria-hidden="true" className="pointer-events-none absolute -bottom-16 right-24 h-32 w-32 rounded-full bg-indigo-400/10 blur-2xl" />
-        <div className="relative flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
+      <header className="flex min-h-[76px] shrink-0 items-center justify-between gap-3 bg-[#075e54] px-4 text-white">
+        <div className="flex min-w-0 items-center gap-2">
           {activeContact && (
             <button
               type="button"
               aria-label="Back to contacts"
               onClick={() => setActiveContact(null)}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-slate-200 transition hover:bg-white/20 hover:text-white"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/90 transition hover:bg-white/15 hover:text-white"
             >
-              <ArrowLeft aria-hidden="true" className="h-4 w-4" />
+              <ArrowLeft aria-hidden="true" className="h-5 w-5" />
             </button>
           )}
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/20 bg-white/15 shadow-inner shadow-white/10">
-              {activeContact ? (
-                <span className="text-base font-bold">{activeContact.full_name.charAt(0).toUpperCase()}</span>
-              ) : (
-                <MessageCircle aria-hidden="true" className="h-5 w-5" />
-              )}
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/15 text-base font-semibold text-white ring-1 ring-white/20">
+            {activeContact ? (
+              activeContact.full_name.trim().charAt(0).toUpperCase()
+            ) : (
+              <MessageCircle aria-hidden="true" className="h-5 w-5" />
+            )}
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate text-[15px] font-semibold leading-5">
+              {activeContact?.full_name ?? "Team chat"}
             </span>
-            <span className="min-w-0">
-              <span className="mb-1 block text-[10px] font-bold uppercase tracking-[0.18em] text-indigo-200">
-                {activeContact ? roleLabel(activeContact.role) : "Team messaging"}
+            {activeContact ? (
+              <span className="mt-1 flex items-center gap-1.5">
+                <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold leading-4 text-emerald-50">
+                  {roleLabel(activeContact.role)}
+                </span>
+                <span className="truncate text-[11px] text-emerald-50/90">Private conversation</span>
               </span>
-              <span className="block truncate text-base font-semibold tracking-tight">
-                {activeContact?.full_name ?? "Your conversations"}
-              </span>
-            </span>
-          </div>
+            ) : (
+              <span className="block text-xs text-emerald-50/90">Your hotel team</span>
+            )}
+          </span>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            aria-label="Minimize chat"
+            onClick={closeChat}
+            className="rounded-full p-2 text-white/90 transition hover:bg-white/15 hover:text-white"
+          >
+            <Minus aria-hidden="true" className="h-5 w-5" />
+          </button>
           <button
             type="button"
             aria-label="Close chat"
-            onClick={closeChat}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/10 text-slate-200 transition hover:bg-white/20 hover:text-white"
+            onClick={() => {
+              setActiveContact(null);
+              closeChat();
+            }}
+            className="rounded-full p-2 text-white/90 transition hover:bg-white/15 hover:text-white"
           >
-            <X aria-hidden="true" className="h-4 w-4" />
+            <X aria-hidden="true" className="h-5 w-5" />
           </button>
         </div>
-        {!activeContact && (
-          <p className="relative mt-4 pl-14 text-xs leading-5 text-indigo-100/75">
-            Keep your hotel team connected, one message at a time.
-          </p>
-        )}
       </header>
       {activeContact ? (
         <ConversationView userId={user.userId} contact={activeContact} />

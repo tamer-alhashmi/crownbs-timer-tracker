@@ -6,53 +6,51 @@ import { MessageCircle } from "lucide-react";
 import type { AppUserSession } from "@/lib/auth";
 import { fetchUnread } from "./chatApi";
 import { useChatStore } from "./chatStore";
-import { NotificationBell } from "./NotificationBell";
 import { ChatWidget } from "./ChatWidget";
 
 export function GlobalChatWidget({ user }: { user: AppUserSession }) {
   const queryClient = useQueryClient();
   const isChatOpen = useChatStore((state) => state.isChatOpen);
   const openChat = useChatStore((state) => state.openChat);
-  const { data, error } = useQuery({
+  const { data } = useQuery({
     queryKey: ["chat", "unread"],
     queryFn: fetchUnread,
-    refetchInterval: 60_000,
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
   const unreadCount = data?.count ?? 0;
 
   useEffect(() => {
     const events = new EventSource("/api/chat/events");
-    events.onmessage = () => {
+    const refreshChat = () => {
       void queryClient.invalidateQueries({ queryKey: ["chat"] });
     };
+    events.onmessage = refreshChat;
+    events.onopen = refreshChat;
+    events.onerror = refreshChat;
     return () => events.close();
   }, [queryClient]);
 
   return (
     <>
-      <div className="fixed right-5 top-4 z-40">
-        <NotificationBell data={data} error={error} />
-      </div>
       {!isChatOpen && (
         <button
           type="button"
           aria-label={`Open team chat${unreadCount ? `, ${unreadCount} unread messages` : ""}`}
           onClick={() => openChat()}
-          className="group fixed bottom-5 right-5 z-40 flex h-16 w-16 items-center justify-center rounded-[1.4rem] bg-gradient-to-br from-indigo-500 via-indigo-600 to-violet-700 text-white shadow-xl shadow-indigo-950/30 ring-1 ring-white/20 transition duration-200 hover:-translate-y-1 hover:shadow-2xl hover:shadow-indigo-950/35 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-indigo-600 sm:bottom-7 sm:right-7"
+          className="chat-launcher group fixed bottom-6 right-6 z-50 flex h-16 w-16 items-center justify-center rounded-full bg-[#25d366] text-[#063b2a] shadow-2xl shadow-emerald-950/30 transition hover:scale-105 hover:bg-[#20c45e] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
         >
           <MessageCircle
             aria-hidden="true"
             className="h-7 w-7 transition-transform duration-200 group-hover:scale-110"
-            strokeWidth={2}
+            strokeWidth={2.4}
           />
           {unreadCount > 0 && (
-            <span className="absolute -right-2 -top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-rose-600 px-1.5 text-[10px] font-bold text-white ring-[3px] ring-white shadow-md">
+            <span className="chat-unread-badge absolute -right-1 -top-1 flex h-6 min-w-6 items-center justify-center rounded-full border-2 border-white bg-rose-600 px-1 text-[10px] font-bold text-white shadow-md">
               {unreadCount > 99 ? "99+" : unreadCount}
             </span>
           )}
-          <span className="pointer-events-none absolute right-[calc(100%+0.75rem)] whitespace-nowrap rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 max-sm:hidden">
-            Open team chat
-          </span>
         </button>
       )}
       <ChatWidget user={user} />

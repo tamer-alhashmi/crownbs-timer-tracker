@@ -3,6 +3,7 @@
 import { useEffect, useState, type MouseEvent } from "react";
 import { ChevronDown, Settings, UserRound } from "lucide-react";
 import { SignOutButton } from "./SignOutButton";
+import { NotificationBell } from "@/components/chat/NotificationBell";
 
 type Props = { name: string; email: string; role: string; settingsHref: string };
 
@@ -32,7 +33,8 @@ export function UserProfileMenu({ name, email, role, settingsHref }: Props) {
     setOpen((value) => !value);
   };
 
-  return <div className="relative z-50 overflow-visible">
+  return <div className="relative z-50 flex items-center gap-2 overflow-visible">
+    <NotificationBell />
     <button type="button" onClick={toggleMenu} aria-expanded={open} aria-haspopup="menu" className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50">
       <span className="rounded-lg bg-sky-100 p-1.5 text-sky-700"><UserRound className="h-4 w-4" /></span>
       <span className="hidden max-w-32 truncate sm:block">{name}</span>

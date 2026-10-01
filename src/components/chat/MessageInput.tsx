@@ -72,17 +72,17 @@ export function MessageInput({
   }
 
   return (
-    <form onSubmit={submit} className="shrink-0 border-t border-slate-200 bg-white p-4">
+    <form onSubmit={submit} className="shrink-0 border-t border-[#d9d4cc] bg-[#f0f2f5] p-2.5 dark:border-slate-700 dark:bg-[#202c33] sm:p-3">
       {file && (
-        <div className="mb-2 flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+        <div className="mb-2 flex items-center justify-between rounded-lg bg-white px-3 py-2 text-xs text-slate-700 dark:bg-[#2a3942] dark:text-slate-100">
           <span className="truncate">{file.name}</span>
           <button type="button" aria-label="Remove attachment" onClick={() => setFile(null)}>
             <X className="h-4 w-4" />
           </button>
         </div>
       )}
-      {error && <p role="alert" className="mb-2 text-xs text-rose-600">{error}</p>}
-      <div className="flex items-end gap-2">
+      {error && <p role="alert" className="mb-2 text-xs text-rose-700 dark:text-rose-300">{error}</p>}
+      <div className="flex items-end gap-1.5">
         <input
           ref={fileInputRef}
           type="file"
@@ -102,7 +102,7 @@ export function MessageInput({
           type="button"
           aria-label="Attach a file"
           onClick={() => fileInputRef.current?.click()}
-          className="mb-1 rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-indigo-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+          className="mb-1 rounded-full p-2 text-slate-600 transition hover:bg-slate-200 hover:text-emerald-800 dark:text-slate-300 dark:hover:bg-slate-700"
         >
           <Paperclip className="h-5 w-5" />
         </button>
@@ -110,7 +110,7 @@ export function MessageInput({
           type="button"
           aria-label="Take a photo"
           onClick={() => cameraInputRef.current?.click()}
-          className="mb-1 rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-indigo-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+          className="mb-1 rounded-full p-2 text-slate-600 transition hover:bg-slate-200 hover:text-emerald-800 dark:text-slate-300 dark:hover:bg-slate-700"
         >
           <Camera className="h-5 w-5" />
         </button>
@@ -126,21 +126,18 @@ export function MessageInput({
           rows={1}
           maxLength={5000}
           placeholder="Write a message…"
-          className="max-h-24 min-h-10 flex-1 resize-none rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+          className="max-h-24 min-h-10 flex-1 resize-none rounded-full bg-white px-4 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-emerald-300 dark:bg-[#2a3942] dark:text-slate-100 dark:placeholder:text-slate-300 dark:focus:ring-emerald-800"
         />
         <button
           type="submit"
           disabled={mutation.isPending || (!content.trim() && !file)}
           aria-label="Send message"
-          className="mb-0.5 flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-3 text-sm font-semibold text-white transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-40"
+          className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#25d366] text-[#063b2a] transition hover:bg-[#20c45e] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {mutation.isPending ? (
             <LoaderCircle className="h-4 w-4 animate-spin" />
           ) : (
-            <>
-              <Send aria-hidden="true" className="h-4 w-4" />
-              <span>Send</span>
-            </>
+            <Send aria-hidden="true" className="h-4 w-4" />
           )}
         </button>
       </div>
