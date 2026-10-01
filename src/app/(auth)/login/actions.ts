@@ -1,12 +1,35 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createPrivilegedServerSupabaseClient, createServerSupabaseClient } from "@/lib/supabase/server";
 import { setSessionCookies } from "@/lib/auth";
 
 export type LoginMethod = "email" | "pin";
 
-export async function loginWithEmailPassword(email: string, password: string) {
+export type LoginState = { error: string };
+
+const INVALID_CREDENTIALS = "Invalid email and password.";
+const PROFILE_UNAVAILABLE = "Your account profile could not be loaded. Contact your administrator.";
+
+function dashboardForRole(role: string) {
+  if (role === "cleaner") return "/dashboard";
+  if (role === "manager") return "/manager";
+  if (role === "owner") return "/owner";
+  return "/admin";
+}
+
+async function establishUserSession(user: { id: string; email: string; role: "admin" | "owner" | "manager" | "cleaner"; primary_hotel_id: string | null }): Promise<never> {
+  await setSessionCookies({
+    userId: user.id,
+    email: user.email,
+    role: user.role,
+    hotelId: user.primary_hotel_id,
+  });
+
+  redirect(dashboardForRole(user.role));
+}
+
+async function loginWithEmailPassword(email: string, password: string): Promise<LoginState> {
   const supabase = await createServerSupabaseClient();
 
   const { data, error } = await supabase.auth.signInWithPassword({
@@ -15,64 +38,55 @@ export async function loginWithEmailPassword(email: string, password: string) {
   });
 
   if (error || !data.user) {
-    throw new Error("Invalid email or password.");
+    return { error: INVALID_CREDENTIALS };
   }
 
   const { data: profile, error: profileError } = await supabase
     .from("users")
-    .select("id, email, role, primary_hotel_id, full_name")
+    .select("id, email, role, primary_hotel_id")
     .eq("id", data.user.id)
     .maybeSingle();
 
   if (profileError || !profile) {
-    throw new Error("User profile could not be loaded.");
+    if (profileError) console.error("Unable to load the authenticated user's profile.", profileError);
+    return { error: PROFILE_UNAVAILABLE };
   }
 
-  await setSessionCookies({
-    userId: profile.id,
-    email: profile.email,
-    role: profile.role,
-    hotelId: profile.primary_hotel_id,
-  });
-
-  redirect(profile.role === "cleaner" ? "/dashboard" : "/admin");
+  return establishUserSession(profile);
 }
 
-export async function loginWithPin(email: string, pinCode: string) {
-  const supabase = await createServerSupabaseClient();
+async function loginWithPin(email: string, pinCode: string): Promise<LoginState> {
+  // PIN authentication has no Supabase Auth identity yet, so the RLS-protected
+  // users table must be queried only from this trusted server action.
+  const supabase = createPrivilegedServerSupabaseClient();
   const trimmedEmail = email.trim().toLowerCase();
   const trimmedPin = pinCode.trim();
 
   if (!trimmedEmail) {
-    throw new Error("Email or username is required.");
+    return { error: "Email or username is required." };
   }
 
   if (!/^\d{4}$/.test(trimmedPin)) {
-    throw new Error("PIN must be exactly 4 digits.");
+    return { error: "PIN must be exactly 4 digits." };
   }
 
   const { data, error } = await supabase
     .from("users")
-    .select("id, email, role, primary_hotel_id, full_name")
+    .select("id, email, role, primary_hotel_id")
     .eq("email", trimmedEmail)
     .eq("pin_code", trimmedPin)
     .maybeSingle();
 
-  if (error || !data) {
-    throw new Error("Invalid email or PIN code.");
+  if (error) {
+    console.error("PIN authentication lookup failed.", error);
+    return { error: "Unable to sign in right now. Please try again." };
   }
+  if (!data) return { error: "Invalid email or PIN code." };
 
-  await setSessionCookies({
-    userId: data.id,
-    email: data.email,
-    role: data.role,
-    hotelId: data.primary_hotel_id,
-  });
-
-  redirect(data.role === "cleaner" ? "/dashboard" : "/admin");
+  return establishUserSession(data);
 }
 
-export async function login(formData: FormData) {
+export async function login(formData: FormData): Promise<LoginState> {
   const method = (formData.get("method") ?? "email") as LoginMethod;
 
   if (method === "email") {
@@ -80,18 +94,20 @@ export async function login(formData: FormData) {
     const password = String(formData.get("password") ?? "");
 
     if (!email || !password) {
-      throw new Error("Email and password are required.");
+      return { error: "Email and password are required." };
     }
 
-    await loginWithEmailPassword(email, password);
+    return loginWithEmailPassword(email, password);
   }
+
+  if (method !== "pin") return { error: "Choose a valid sign-in method." };
 
   const email = String(formData.get("email") ?? "").trim();
   const pinCode = String(formData.get("pinCode") ?? "").trim();
 
   if (!email || !pinCode) {
-    throw new Error("Email or username and PIN code are required.");
+    return { error: "Email or username and PIN code are required." };
   }
 
-  await loginWithPin(email, pinCode);
+  return loginWithPin(email, pinCode);
 }
