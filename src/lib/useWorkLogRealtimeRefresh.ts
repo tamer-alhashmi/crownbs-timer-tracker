@@ -11,9 +11,8 @@ export function useWorkLogRealtimeRefresh() {
     const supabase = createClient();
     const channel = supabase
       .channel("work-log-dashboard-refresh")
-      .on("postgres_changes", { event: "*", schema: "public", table: "work_logs" }, () => {
-        router.refresh();
-      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "work_logs" }, () => router.refresh())
+      .on("postgres_changes", { event: "*", schema: "public", table: "master_shifts" }, () => router.refresh())
       .subscribe();
 
     return () => {

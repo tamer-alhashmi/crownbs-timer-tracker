@@ -14,6 +14,10 @@ Apply `supabase/migrations/20261001_property_setup.sql` to ensure properties hav
 
 Apply `supabase/migrations/20261002_payroll_task_management.sql` before deploying payroll task editing. It adds per-work-log cost overrides and audited soft deletion; deleted tasks are excluded from payroll totals while their records remain available for audit. Work-log changes are broadcast through Supabase Realtime to refresh open dashboards.
 
+## Management interventions and service controls
+
+Apply `supabase/migrations/20261003_management_interventions.sql` to enable audited shift clock-outs and active-task completion/cancellation, add the management override audit log, and publish shift changes through Supabase Realtime. Manager and Owner service controls use the existing `services_config` role policy and the `settings` feature permissions; management overrides and payroll task edits are scoped to assigned properties.
+
 ## Getting Started
 
 First, run the development server:

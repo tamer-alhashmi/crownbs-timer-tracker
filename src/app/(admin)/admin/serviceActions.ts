@@ -29,7 +29,7 @@ const BILLING_UNITS: BillingUnit[] = ["hourly", "per_room", "fixed"];
 
 async function requireAdmin(action: "view" | "create" | "edit" | "delete") {
   const user = await requireFeatureAccess("settings", action);
-  if (user.role !== "admin") throw new Error("Only administrators can manage service pricing.");
+  if (!["admin", "owner", "manager"].includes(user.role)) throw new Error("Management access required to manage service pricing.");
   return createPrivilegedServerSupabaseClient();
 }
 

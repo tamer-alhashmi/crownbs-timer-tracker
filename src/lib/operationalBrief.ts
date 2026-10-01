@@ -77,6 +77,7 @@ export async function getCleanerOperationalBrief(userId: string): Promise<Cleane
     .eq("user_id", userId)
     .eq("status", "completed")
     .is("deleted_at", null)
+    .is("cancelled_at", null)
     .gte("start_time", periodStart(8))
     .order("start_time", { ascending: false });
   if (error) throw new Error(error.message);
@@ -120,6 +121,7 @@ export async function getManagementOperationalBrief(user: AppUserSession, period
     .from("work_logs")
     .select("id, hotel_id, user_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, cost_override, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, rejection_notes, hotels(name), users(full_name, email), services_config(name, description, default_rate, unit)")
     .is("deleted_at", null)
+    .is("cancelled_at", null)
     .order("start_time", { ascending: false });
   if (period) {
     logQuery = logQuery.gte("start_time", period.from).lt("start_time", period.to);

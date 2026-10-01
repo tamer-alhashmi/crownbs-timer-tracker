@@ -12,13 +12,15 @@ type Props = {
   initialServices: ServiceRecord[];
   initialProperties: PropertyRecord[];
   propertyAssignees: { id: string; name: string; role: "owner" | "manager" }[];
+  canManageServices?: boolean;
+  canManageProperties?: boolean;
 };
 
 const EMPTY_FORM: ServiceForm = { name: "", default_rate: "15.00", unit: "hourly", description: "" };
 const UNIT_LABELS: Record<BillingUnit, string> = { hourly: "Hourly", per_room: "Per room", fixed: "Fixed per task" };
 const money = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" });
 
-export function ServicePricingManager({ initialServices, initialProperties, propertyAssignees }: Props) {
+export function ServicePricingManager({ initialServices, initialProperties, propertyAssignees, canManageServices = true, canManageProperties = true }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const panelId = useId();
   const propertySetupRef = useRef<PropertySetupHandle>(null);
@@ -105,15 +107,15 @@ export function ServicePricingManager({ initialServices, initialProperties, prop
         <button type="button" onClick={() => setIsOpen((value) => !value)} aria-expanded={isOpen} aria-controls={panelId} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-slate-800 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-700">
           {isOpen ? "Hide section" : "Open section"}<ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
         </button>
-        <button type="button" onClick={() => { setIsOpen(true); propertySetupRef.current?.openCreate(); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-900">
+        {canManageProperties && <button type="button" onClick={() => { setIsOpen(true); propertySetupRef.current?.openCreate(); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-900">
           <Building2 className="h-4 w-4" />Add / Setup Property
-        </button>
+        </button>}
         <button type="button" onClick={refreshServices} disabled={isPending} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-900 disabled:opacity-50">
           {isPending && <LoaderCircle className="h-4 w-4 animate-spin" />}Refresh
         </button>
-        <button type="button" onClick={openCreate} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400">
+        {canManageServices && <button type="button" onClick={openCreate} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400">
           <Plus className="h-4 w-4" />Add service
-        </button>
+        </button>}
       </div>
     </div>
 
@@ -133,18 +135,18 @@ export function ServicePricingManager({ initialServices, initialProperties, prop
         </div>
         <div className="mt-4 flex items-end justify-between gap-3 border-t border-slate-800 pt-3">
           <div><p className="text-2xl font-bold tabular-nums text-white">{money.format(Number(service.default_rate))}</p><p className="mt-0.5 text-xs text-cyan-300">{UNIT_LABELS[service.unit]}</p></div>
-          <div className="flex items-center gap-1">
+          {canManageServices && <div className="flex items-center gap-1">
             <button type="button" onClick={() => openEdit(service)} aria-label={`Edit ${service.name}`} title="Edit service" className="rounded-lg p-2 text-slate-300 hover:bg-slate-800 hover:text-white"><Pencil className="h-4 w-4" /></button>
             <button type="button" role="switch" aria-checked={service.is_active} onClick={() => toggleService(service)} disabled={isPending} aria-label={`${service.is_active ? "Deactivate" : "Activate"} ${service.name}`} title={service.is_active ? "Deactivate service" : "Activate service"} className={`rounded-lg p-2 disabled:opacity-50 ${service.is_active ? "text-emerald-300 hover:bg-slate-800" : "text-slate-500 hover:bg-slate-800 hover:text-emerald-300"}`}><Power className="h-4 w-4" /></button>
             {service.is_active && <button type="button" onClick={() => setDeactivating(service)} aria-label={`Delete ${service.name}`} title="Deactivate service" className="rounded-lg p-2 text-rose-300 hover:bg-rose-950/70"><Trash2 className="h-4 w-4" /></button>}
-          </div>
+          </div>}
         </div>
       </article>)}
       {services.length === 0 && <p className="rounded-xl border border-dashed border-slate-700 p-8 text-center text-sm text-slate-400 md:col-span-2 xl:col-span-3">No services configured.</p>}
     </div>
     </div>
 
-    <PropertySetup ref={propertySetupRef} initialProperties={initialProperties} assignees={propertyAssignees} />
+    <PropertySetup ref={propertySetupRef} initialProperties={initialProperties} assignees={propertyAssignees} canManage={canManageProperties} />
     </div>
 
     {viewing && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/75 p-4" role="dialog" aria-modal="true" aria-labelledby="service-details-title">
@@ -152,11 +154,11 @@ export function ServicePricingManager({ initialServices, initialProperties, prop
         <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-300">Service details</p><h3 id="service-details-title" className="mt-1 text-lg font-bold text-white">{viewing.name}</h3></div><button type="button" onClick={() => setViewing(null)} aria-label="Close service details" className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white"><X className="h-4 w-4" /></button></div>
         <p className="mt-4 text-sm text-slate-300">{viewing.description || "No description"}</p>
         <dl className="mt-4 grid grid-cols-2 gap-3 rounded-xl bg-slate-950 p-4 text-sm"><div><dt className="text-slate-400">Rate</dt><dd className="mt-1 font-semibold text-white">{money.format(Number(viewing.default_rate))}</dd></div><div><dt className="text-slate-400">Billing unit</dt><dd className="mt-1 font-semibold text-white">{UNIT_LABELS[viewing.unit]}</dd></div><div><dt className="text-slate-400">Status</dt><dd className="mt-1 font-semibold text-white">{viewing.is_active ? "Active" : "Inactive"}</dd></div><div><dt className="text-slate-400">Created</dt><dd className="mt-1 font-semibold text-white">{new Date(viewing.created_at).toLocaleDateString()}</dd></div></dl>
-        <div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setViewing(null)} className="rounded-xl border border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-300 hover:bg-slate-800">Close</button><button type="button" onClick={() => { openEdit(viewing); setViewing(null); }} className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-emerald-400"><Pencil className="h-4 w-4" />Edit</button>{viewing.is_active && <button type="button" onClick={() => { setDeactivating(viewing); setViewing(null); }} className="inline-flex items-center gap-2 rounded-xl bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-600"><Trash2 className="h-4 w-4" />Delete</button>}</div>
+        <div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setViewing(null)} className="rounded-xl border border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-300 hover:bg-slate-800">Close</button>{canManageServices && <button type="button" onClick={() => { openEdit(viewing); setViewing(null); }} className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-emerald-400"><Pencil className="h-4 w-4" />Edit</button>}{canManageServices && viewing.is_active && <button type="button" onClick={() => { setDeactivating(viewing); setViewing(null); }} className="inline-flex items-center gap-2 rounded-xl bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-600"><Trash2 className="h-4 w-4" />Delete</button>}</div>
       </section>
     </div>}
 
-    {formOpen && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/75 p-4" role="dialog" aria-modal="true" aria-labelledby="service-form-title">
+    {canManageServices && formOpen && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/75 p-4" role="dialog" aria-modal="true" aria-labelledby="service-form-title">
       <form onSubmit={saveService} className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-5 text-slate-100 shadow-2xl sm:p-6">
         <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-300">Service catalog</p><h3 id="service-form-title" className="mt-1 text-lg font-bold text-white">{editing ? "Edit service" : "Add service"}</h3></div><button type="button" onClick={() => setFormOpen(false)} aria-label="Close form" className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white"><X className="h-4 w-4" /></button></div>
         <div className="mt-5 grid gap-4">
@@ -172,7 +174,7 @@ export function ServicePricingManager({ initialServices, initialProperties, prop
       </form>
     </div>}
 
-    {deactivating && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/75 p-4" role="alertdialog" aria-modal="true" aria-labelledby="service-delete-title">
+    {canManageServices && deactivating && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/75 p-4" role="alertdialog" aria-modal="true" aria-labelledby="service-delete-title">
       <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-5 text-slate-100 shadow-2xl">
         <h3 id="service-delete-title" className="text-lg font-bold text-white">Deactivate {deactivating.name}?</h3>
         <p className="mt-2 text-sm leading-6 text-slate-300">The service will no longer be available for new tasks. Existing work logs and their service references will remain intact.</p>
