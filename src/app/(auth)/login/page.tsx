@@ -15,7 +15,8 @@ export default function LoginPage() {
     formData.set("method", method);
     try {
       setError("");
-      await login(formData);
+      const result = await login(formData);
+      setError(result.error);
     } catch (err) {
       if (
         typeof err === "object" &&
@@ -26,7 +27,7 @@ export default function LoginPage() {
       ) {
         throw err;
       }
-      setError(err instanceof Error ? err.message : "Authentication failed.");
+      setError("Unable to sign in right now. Please try again.");
     }
   };
 
