@@ -1,5 +1,11 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Global chat
+
+The global floating chat and notification bell are mounted from the root layout. Chat API routes enforce contact permissions using the live `users.role` value; all message and private attachment reads/writes go through those routes. Set `SUPABASE_SERVICE_ROLE_KEY` (already used by trusted server operations) and optionally `CHAT_SESSION_SECRET` to a high-entropy secret dedicated to signing chat session proofs. Users must sign in again after deployment to receive the proof cookie. Do not expose either secret to the browser.
+
+Apply `supabase/migrations/20261001_chat_system.sql` after creating the assumed `public.messages` table and `chat_attachments` bucket. The migration enables RLS, makes the bucket private, adds chat query indexes, and enables Realtime publication for `messages`. The bucket should allow the server service role to upload; chat attachments are limited to 12 MB and images, PDFs, and Word documents. The API stores attachment object paths in `messages.attachment_url` and authorizes each signed download against its conversation.
+
 ## Getting Started
 
 First, run the development server:
