@@ -1,7 +1,7 @@
 "use client";
 
-import { useId, useRef, useState, useTransition, type FormEvent } from "react";
-import { Building2, ChevronDown, LoaderCircle, Pencil, Plus, Power, Trash2, X } from "lucide-react";
+import { useRef, useState, useTransition, type FormEvent } from "react";
+import { Building2, LoaderCircle, Pencil, Plus, Power, Trash2, X } from "lucide-react";
 import { createService, deleteService, getServices, updateService, type ServiceRecord } from "./serviceActions";
 import type { PropertyRecord } from "./propertyActions";
 import { PropertySetup, type PropertySetupHandle } from "./PropertySetup";
@@ -21,8 +21,6 @@ const UNIT_LABELS: Record<BillingUnit, string> = { hourly: "Hourly", per_room: "
 const money = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" });
 
 export function ServicePricingManager({ initialServices, initialProperties, propertyAssignees, canManageServices = true, canManageProperties = true }: Props) {
-  const [isOpen, setIsOpen] = useState(false);
-  const panelId = useId();
   const propertySetupRef = useRef<PropertySetupHandle>(null);
   const [services, setServices] = useState(initialServices);
   const [form, setForm] = useState<ServiceForm>(EMPTY_FORM);
@@ -104,10 +102,7 @@ export function ServicePricingManager({ initialServices, initialProperties, prop
         <p className="mt-1 text-sm text-slate-400">{initialProperties.length} properties · {activeCount} active of {services.length} configured services</p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" onClick={() => setIsOpen((value) => !value)} aria-expanded={isOpen} aria-controls={panelId} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-slate-800 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-700">
-          {isOpen ? "Hide section" : "Open section"}<ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
-        </button>
-        {canManageProperties && <button type="button" onClick={() => { setIsOpen(true); propertySetupRef.current?.openCreate(); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-900">
+        {canManageProperties && <button type="button" onClick={() => propertySetupRef.current?.openCreate()} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-900">
           <Building2 className="h-4 w-4" />Add / Setup Property
         </button>}
         <button type="button" onClick={refreshServices} disabled={isPending} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-900 disabled:opacity-50">
@@ -121,7 +116,7 @@ export function ServicePricingManager({ initialServices, initialProperties, prop
 
     {message && <p role="status" className={`mt-4 rounded-xl border px-3 py-2.5 text-sm ${message.error ? "border-rose-800 bg-rose-950/60 text-rose-200" : "border-emerald-800 bg-emerald-950/50 text-emerald-200"}`}>{message.text}</p>}
 
-    <div id={panelId} aria-hidden={!isOpen} hidden={!isOpen} className={isOpen ? "mt-4" : ""}>
+    <div className="mt-4">
     <div className="admin-config-scroll max-h-80 overflow-y-auto rounded-xl border border-slate-800 p-2">
     <div className="sticky top-0 z-10 mb-2 flex items-center justify-between bg-slate-950/95 px-2 py-2 text-xs font-semibold uppercase tracking-wide text-slate-400 backdrop-blur"><span>Configured services</span><span>{services.length} total</span></div>
     <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">

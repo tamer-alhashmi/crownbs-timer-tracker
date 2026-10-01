@@ -9,6 +9,7 @@ import autoTable from "jspdf-autotable";
 import { calculateTaskCost, resolveBillingUnit, resolveServiceRate } from "@/lib/servicePricing";
 import type { ServiceRecord } from "./serviceActions";
 import { deletePayrollTask, updatePayrollTask } from "./actions";
+import { DashboardPagination } from "@/components/dashboard/DashboardPagination";
 
 type PayrollService = { name?: string | null; description?: string | null; default_rate?: number | string | null; unit?: string | null };
 const EXPORT_COLUMNS = [
@@ -98,7 +99,7 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
   logs: PayrollLog[];
   services: ServiceRecord[];
   hotels: { id: string; name: string }[];
-  cleaners: { id: string; name: string }[];
+  cleaners: { id: string; name: string; primary_hotel_id?: string | null }[];
   canManageTasks: boolean;
 }) {
   const router = useRouter();
@@ -108,6 +109,7 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
   const [to, setTo] = useState(today);
   const [selectedHotelId, setSelectedHotelId] = useState("");
   const [selectedCleanerId, setSelectedCleanerId] = useState("");
+  const [page, setPage] = useState(1);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<PayrollLog | null>(null);
   const [taskForm, setTaskForm] = useState<TaskForm>({ serviceId: "", roomsCompleted: "0", notes: "", cost: "0" });
@@ -121,6 +123,12 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
     .filter((log) => !selectedHotelId || log.hotel_id === selectedHotelId)
     .filter((log) => !selectedCleanerId || log.user_id === selectedCleanerId)
     .sort((left, right) => right.start_time.localeCompare(left.start_time));
+  const scopedCleaners = selectedHotelId
+    ? cleaners.filter((cleaner) => cleaner.primary_hotel_id === selectedHotelId || logs.some((log) => log.hotel_id === selectedHotelId && log.user_id === cleaner.id && log.task_date >= from && log.task_date <= to))
+    : cleaners;
+  const pageCount = Math.max(1, Math.ceil(filteredLogs.length / 30));
+  const currentPage = Math.min(page, pageCount);
+  const visibleLogs = filteredLogs.slice((currentPage - 1) * 30, currentPage * 30);
   const totals = filteredLogs.reduce((total, log) => {
     const hours = durationHours(log);
     const service = log.services_config[0] ?? {};
@@ -311,10 +319,10 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
     <div className="flex flex-col gap-4 border-b border-slate-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
       <div><h3 className="text-lg font-semibold text-slate-950">Payroll</h3><p className="mt-1 text-sm text-slate-500">Configured service costs · {filteredLogs.length} records</p></div>
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <label className="text-xs font-medium text-slate-600">From<input type="date" value={from} max={to} onChange={(event) => setFrom(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" /></label>
-        <label className="text-xs font-medium text-slate-600">To<input type="date" value={to} min={from} max={today} onChange={(event) => setTo(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" /></label>
-        <label className="text-xs font-medium text-slate-600">Hotel<select value={selectedHotelId} onChange={(event) => setSelectedHotelId(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"><option value="">All hotels</option>{hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select></label>
-        <label className="text-xs font-medium text-slate-600">Cleaner<select value={selectedCleanerId} onChange={(event) => setSelectedCleanerId(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"><option value="">All cleaners</option>{cleaners.map((cleaner) => <option key={cleaner.id} value={cleaner.id}>{cleaner.name}</option>)}</select></label>
+        <label className="text-xs font-medium text-slate-600">From<input type="date" value={from} max={to} onChange={(event) => { setFrom(event.target.value); setPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" /></label>
+        <label className="text-xs font-medium text-slate-600">To<input type="date" value={to} min={from} max={today} onChange={(event) => { setTo(event.target.value); setPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" /></label>
+        <label className="text-xs font-medium text-slate-600">Hotel<select value={selectedHotelId} onChange={(event) => { setSelectedHotelId(event.target.value); setSelectedCleanerId(""); setPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"><option value="">All hotels</option>{hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select></label>
+        <label className="text-xs font-medium text-slate-600">Cleaner<select value={selectedCleanerId} onChange={(event) => { setSelectedCleanerId(event.target.value); setPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"><option value="">All cleaners</option>{scopedCleaners.map((cleaner) => <option key={cleaner.id} value={cleaner.id}>{cleaner.name}</option>)}</select></label>
       </div>
       <div className="flex justify-end">
         <div className="relative">
@@ -327,11 +335,11 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
         </div>
       </div>
     </div>
-    <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
+    <div className="mt-4 max-h-[65vh] overflow-auto rounded-lg border border-slate-200">
       <table className="min-w-[760px] w-full text-left text-sm">
-        <thead><tr><th className="px-3 py-3">Task date/time</th><th className="px-3 py-3">Cleaner</th><th className="px-3 py-3">Hotel / service</th><th className="px-3 py-3 text-right">Hours</th><th className="px-3 py-3 text-right">Rooms</th><th className="px-3 py-3 text-right">Cost (GBP)</th>{canManageTasks && <th className="px-3 py-3 text-right">Manage</th>}</tr></thead>
+        <thead className="sticky top-0 z-10 bg-white/95 text-slate-600 shadow-sm backdrop-blur"><tr><th className="px-3 py-3">Task date/time</th><th className="px-3 py-3">Cleaner</th><th className="px-3 py-3">Hotel / service</th><th className="px-3 py-3 text-right">Hours</th><th className="px-3 py-3 text-right">Rooms</th><th className="px-3 py-3 text-right">Cost (GBP)</th>{canManageTasks && <th className="px-3 py-3 text-right">Manage</th>}</tr></thead>
         <tbody className="divide-y divide-slate-100">
-          {filteredLogs.map((log) => {
+          {visibleLogs.map((log) => {
             const hours = durationHours(log);
             const service = log.services_config[0] ?? {};
             const rate = resolveServiceRate(service);
@@ -353,6 +361,7 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
         <tfoot><tr className="font-semibold text-slate-950"><td colSpan={3} className="px-3 py-3">Filtered totals</td><td className="px-3 py-3 text-right tabular-nums">{totals.hours.toFixed(2)}</td><td className="px-3 py-3 text-right tabular-nums">{totals.rooms}</td><td className="px-3 py-3 text-right tabular-nums">GBP {totals.cost.toFixed(2)}</td>{canManageTasks && <td />}</tr></tfoot>
       </table>
     </div>
+    <DashboardPagination currentPage={currentPage} pageCount={pageCount} total={filteredLogs.length} pageSize={30} label="payroll records" onPageChange={setPage} />
     {editingTask && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-labelledby="payroll-task-edit-title">
       <form onSubmit={saveTask} className="w-full max-w-lg rounded-2xl bg-white p-5 text-slate-900 shadow-2xl">
         <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-sky-700">Payroll task</p><h2 id="payroll-task-edit-title" className="mt-1 text-xl font-bold">Edit completed task</h2></div><button type="button" onClick={() => setEditingTask(null)} aria-label="Close task editor" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div>
