@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import type { ReactNode } from "react";
 import "./globals.css";
 import "./management-dashboard.css";
+import { getSessionUser } from "@/lib/auth";
+import { ChatProviders } from "@/components/chat/ChatProviders";
+import { GlobalChatWidget } from "@/components/chat/GlobalChatWidget";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -19,14 +23,19 @@ export const metadata: Metadata = {
   manifest: '/manifest.json',
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const user = await getSessionUser();
+
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body suppressHydrationWarning className="min-h-full flex flex-col bg-slate-100 text-slate-900">
-        {children}
+        <ChatProviders>
+          {children}
+          {user && <GlobalChatWidget user={user} />}
+        </ChatProviders>
       </body>
     </html>
   );
