@@ -17,7 +17,7 @@ export function MessageBubble({
   return (
     <div className={`flex ${isOwn ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-[84%] rounded-2xl px-3.5 py-2.5 shadow-sm ${
+        className={`max-w-[84%] rounded-2xl px-4 py-3 shadow-sm ${
           isOwn
             ? "rounded-br-md bg-indigo-600 text-white"
             : "rounded-bl-md border border-slate-200 bg-white text-slate-800"
@@ -50,7 +50,7 @@ export function MessageBubble({
           </a>
         )}
         {message.content && (
-          <p className="whitespace-pre-wrap break-words text-sm leading-5">{message.content}</p>
+          <p className="whitespace-pre-wrap break-words text-sm leading-6">{message.content}</p>
         )}
         <div
           className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${

@@ -1,19 +1,18 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { Bell, MessageCircle } from "lucide-react";
 import { useState } from "react";
-import { fetchUnread } from "./chatApi";
 import { useChatStore } from "./chatStore";
-import { roleLabel } from "@/lib/chat/types";
+import { roleLabel, type UnreadMessage } from "@/lib/chat/types";
 
-export function NotificationBell() {
+export function NotificationBell({
+  data,
+  error,
+}: {
+  data: { count: number; messages: UnreadMessage[] } | undefined;
+  error: Error | null;
+}) {
   const [isOpen, setIsOpen] = useState(false);
-  const { data, error } = useQuery({
-    queryKey: ["chat", "unread"],
-    queryFn: fetchUnread,
-    refetchInterval: 60_000,
-  });
   const openChat = useChatStore((state) => state.openChat);
   const unreadCount = data?.count ?? 0;
 
@@ -21,7 +20,7 @@ export function NotificationBell() {
     <div className="relative">
       <button
         type="button"
-        aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread messages` : ""}`}
+        aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread chat messages` : ""}`}
         aria-expanded={isOpen}
         title={error ? "Notifications could not be loaded" : undefined}
         onClick={() => setIsOpen((open) => !open)}
@@ -39,7 +38,9 @@ export function NotificationBell() {
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-slate-900">Notifications</p>
-              <p className="text-xs text-slate-500">{unreadCount} unread messages</p>
+              <p className="text-xs text-slate-500">
+                {unreadCount} unread {unreadCount === 1 ? "chat message" : "chat messages"}
+              </p>
             </div>
             <MessageCircle className="h-4 w-4 text-indigo-600" />
           </div>

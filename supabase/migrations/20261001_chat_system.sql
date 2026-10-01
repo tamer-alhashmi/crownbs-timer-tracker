@@ -23,6 +23,7 @@ CREATE POLICY "Chat attachments through server API only"
 CREATE INDEX IF NOT EXISTS idx_messages_receiver_unread_created
   ON public.messages (receiver_id, created_at DESC)
   WHERE is_read = false;
+  
 
 CREATE INDEX IF NOT EXISTS idx_messages_sender_receiver_created
   ON public.messages (sender_id, receiver_id, created_at);
