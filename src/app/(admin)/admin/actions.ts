@@ -73,8 +73,8 @@ export async function getManagementOverview(period?: { from: string; to: string 
   const hotelFilter = user.role === "admin" ? null : hotelIds;
   const cleanersQuery = supabase.from("users").select("id, full_name, email, role, primary_hotel_id").eq("role", "cleaner").order("full_name").order("id");
   const assigneesQuery = supabase.from("users").select("id, full_name, email, role").in("role", ["owner", "manager"]).order("full_name").order("id");
-  const logsQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, hotels(name), users(full_name, email), services_config(name, description, default_rate, unit)").order("start_time", { ascending: false }).order("id");
-  const payrollQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, shift_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, room_ids, service_name_snapshot, service_description_snapshot, notes, travel_time_included, manager_approved, owner_approved, manager_approved_at, owner_approved_at, manager_rejected, owner_rejected, manager_rejected_at, owner_rejected_at, rejection_notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, import_key, is_locked, created_at, updated_at, hotels(name, location), users(full_name, email), services_config(name, description, default_rate, unit)").eq("is_locked", true).eq("status", "completed").order("start_time", { ascending: false }).order("id");
+  const logsQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, cost_override, deleted_at, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, hotels(name), users(full_name, email), services_config(name, description, default_rate, unit)").is("deleted_at", null).order("start_time", { ascending: false }).order("id");
+  const payrollQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, shift_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, room_ids, service_name_snapshot, service_description_snapshot, notes, cost_override, deleted_at, travel_time_included, manager_approved, owner_approved, manager_approved_at, owner_approved_at, manager_rejected, owner_rejected, manager_rejected_at, owner_rejected_at, rejection_notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, import_key, is_locked, created_at, updated_at, hotels(name, location), users(full_name, email), services_config(name, description, default_rate, unit)").eq("is_locked", true).eq("status", "completed").is("deleted_at", null).order("start_time", { ascending: false }).order("id");
   if (hotelFilter) { logsQuery.in("hotel_id", hotelIds); payrollQuery.in("hotel_id", hotelIds); }
   const servicesQuery = supabase.from("services_config").select("id, name, description, unit, default_rate, is_active, created_at").order("name").order("id");
   const roomsQuery = supabase.from("rooms").select("id, hotel_id, room_name, category, status").in("hotel_id", hotelIds.length ? hotelIds : ["00000000-0000-0000-0000-000000000000"]).eq("status", "active").order("room_name").order("id");
@@ -127,6 +127,92 @@ export async function getManagementOverview(period?: { from: string; to: string 
     userEmail: currentUser?.email ?? user.email,
     brief,
   };
+}
+
+export type PayrollTaskUpdate = {
+  serviceId: string;
+  roomsCompleted: number;
+  notes: string;
+  cost: number;
+};
+
+async function requireAdminPayrollAccess(action: "edit" | "delete") {
+  const user = await requireFeatureAccess("work_log_approvals", action);
+  if (user.role !== "admin") throw new Error("Only administrators can manage locked payroll tasks.");
+  return user;
+}
+
+export async function updatePayrollTask(logId: string, changes: PayrollTaskUpdate) {
+  const user = await requireAdminPayrollAccess("edit");
+  if (!logId || !changes.serviceId) throw new Error("A task and service are required.");
+  if (!Number.isInteger(changes.roomsCompleted) || changes.roomsCompleted < 0 || changes.roomsCompleted > 1_000_000) {
+    throw new Error("Units completed must be a whole number between 0 and 1,000,000.");
+  }
+  if (!Number.isFinite(changes.cost) || changes.cost < 0 || changes.cost > 1_000_000_000) {
+    throw new Error("Task cost must be a non-negative amount.");
+  }
+  if (typeof changes.notes !== "string" || changes.notes.length > 2000) {
+    throw new Error("Task notes must be 2,000 characters or fewer.");
+  }
+
+  const supabase = createPrivilegedServerSupabaseClient();
+  const { data: previous, error: readError } = await supabase.from("work_logs").select("*").eq("id", logId).maybeSingle();
+  if (readError || !previous) throw new Error(readError?.message ?? "Payroll task was not found.");
+  if (!previous.is_locked || previous.status !== "completed" || previous.deleted_at) {
+    throw new Error("Only active, locked completed tasks can be edited from payroll.");
+  }
+  const { data: service, error: serviceError } = await supabase.from("services_config").select("id, is_active, name, description").eq("id", changes.serviceId).maybeSingle();
+  if (serviceError || !service || (!service.is_active && service.id !== previous.service_id)) throw new Error("Choose an active service.");
+
+  const now = new Date().toISOString();
+  const { data: updated, error: updateError } = await supabase.from("work_logs").update({
+    service_id: changes.serviceId,
+    service_name_snapshot: service.name,
+    service_description_snapshot: service.description,
+    rooms_completed: changes.roomsCompleted,
+    notes: changes.notes.trim(),
+    cost_override: Math.round(changes.cost * 100) / 100,
+    updated_at: now,
+  }).eq("id", logId).is("deleted_at", null).select("*").single();
+  if (updateError || !updated) throw new Error(updateError?.message ?? "Payroll task could not be updated.");
+  const { error: auditError } = await supabase.from("work_log_audit").insert({
+    work_log_id: logId,
+    actor_id: user.userId,
+    action: "edited",
+    previous_values: previous,
+    new_values: updated,
+  });
+  if (auditError) throw new Error(`Task was updated, but audit history could not be saved: ${auditError.message}`);
+  for (const path of ["/admin", "/dashboard", "/owner", "/manager"]) revalidatePath(path);
+  return { id: updated.id };
+}
+
+export async function deletePayrollTask(logId: string) {
+  const user = await requireAdminPayrollAccess("delete");
+  if (!logId) throw new Error("A payroll task is required.");
+  const supabase = createPrivilegedServerSupabaseClient();
+  const { data: previous, error: readError } = await supabase.from("work_logs").select("*").eq("id", logId).maybeSingle();
+  if (readError || !previous) throw new Error(readError?.message ?? "Payroll task was not found.");
+  if (!previous.is_locked || previous.status !== "completed" || previous.deleted_at) {
+    throw new Error("Only active, locked completed tasks can be removed from payroll.");
+  }
+
+  const now = new Date().toISOString();
+  const { data: deleted, error: updateError } = await supabase.from("work_logs").update({
+    deleted_at: now,
+    updated_at: now,
+  }).eq("id", logId).is("deleted_at", null).select("*").single();
+  if (updateError || !deleted) throw new Error(updateError?.message ?? "Payroll task could not be removed.");
+  const { error: auditError } = await supabase.from("work_log_audit").insert({
+    work_log_id: logId,
+    actor_id: user.userId,
+    action: "deleted",
+    previous_values: previous,
+    new_values: deleted,
+  });
+  if (auditError) throw new Error(`Task was removed, but audit history could not be saved: ${auditError.message}`);
+  for (const path of ["/admin", "/dashboard", "/owner", "/manager"]) revalidatePath(path);
+  return { id: deleted.id };
 }
 
 export async function updateWorkLog(logId: string, changes: WorkLogUpdate) {

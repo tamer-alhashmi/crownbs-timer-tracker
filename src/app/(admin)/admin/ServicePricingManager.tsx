@@ -1,10 +1,10 @@
 "use client";
 
-import { useId, useState, useTransition, type FormEvent } from "react";
-import { ChevronDown, LoaderCircle, Pencil, Plus, Power, Trash2, X } from "lucide-react";
+import { useId, useRef, useState, useTransition, type FormEvent } from "react";
+import { Building2, ChevronDown, LoaderCircle, Pencil, Plus, Power, Trash2, X } from "lucide-react";
 import { createService, deleteService, getServices, updateService, type ServiceRecord } from "./serviceActions";
 import type { PropertyRecord } from "./propertyActions";
-import { PropertySetup } from "./PropertySetup";
+import { PropertySetup, type PropertySetupHandle } from "./PropertySetup";
 import type { BillingUnit } from "@/lib/servicePricing";
 
 type ServiceForm = { name: string; default_rate: string; unit: BillingUnit; description: string };
@@ -21,6 +21,7 @@ const money = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP
 export function ServicePricingManager({ initialServices, initialProperties, propertyAssignees }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const panelId = useId();
+  const propertySetupRef = useRef<PropertySetupHandle>(null);
   const [services, setServices] = useState(initialServices);
   const [form, setForm] = useState<ServiceForm>(EMPTY_FORM);
   const [editing, setEditing] = useState<ServiceRecord | null>(null);
@@ -100,9 +101,12 @@ export function ServicePricingManager({ initialServices, initialProperties, prop
         <h2 className="mt-1 text-xl font-bold text-white">Setup Property &amp; Services</h2>
         <p className="mt-1 text-sm text-slate-400">{initialProperties.length} properties · {activeCount} active of {services.length} configured services</p>
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button type="button" onClick={() => setIsOpen((value) => !value)} aria-expanded={isOpen} aria-controls={panelId} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-slate-800 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-700">
           {isOpen ? "Hide section" : "Open section"}<ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
+        </button>
+        <button type="button" onClick={() => { setIsOpen(true); propertySetupRef.current?.openCreate(); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-900">
+          <Building2 className="h-4 w-4" />Add / Setup Property
         </button>
         <button type="button" onClick={refreshServices} disabled={isPending} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-900 disabled:opacity-50">
           {isPending && <LoaderCircle className="h-4 w-4 animate-spin" />}Refresh
@@ -116,7 +120,9 @@ export function ServicePricingManager({ initialServices, initialProperties, prop
     {message && <p role="status" className={`mt-4 rounded-xl border px-3 py-2.5 text-sm ${message.error ? "border-rose-800 bg-rose-950/60 text-rose-200" : "border-emerald-800 bg-emerald-950/50 text-emerald-200"}`}>{message.text}</p>}
 
     <div id={panelId} aria-hidden={!isOpen} hidden={!isOpen} className={isOpen ? "mt-4" : ""}>
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+    <div className="admin-config-scroll max-h-80 overflow-y-auto rounded-xl border border-slate-800 p-2">
+    <div className="sticky top-0 z-10 mb-2 flex items-center justify-between bg-slate-950/95 px-2 py-2 text-xs font-semibold uppercase tracking-wide text-slate-400 backdrop-blur"><span>Configured services</span><span>{services.length} total</span></div>
+    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
       {services.map((service) => <article key={service.id} className="min-w-0 rounded-2xl border border-slate-800 bg-slate-900 p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -136,8 +142,9 @@ export function ServicePricingManager({ initialServices, initialProperties, prop
       </article>)}
       {services.length === 0 && <p className="rounded-xl border border-dashed border-slate-700 p-8 text-center text-sm text-slate-400 md:col-span-2 xl:col-span-3">No services configured.</p>}
     </div>
+    </div>
 
-    <PropertySetup initialProperties={initialProperties} assignees={propertyAssignees} />
+    <PropertySetup ref={propertySetupRef} initialProperties={initialProperties} assignees={propertyAssignees} />
     </div>
 
     {viewing && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/75 p-4" role="dialog" aria-modal="true" aria-labelledby="service-details-title">

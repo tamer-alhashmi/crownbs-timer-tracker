@@ -37,3 +37,11 @@ export function calculateServiceCost(hours: number, rooms: number, service: Serv
   if (unit === "fixed") return rate;
   return Math.max(0, hours) * rate;
 }
+
+export function calculateTaskCost(hours: number, rooms: number, service: ServicePricing, costOverride?: number | string | null): number {
+  if (costOverride !== null && costOverride !== undefined && costOverride !== "") {
+    const override = Number(costOverride);
+    if (Number.isFinite(override) && override >= 0) return override;
+  }
+  return calculateServiceCost(hours, rooms, service);
+}

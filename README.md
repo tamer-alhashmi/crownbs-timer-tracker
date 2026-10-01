@@ -10,6 +10,10 @@ Apply `supabase/migrations/20261001_chat_system.sql` to create the `public.messa
 
 Apply `supabase/migrations/20261001_property_setup.sql` to ensure properties have generated UUIDs, creation timestamps, owner/manager assignments, locations, and active status. Administrators can manage properties and services from the dashboard's **Property & services** section.
 
+## Payroll task management
+
+Apply `supabase/migrations/20261002_payroll_task_management.sql` before deploying payroll task editing. It adds per-work-log cost overrides and audited soft deletion; deleted tasks are excluded from payroll totals while their records remain available for audit. Work-log changes are broadcast through Supabase Realtime to refresh open dashboards.
+
 ## Getting Started
 
 First, run the development server:

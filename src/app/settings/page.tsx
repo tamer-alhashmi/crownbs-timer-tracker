@@ -18,7 +18,7 @@ export default async function SettingsPage() {
     const [{ data: profile }, { data: hotel }, { data: payroll }] = await Promise.all([
       supabase.from("users").select("full_name, email").eq("id", user.userId).maybeSingle(),
       user.hotelId ? supabase.from("hotels").select("name, location").eq("id", user.hotelId).maybeSingle() : Promise.resolve({ data: null }),
-      supabase.from("work_logs").select("id, start_time, end_time, task_date, rooms_completed, is_locked, services_config(name, default_rate, unit)").eq("user_id", user.userId).eq("status", "completed").order("start_time", { ascending: false }),
+      supabase.from("work_logs").select("id, start_time, end_time, task_date, rooms_completed, is_locked, cost_override, deleted_at, services_config(name, default_rate, unit)").eq("user_id", user.userId).eq("status", "completed").is("deleted_at", null).order("start_time", { ascending: false }),
     ]);
     const name = profile?.full_name ?? user.email;
     return <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-900 sm:px-6 sm:py-10"><div className="mx-auto max-w-5xl">

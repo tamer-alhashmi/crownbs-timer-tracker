@@ -6,10 +6,9 @@ import { ChevronDown, Download, FileSpreadsheet, FileText, Pencil, Trash2, X } f
 import { strToU8, zipSync } from "fflate";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { calculateServiceCost, resolveBillingUnit, resolveServiceRate } from "@/lib/servicePricing";
+import { calculateTaskCost, resolveBillingUnit, resolveServiceRate } from "@/lib/servicePricing";
 import type { ServiceRecord } from "./serviceActions";
-import { deleteService, updateService } from "./serviceActions";
-import type { BillingUnit } from "@/lib/servicePricing";
+import { deletePayrollTask, updatePayrollTask } from "./actions";
 
 type PayrollService = { name?: string | null; description?: string | null; default_rate?: number | string | null; unit?: string | null };
 const EXPORT_COLUMNS = [
@@ -22,7 +21,7 @@ const EXPORT_COLUMNS = [
 ] as const;
 type ExportColumn = typeof EXPORT_COLUMNS[number];
 type ExportRow = Record<ExportColumn, string | number | boolean>;
-type ServiceForm = { name: string; description: string; default_rate: string; unit: BillingUnit };
+type TaskForm = { serviceId: string; roomsCompleted: string; notes: string; cost: string };
 export type PayrollLog = {
   id: string;
   user_id?: string;
@@ -61,6 +60,7 @@ export type PayrollLog = {
   responsibility_recorded_at?: string | null;
   import_key?: string | null;
   is_locked?: boolean;
+  cost_override?: number | string | null;
   created_at?: string;
   updated_at?: string;
   services_config: PayrollService[];
@@ -94,12 +94,12 @@ function downloadFile(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageServices }: {
+export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageTasks }: {
   logs: PayrollLog[];
   services: ServiceRecord[];
   hotels: { id: string; name: string }[];
   cleaners: { id: string; name: string }[];
-  canManageServices: boolean;
+  canManageTasks: boolean;
 }) {
   const router = useRouter();
   const today = new Date().toISOString().slice(0, 10);
@@ -109,12 +109,11 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageS
   const [selectedHotelId, setSelectedHotelId] = useState("");
   const [selectedCleanerId, setSelectedCleanerId] = useState("");
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
-  const [selectedServiceLog, setSelectedServiceLog] = useState<PayrollLog | null>(null);
-  const [editingService, setEditingService] = useState<ServiceRecord | null>(null);
-  const [serviceForm, setServiceForm] = useState<ServiceForm>({ name: "", description: "", default_rate: "", unit: "hourly" });
-  const [deletingService, setDeletingService] = useState<ServiceRecord | null>(null);
-  const [serviceMessage, setServiceMessage] = useState<{ text: string; error: boolean } | null>(null);
-  const [isServicePending, startServiceTransition] = useTransition();
+  const [editingTask, setEditingTask] = useState<PayrollLog | null>(null);
+  const [taskForm, setTaskForm] = useState<TaskForm>({ serviceId: "", roomsCompleted: "0", notes: "", cost: "0" });
+  const [deletingTask, setDeletingTask] = useState<PayrollLog | null>(null);
+  const [taskMessage, setTaskMessage] = useState<{ text: string; error: boolean } | null>(null);
+  const [isTaskPending, startTaskTransition] = useTransition();
   const hotelNames = new Map(hotels.map((hotel) => [hotel.id, hotel.name]));
   const cleanerNames = new Map(cleaners.map((cleaner) => [cleaner.id, cleaner.name]));
   const filteredLogs = logs
@@ -128,7 +127,7 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageS
     return {
       hours: total.hours + hours,
       rooms: total.rooms + log.rooms_completed,
-      cost: total.cost + calculateServiceCost(hours, log.rooms_completed, service),
+      cost: total.cost + calculateTaskCost(hours, log.rooms_completed, service, log.cost_override),
     };
   }, { hours: 0, rooms: 0, cost: 0 });
   const exportRows: ExportRow[] = filteredLogs.map((log) => {
@@ -181,7 +180,7 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageS
       "Created at": log.created_at ?? "",
       "Updated at": log.updated_at ?? "",
       "Import key": log.import_key ?? "",
-      "Cost (GBP)": Number(calculateServiceCost(hours, log.rooms_completed, { ...service, default_rate: rate, unit }).toFixed(2)),
+      "Cost (GBP)": Number(calculateTaskCost(hours, log.rooms_completed, { ...service, default_rate: rate, unit }, log.cost_override).toFixed(2)),
     };
   });
   const exportSummary = Object.fromEntries(EXPORT_COLUMNS.map((column) => [column, ""])) as ExportRow;
@@ -194,43 +193,50 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageS
   exportSummary["Cost (GBP)"] = Number(totals.cost.toFixed(2));
   const filterSuffix = [from, to, hotelNames.get(selectedHotelId), cleanerNames.get(selectedCleanerId)].filter(Boolean).join("-").replace(/[^a-z0-9-]/gi, "-");
   const filename = `payroll-${filterSuffix || "all-records"}`;
-  const startEditingService = (service: ServiceRecord) => {
-    setEditingService(service);
-    setServiceForm({ name: service.name, description: service.description, default_rate: Number(service.default_rate).toFixed(2), unit: service.unit });
-    setSelectedServiceLog(null);
-    setServiceMessage(null);
+  const startEditingTask = (log: PayrollLog) => {
+    const service = log.services_config[0] ?? {};
+    const hours = durationHours(log);
+    const cost = calculateTaskCost(hours, log.rooms_completed, service, log.cost_override);
+    setEditingTask(log);
+    setTaskForm({
+      serviceId: log.service_id ?? "",
+      roomsCompleted: String(log.rooms_completed),
+      notes: log.notes ?? "",
+      cost: Number(cost).toFixed(2),
+    });
+    setTaskMessage(null);
   };
 
-  const saveService = (event: FormEvent<HTMLFormElement>) => {
+  const saveTask = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!editingService) return;
-    startServiceTransition(async () => {
+    if (!editingTask) return;
+    startTaskTransition(async () => {
       try {
-        await updateService(editingService.id, {
-          name: serviceForm.name,
-          description: serviceForm.description,
-          default_rate: Number(serviceForm.default_rate),
-          unit: serviceForm.unit,
+        await updatePayrollTask(editingTask.id, {
+          serviceId: taskForm.serviceId,
+          roomsCompleted: Number(taskForm.roomsCompleted),
+          notes: taskForm.notes,
+          cost: Number(taskForm.cost),
         });
-        setEditingService(null);
-        setServiceMessage({ text: "Service updated.", error: false });
+        setEditingTask(null);
+        setTaskMessage({ text: "Payroll task updated.", error: false });
         router.refresh();
       } catch (error) {
-        setServiceMessage({ text: error instanceof Error ? error.message : "Unable to update service.", error: true });
+        setTaskMessage({ text: error instanceof Error ? error.message : "Unable to update task.", error: true });
       }
     });
   };
 
-  const confirmDeleteService = () => {
-    if (!deletingService) return;
-    startServiceTransition(async () => {
+  const confirmDeleteTask = () => {
+    if (!deletingTask) return;
+    startTaskTransition(async () => {
       try {
-        await deleteService(deletingService.id);
-        setDeletingService(null);
-        setServiceMessage({ text: `${deletingService.name} was deleted from the active service catalog. Historical work logs are preserved.`, error: false });
+        await deletePayrollTask(deletingTask.id);
+        setDeletingTask(null);
+        setTaskMessage({ text: "Task removed from payroll. Its audit history is retained.", error: false });
         router.refresh();
       } catch (error) {
-        setServiceMessage({ text: error instanceof Error ? error.message : "Unable to delete service.", error: true });
+        setTaskMessage({ text: error instanceof Error ? error.message : "Unable to remove task.", error: true });
       }
     });
   };
@@ -301,7 +307,7 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageS
   };
 
   return <section className="rounded-2xl bg-white p-4 text-slate-900 shadow-sm ring-1 ring-slate-200 sm:p-6">
-    {serviceMessage && <p role={serviceMessage.error ? "alert" : "status"} className={`mb-4 rounded-lg border px-3 py-2 text-sm ${serviceMessage.error ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>{serviceMessage.text}</p>}
+    {taskMessage && <p role={taskMessage.error ? "alert" : "status"} className={`mb-4 rounded-lg border px-3 py-2 text-sm ${taskMessage.error ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>{taskMessage.text}</p>}
     <div className="flex flex-col gap-4 border-b border-slate-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
       <div><h3 className="text-lg font-semibold text-slate-950">Payroll</h3><p className="mt-1 text-sm text-slate-500">Configured service costs · {filteredLogs.length} records</p></div>
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
@@ -323,55 +329,46 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageS
     </div>
     <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
       <table className="min-w-[760px] w-full text-left text-sm">
-        <thead><tr><th className="px-3 py-3">Task date/time</th><th className="px-3 py-3">Cleaner</th><th className="px-3 py-3">Hotel / service</th><th className="px-3 py-3 text-right">Hours</th><th className="px-3 py-3 text-right">Rooms</th><th className="px-3 py-3 text-right">Cost (GBP)</th></tr></thead>
+        <thead><tr><th className="px-3 py-3">Task date/time</th><th className="px-3 py-3">Cleaner</th><th className="px-3 py-3">Hotel / service</th><th className="px-3 py-3 text-right">Hours</th><th className="px-3 py-3 text-right">Rooms</th><th className="px-3 py-3 text-right">Cost (GBP)</th>{canManageTasks && <th className="px-3 py-3 text-right">Manage</th>}</tr></thead>
         <tbody className="divide-y divide-slate-100">
           {filteredLogs.map((log) => {
             const hours = durationHours(log);
             const service = log.services_config[0] ?? {};
             const rate = resolveServiceRate(service);
             const unit = resolveBillingUnit(service.unit, service.name ?? "");
-            const cost = calculateServiceCost(hours, log.rooms_completed, { ...service, default_rate: rate, unit });
+            const cost = calculateTaskCost(hours, log.rooms_completed, { ...service, default_rate: rate, unit }, log.cost_override);
             const unitLabel = unit === "hourly" ? "/hr" : unit === "per_room" ? "/room" : "fixed";
             return <tr key={log.id} className="hover:bg-slate-50">
               <td className="whitespace-nowrap px-3 py-3 text-slate-600">{new Date(log.start_time).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}</td>
               <td className="px-3 py-3 font-medium text-slate-900">{log.cleanerName}</td>
-              <td className="px-3 py-3 text-slate-700">{log.hotelName}<button type="button" disabled={!log.service_id} onClick={() => setSelectedServiceLog(log)} className="mt-0.5 block text-left text-xs font-medium text-sky-800 underline decoration-sky-300 underline-offset-2 hover:text-sky-950 disabled:cursor-default disabled:text-slate-500 disabled:no-underline">{service.name ?? log.service_name_snapshot ?? "Service"} · GBP {rate.toFixed(2)} {unitLabel}</button></td>
+              <td className="px-3 py-3 text-slate-700">{log.hotelName}<span className="mt-0.5 block text-xs text-slate-500">{service.name ?? log.service_name_snapshot ?? "Service"} · GBP {rate.toFixed(2)} {unitLabel}</span></td>
               <td className="px-3 py-3 text-right tabular-nums text-slate-700">{hours.toFixed(2)}</td>
               <td className="px-3 py-3 text-right tabular-nums text-slate-700">{log.rooms_completed}</td>
               <td className="px-3 py-3 text-right font-semibold tabular-nums text-slate-900">{cost.toFixed(2)}</td>
+              {canManageTasks && <td className="px-3 py-3"><div className="flex justify-end gap-1"><button type="button" onClick={() => startEditingTask(log)} aria-label={`Edit payroll task for ${log.cleanerName}`} title="Edit task" className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-950"><Pencil className="h-4 w-4" /></button><button type="button" onClick={() => setDeletingTask(log)} aria-label={`Remove payroll task for ${log.cleanerName}`} title="Remove task from payroll" className="rounded-lg p-2 text-rose-700 hover:bg-rose-50"><Trash2 className="h-4 w-4" /></button></div></td>}
             </tr>;
           })}
-          {filteredLogs.length === 0 && <tr><td colSpan={6} className="px-3 py-8 text-center text-slate-500">No locked payroll records in this date range.</td></tr>}
+          {filteredLogs.length === 0 && <tr><td colSpan={canManageTasks ? 7 : 6} className="px-3 py-8 text-center text-slate-500">No locked payroll records in this date range.</td></tr>}
         </tbody>
-        <tfoot><tr className="font-semibold text-slate-950"><td colSpan={3} className="px-3 py-3">Filtered totals</td><td className="px-3 py-3 text-right tabular-nums">{totals.hours.toFixed(2)}</td><td className="px-3 py-3 text-right tabular-nums">{totals.rooms}</td><td className="px-3 py-3 text-right tabular-nums">GBP {totals.cost.toFixed(2)}</td></tr></tfoot>
+        <tfoot><tr className="font-semibold text-slate-950"><td colSpan={3} className="px-3 py-3">Filtered totals</td><td className="px-3 py-3 text-right tabular-nums">{totals.hours.toFixed(2)}</td><td className="px-3 py-3 text-right tabular-nums">{totals.rooms}</td><td className="px-3 py-3 text-right tabular-nums">GBP {totals.cost.toFixed(2)}</td>{canManageTasks && <td />}</tr></tfoot>
       </table>
     </div>
-    {selectedServiceLog && (() => {
-      const serviceRecord = services.find((item) => item.id === selectedServiceLog.service_id);
-      const serviceSnapshot = selectedServiceLog.services_config[0];
-      const serviceName = serviceRecord?.name ?? selectedServiceLog.service_name_snapshot ?? serviceSnapshot?.name ?? "Service";
-      const serviceDescription = serviceRecord?.description ?? selectedServiceLog.service_description_snapshot ?? serviceSnapshot?.description ?? "No description";
-      const serviceUnit = serviceRecord?.unit ?? serviceSnapshot?.unit ?? "hourly";
-      const serviceRate = serviceRecord?.default_rate ?? serviceSnapshot?.default_rate ?? 0;
-      return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-labelledby="payroll-service-title">
-        <section className="w-full max-w-lg rounded-2xl bg-white p-5 text-slate-900 shadow-2xl">
-          <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-sky-700">Service details</p><h2 id="payroll-service-title" className="mt-1 text-xl font-bold">{serviceName}</h2></div><button type="button" onClick={() => setSelectedServiceLog(null)} aria-label="Close service details" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div>
-          <p className="mt-4 text-sm text-slate-600">{serviceDescription}</p>
-          <dl className="mt-5 grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-4 text-sm"><div><dt className="text-slate-500">Rate</dt><dd className="mt-1 font-semibold">{new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(Number(serviceRate))}</dd></div><div><dt className="text-slate-500">Billing unit</dt><dd className="mt-1 font-semibold">{serviceUnit === "per_room" ? "Per room" : serviceUnit === "fixed" ? "Fixed per task" : "Hourly"}</dd></div><div><dt className="text-slate-500">Catalog status</dt><dd className="mt-1 font-semibold">{serviceRecord ? serviceRecord.is_active ? "Active" : "Inactive" : "Historical record"}</dd></div><div><dt className="text-slate-500">Service ID</dt><dd className="mt-1 break-all font-mono text-xs">{selectedServiceLog.service_id}</dd></div></dl>
-          <div className="mt-5 flex flex-wrap justify-end gap-2"><button type="button" onClick={() => setSelectedServiceLog(null)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Close</button>{canManageServices && serviceRecord && <><button type="button" onClick={() => startEditingService(serviceRecord)} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"><Pencil className="h-4 w-4" />Edit</button>{serviceRecord.is_active && <button type="button" onClick={() => { setSelectedServiceLog(null); setDeletingService(serviceRecord); }} className="inline-flex items-center gap-2 rounded-lg bg-rose-700 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-800"><Trash2 className="h-4 w-4" />Delete</button>}</>}</div>
-        </section>
-      </div>;
-    })()}
-    {editingService && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-labelledby="payroll-service-edit-title">
-      <form onSubmit={saveService} className="w-full max-w-lg rounded-2xl bg-white p-5 text-slate-900 shadow-2xl">
-        <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-sky-700">Service catalog</p><h2 id="payroll-service-edit-title" className="mt-1 text-xl font-bold">Edit service</h2></div><button type="button" onClick={() => setEditingService(null)} aria-label="Close edit form" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div>
-        <div className="mt-5 grid gap-4"><label className="text-sm font-medium text-slate-700">Service name<input required maxLength={120} value={serviceForm.name} onChange={(event) => setServiceForm((current) => ({ ...current, name: event.target.value }))} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900" /></label><label className="text-sm font-medium text-slate-700">Description<textarea rows={3} value={serviceForm.description} onChange={(event) => setServiceForm((current) => ({ ...current, description: event.target.value }))} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900" /></label><div className="grid gap-3 sm:grid-cols-2"><label className="text-sm font-medium text-slate-700">Rate (GBP)<input required type="number" min="0.01" step="0.01" value={serviceForm.default_rate} onChange={(event) => setServiceForm((current) => ({ ...current, default_rate: event.target.value }))} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900" /></label><label className="text-sm font-medium text-slate-700">Billing unit<select value={serviceForm.unit} onChange={(event) => setServiceForm((current) => ({ ...current, unit: event.target.value as BillingUnit }))} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-900"><option value="hourly">Hourly</option><option value="per_room">Per room</option><option value="fixed">Fixed per task</option></select></label></div></div>
-        {serviceMessage?.error && <p role="alert" className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800">{serviceMessage.text}</p>}
-        <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={() => setEditingService(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Cancel</button><button type="submit" disabled={isServicePending} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isServicePending ? "Saving…" : "Save changes"}</button></div>
+    {editingTask && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-labelledby="payroll-task-edit-title">
+      <form onSubmit={saveTask} className="w-full max-w-lg rounded-2xl bg-white p-5 text-slate-900 shadow-2xl">
+        <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-sky-700">Payroll task</p><h2 id="payroll-task-edit-title" className="mt-1 text-xl font-bold">Edit completed task</h2></div><button type="button" onClick={() => setEditingTask(null)} aria-label="Close task editor" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div>
+        <p className="mt-2 text-sm text-slate-600">{editingTask.cleanerName} · {editingTask.hotelName} · {new Date(editingTask.start_time).toLocaleDateString("en-GB")}</p>
+        <div className="mt-5 grid gap-4">
+          <label className="text-sm font-medium text-slate-700">Assigned service<select required value={taskForm.serviceId} onChange={(event) => setTaskForm((current) => ({ ...current, serviceId: event.target.value }))} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-900">{services.filter((service) => service.is_active || service.id === editingTask.service_id).map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select></label>
+          <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm font-medium text-slate-700">Units / rooms completed<input required type="number" min="0" max="1000000" step="1" value={taskForm.roomsCompleted} onChange={(event) => setTaskForm((current) => ({ ...current, roomsCompleted: event.target.value }))} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900" /></label><label className="text-sm font-medium text-slate-700">Task amount (GBP)<input required type="number" min="0" max="1000000000" step="0.01" value={taskForm.cost} onChange={(event) => setTaskForm((current) => ({ ...current, cost: event.target.value }))} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900" /></label></div>
+          <label className="text-sm font-medium text-slate-700">Task notes<textarea maxLength={2000} rows={4} value={taskForm.notes} onChange={(event) => setTaskForm((current) => ({ ...current, notes: event.target.value }))} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900" /></label>
+          <p className="text-xs text-slate-500">This amount applies to this task only. It does not change the service catalog price.</p>
+        </div>
+        {taskMessage?.error && <p role="alert" className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800">{taskMessage.text}</p>}
+        <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={() => setEditingTask(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Cancel</button><button type="submit" disabled={isTaskPending} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isTaskPending ? "Saving…" : "Save task"}</button></div>
       </form>
     </div>}
-    {deletingService && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4" role="alertdialog" aria-modal="true" aria-labelledby="payroll-service-delete-title">
-      <section className="w-full max-w-md rounded-2xl bg-white p-5 text-slate-900 shadow-2xl"><h2 id="payroll-service-delete-title" className="text-lg font-bold">Delete {deletingService.name}?</h2><p className="mt-2 text-sm leading-6 text-slate-600">This removes the service from the active catalog. Historical payroll records and service snapshots remain intact.</p>{serviceMessage?.error && <p role="alert" className="mt-3 text-sm text-rose-700">{serviceMessage.text}</p>}<div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setDeletingService(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Cancel</button><button type="button" onClick={confirmDeleteService} disabled={isServicePending} className="rounded-lg bg-rose-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isServicePending ? "Deleting…" : "Delete service"}</button></div></section>
+    {deletingTask && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4" role="alertdialog" aria-modal="true" aria-labelledby="payroll-task-delete-title">
+      <section className="w-full max-w-md rounded-2xl bg-white p-5 text-slate-900 shadow-2xl"><h2 id="payroll-task-delete-title" className="text-lg font-bold">Remove this payroll task?</h2><p className="mt-2 text-sm leading-6 text-slate-600">This will exclude {deletingTask.cleanerName}&apos;s task at {deletingTask.hotelName} from payroll totals and reports. The record is retained as deleted in the audit history.</p>{taskMessage?.error && <p role="alert" className="mt-3 text-sm text-rose-700">{taskMessage.text}</p>}<div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setDeletingTask(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Cancel</button><button type="button" onClick={confirmDeleteTask} disabled={isTaskPending} className="rounded-lg bg-rose-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isTaskPending ? "Removing…" : "Remove task"}</button></div></section>
     </div>}
   </section>;
 }
