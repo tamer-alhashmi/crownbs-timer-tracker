@@ -19,7 +19,7 @@ export function MessageBubble({
       <div
         className={`relative max-w-[80%] rounded-2xl px-3.5 py-2.5 shadow-sm ${
           isOwn
-            ? "rounded-br-md bg-[#d9fdd3] text-slate-900 dark:bg-[#005c4b] dark:text-white"
+            ? "rounded-br-md bg-[#128c7e] text-white dark:bg-[#005c4b]"
             : "rounded-bl-md border border-slate-200/70 bg-white text-slate-900 dark:border-slate-700 dark:bg-[#202c33] dark:text-slate-100"
         }`}
       >
@@ -27,7 +27,7 @@ export function MessageBubble({
           aria-hidden="true"
           className={`absolute -bottom-0.5 h-3 w-3 rotate-45 ${
             isOwn
-              ? "right-0.5 bg-[#d9fdd3] dark:bg-[#005c4b]"
+              ? "right-0.5 bg-[#128c7e] dark:bg-[#005c4b]"
               : "left-0.5 bg-white dark:bg-[#202c33]"
           }`}
         />
@@ -49,7 +49,7 @@ export function MessageBubble({
             rel="noreferrer"
             className={`mb-2 flex items-center gap-2 rounded-xl p-2.5 ${
               isOwn
-                ? "bg-emerald-900/10 text-slate-800 dark:bg-black/15 dark:text-white"
+                ? "bg-black/10 text-white dark:bg-black/15"
                 : "bg-slate-100 text-slate-700 dark:bg-[#111b21] dark:text-slate-100"
             }`}
           >
@@ -64,7 +64,7 @@ export function MessageBubble({
         )}
         <div
           className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${
-            isOwn ? "text-slate-600 dark:text-emerald-100" : "text-slate-500 dark:text-slate-400"
+            isOwn ? "text-white/80" : "text-slate-500 dark:text-slate-400"
           }`}
         >
           <time dateTime={message.created_at}>
@@ -75,9 +75,9 @@ export function MessageBubble({
           </time>
           {isOwn &&
             (message.is_read ? (
-              <CheckCheck aria-label="Read" className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-200" />
+              <CheckCheck aria-label="Read" className="h-3.5 w-3.5 text-sky-200" />
             ) : (
-              <Check aria-label="Sent" className="h-3.5 w-3.5" />
+              <Check aria-label="Sent" className="h-3.5 w-3.5 text-white/90" />
             ))}
         </div>
       </div>
