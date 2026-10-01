@@ -18,6 +18,21 @@ type WorkLogUpdate = {
   notes?: string;
 };
 
+type PageResult<T> = { data: T[] | null; error: { message: string } | null };
+
+async function fetchAllRows<T>(fetchPage: (from: number, to: number) => PromiseLike<PageResult<T>>) {
+  const rows: T[] = [];
+  const pageSize = 500;
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await fetchPage(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < pageSize) return rows;
+  }
+}
+
 async function requireManagement() {
   const user = await getSessionUser();
   if (!user || !["admin", "owner", "manager"].includes(user.role)) throw new Error("Unauthorized");
@@ -45,8 +60,8 @@ export async function getManagementOverview(period?: { from: string; to: string 
   if (!["admin", "owner", "manager"].includes(user.role)) throw new Error("Management access required.");
   const supabase = createPrivilegedServerSupabaseClient();
   const briefPromise = getManagementOperationalBrief(user, period);
-  const { data: hotels, error: hotelsError } = await supabase.from("hotels").select("id, name, location, owner_id, manager_id").order("name");
-  if (hotelsError) throw new Error(hotelsError.message);
+  const hotelsQuery = supabase.from("hotels").select("id, name, location, owner_id, manager_id, created_at, is_active").order("name").order("id");
+  const hotels = await fetchAllRows((from, to) => hotelsQuery.range(from, to));
   const assignedHotelId = user.hotelId ?? null;
   const visibleHotels = user.role === "admin"
     ? hotels ?? []
@@ -56,26 +71,34 @@ export async function getManagementOverview(period?: { from: string; to: string 
     });
   const hotelIds = visibleHotels.map((hotel) => hotel.id);
   const hotelFilter = user.role === "admin" ? null : hotelIds;
-  const cleanersQuery = supabase.from("users").select("id, full_name, email, role, primary_hotel_id").eq("role", "cleaner");
-  const logsQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, hotels(name), users(full_name, email), services_config(name, description, default_rate, unit)").order("start_time", { ascending: false });
-  const payrollQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, shift_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, room_ids, service_name_snapshot, service_description_snapshot, notes, travel_time_included, manager_approved, owner_approved, manager_approved_at, owner_approved_at, manager_rejected, owner_rejected, manager_rejected_at, owner_rejected_at, rejection_notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, import_key, is_locked, created_at, updated_at, hotels(name, location), users(full_name, email), services_config(name, description, default_rate, unit)").eq("is_locked", true).eq("status", "completed").order("start_time", { ascending: false });
+  const cleanersQuery = supabase.from("users").select("id, full_name, email, role, primary_hotel_id").eq("role", "cleaner").order("full_name").order("id");
+  const assigneesQuery = supabase.from("users").select("id, full_name, email, role").in("role", ["owner", "manager"]).order("full_name").order("id");
+  const logsQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, hotels(name), users(full_name, email), services_config(name, description, default_rate, unit)").order("start_time", { ascending: false }).order("id");
+  const payrollQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, shift_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, room_ids, service_name_snapshot, service_description_snapshot, notes, travel_time_included, manager_approved, owner_approved, manager_approved_at, owner_approved_at, manager_rejected, owner_rejected, manager_rejected_at, owner_rejected_at, rejection_notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, import_key, is_locked, created_at, updated_at, hotels(name, location), users(full_name, email), services_config(name, description, default_rate, unit)").eq("is_locked", true).eq("status", "completed").order("start_time", { ascending: false }).order("id");
   if (hotelFilter) { logsQuery.in("hotel_id", hotelIds); payrollQuery.in("hotel_id", hotelIds); }
-  const [{ data: cleaners }, { data: services }, { data: workLogs }, { data: payroll }] = await Promise.all([
-    cleanersQuery,
-    supabase.from("services_config").select("id, name, description, unit, default_rate, is_active, created_at").order("name"),
-    logsQuery,
-    payrollQuery,
+  const servicesQuery = supabase.from("services_config").select("id, name, description, unit, default_rate, is_active, created_at").order("name").order("id");
+  const roomsQuery = supabase.from("rooms").select("id, hotel_id, room_name, category, status").in("hotel_id", hotelIds.length ? hotelIds : ["00000000-0000-0000-0000-000000000000"]).eq("status", "active").order("room_name").order("id");
+  const [cleaners, propertyAssignees, services, workLogs, payroll, rooms] = await Promise.all([
+    fetchAllRows((from, to) => cleanersQuery.range(from, to)),
+    fetchAllRows((from, to) => assigneesQuery.range(from, to)),
+    fetchAllRows((from, to) => servicesQuery.range(from, to)),
+    fetchAllRows((from, to) => logsQuery.range(from, to)),
+    fetchAllRows((from, to) => payrollQuery.range(from, to)),
+    fetchAllRows((from, to) => roomsQuery.range(from, to)),
   ]);
-  const { data: rooms } = await supabase.from("rooms").select("id, hotel_id, room_name, category, status").in("hotel_id", hotelIds.length ? hotelIds : ["00000000-0000-0000-0000-000000000000"]).eq("status", "active").order("room_name");
   const { data: currentUser } = await supabase.from("users").select("full_name, email").eq("id", user.userId).maybeSingle();
   const hotelsById = new Map(visibleHotels.map((hotel) => [hotel.id, hotel.name]));
-  const cleanersById = new Map((cleaners ?? []).map((cleaner) => [cleaner.id, cleaner.full_name || cleaner.email]));
-  const workLogsWithNames = (workLogs ?? []).map((log) => ({
+  const cleanerIdsInScope = new Set(workLogs.map((log) => log.user_id));
+  const cleanersInScope = user.role === "admin"
+    ? cleaners
+    : cleaners.filter((cleaner) => Boolean(cleaner.primary_hotel_id && hotelIds.includes(cleaner.primary_hotel_id)) || cleanerIdsInScope.has(cleaner.id));
+  const cleanersById = new Map(cleaners.map((cleaner) => [cleaner.id, cleaner.full_name || cleaner.email]));
+  const workLogsWithNames = workLogs.map((log) => ({
     ...log,
     cleanerName: cleanersById.get(log.user_id) ?? "Unknown cleaner",
     hotelName: hotelsById.get(log.hotel_id) ?? "Unknown hotel",
   }));
-  const payrollWithNames = (payroll ?? []).map((log) => {
+  const payrollWithNames = payroll.map((log) => {
     const service = Array.isArray(log.services_config) ? log.services_config[0] : log.services_config;
     const cleaner = Array.isArray(log.users) ? log.users[0] : log.users;
     const hotel = Array.isArray(log.hotels) ? log.hotels[0] : log.hotels;
@@ -89,7 +112,21 @@ export async function getManagementOverview(period?: { from: string; to: string 
     };
   });
   const brief = await briefPromise;
-  return { cleaners: cleaners ?? [], hotels: visibleHotels, services: services ?? [], rooms: rooms ?? [], workLogs: workLogsWithNames, payroll: payrollWithNames, userRole: user.role, userName: currentUser?.full_name ?? user.email, userEmail: currentUser?.email ?? user.email, brief };
+  return {
+    cleaners: cleanersInScope.map((cleaner) => ({ id: cleaner.id, name: cleaner.full_name || cleaner.email })),
+    hotels: visibleHotels,
+    propertyAssignees: user.role === "admin"
+      ? propertyAssignees.map((assignee) => ({ id: assignee.id, name: assignee.full_name || assignee.email, role: assignee.role }))
+      : [],
+    services,
+    rooms,
+    workLogs: workLogsWithNames,
+    payroll: payrollWithNames,
+    userRole: user.role,
+    userName: currentUser?.full_name ?? user.email,
+    userEmail: currentUser?.email ?? user.email,
+    brief,
+  };
 }
 
 export async function updateWorkLog(logId: string, changes: WorkLogUpdate) {
