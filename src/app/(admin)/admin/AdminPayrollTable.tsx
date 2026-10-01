@@ -1,11 +1,15 @@
 "use client";
 
-import { useState } from "react";
-import { ChevronDown, Download, FileSpreadsheet, FileText } from "lucide-react";
+import { useState, useTransition, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import { ChevronDown, Download, FileSpreadsheet, FileText, Pencil, Trash2, X } from "lucide-react";
 import { strToU8, zipSync } from "fflate";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { calculateServiceCost, resolveBillingUnit, resolveServiceRate } from "@/lib/servicePricing";
+import type { ServiceRecord } from "./serviceActions";
+import { deleteService, updateService } from "./serviceActions";
+import type { BillingUnit } from "@/lib/servicePricing";
 
 type PayrollService = { name?: string | null; description?: string | null; default_rate?: number | string | null; unit?: string | null };
 const EXPORT_COLUMNS = [
@@ -18,6 +22,7 @@ const EXPORT_COLUMNS = [
 ] as const;
 type ExportColumn = typeof EXPORT_COLUMNS[number];
 type ExportRow = Record<ExportColumn, string | number | boolean>;
+type ServiceForm = { name: string; description: string; default_rate: string; unit: BillingUnit };
 export type PayrollLog = {
   id: string;
   user_id?: string;
@@ -89,20 +94,33 @@ function downloadFile(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function AdminPayrollTable({ logs }: { logs: PayrollLog[] }) {
+export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageServices }: {
+  logs: PayrollLog[];
+  services: ServiceRecord[];
+  hotels: { id: string; name: string }[];
+  cleaners: { id: string; name: string }[];
+  canManageServices: boolean;
+}) {
+  const router = useRouter();
   const today = new Date().toISOString().slice(0, 10);
   const monthStart = `${today.slice(0, 7)}-01`;
   const [from, setFrom] = useState(monthStart);
   const [to, setTo] = useState(today);
-  const [selectedHotel, setSelectedHotel] = useState("");
-  const [selectedCleaner, setSelectedCleaner] = useState("");
+  const [selectedHotelId, setSelectedHotelId] = useState("");
+  const [selectedCleanerId, setSelectedCleanerId] = useState("");
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
-  const hotels = [...new Set(logs.map((log) => log.hotelName))].sort((left, right) => left.localeCompare(right));
-  const cleaners = [...new Set(logs.map((log) => log.cleanerName))].sort((left, right) => left.localeCompare(right));
+  const [selectedServiceLog, setSelectedServiceLog] = useState<PayrollLog | null>(null);
+  const [editingService, setEditingService] = useState<ServiceRecord | null>(null);
+  const [serviceForm, setServiceForm] = useState<ServiceForm>({ name: "", description: "", default_rate: "", unit: "hourly" });
+  const [deletingService, setDeletingService] = useState<ServiceRecord | null>(null);
+  const [serviceMessage, setServiceMessage] = useState<{ text: string; error: boolean } | null>(null);
+  const [isServicePending, startServiceTransition] = useTransition();
+  const hotelNames = new Map(hotels.map((hotel) => [hotel.id, hotel.name]));
+  const cleanerNames = new Map(cleaners.map((cleaner) => [cleaner.id, cleaner.name]));
   const filteredLogs = logs
     .filter((log) => log.task_date >= from && log.task_date <= to)
-    .filter((log) => !selectedHotel || log.hotelName === selectedHotel)
-    .filter((log) => !selectedCleaner || log.cleanerName === selectedCleaner)
+    .filter((log) => !selectedHotelId || log.hotel_id === selectedHotelId)
+    .filter((log) => !selectedCleanerId || log.user_id === selectedCleanerId)
     .sort((left, right) => right.start_time.localeCompare(left.start_time));
   const totals = filteredLogs.reduce((total, log) => {
     const hours = durationHours(log);
@@ -169,13 +187,53 @@ export function AdminPayrollTable({ logs }: { logs: PayrollLog[] }) {
   const exportSummary = Object.fromEntries(EXPORT_COLUMNS.map((column) => [column, ""])) as ExportRow;
   exportSummary["Task date/time"] = "FILTERED TOTALS";
   exportSummary["Work log ID"] = `${filteredLogs.length} tasks`;
-  exportSummary.Cleaner = selectedCleaner || "All cleaners";
-  exportSummary.Hotel = selectedHotel || "All hotels";
+  exportSummary.Cleaner = cleanerNames.get(selectedCleanerId) ?? "All cleaners";
+  exportSummary.Hotel = hotelNames.get(selectedHotelId) ?? "All hotels";
   exportSummary["Duration hours"] = Number(totals.hours.toFixed(2));
   exportSummary["Rooms completed"] = totals.rooms;
   exportSummary["Cost (GBP)"] = Number(totals.cost.toFixed(2));
-  const filterSuffix = [from, to, selectedHotel, selectedCleaner].filter(Boolean).join("-").replace(/[^a-z0-9-]/gi, "-");
+  const filterSuffix = [from, to, hotelNames.get(selectedHotelId), cleanerNames.get(selectedCleanerId)].filter(Boolean).join("-").replace(/[^a-z0-9-]/gi, "-");
   const filename = `payroll-${filterSuffix || "all-records"}`;
+  const startEditingService = (service: ServiceRecord) => {
+    setEditingService(service);
+    setServiceForm({ name: service.name, description: service.description, default_rate: Number(service.default_rate).toFixed(2), unit: service.unit });
+    setSelectedServiceLog(null);
+    setServiceMessage(null);
+  };
+
+  const saveService = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!editingService) return;
+    startServiceTransition(async () => {
+      try {
+        await updateService(editingService.id, {
+          name: serviceForm.name,
+          description: serviceForm.description,
+          default_rate: Number(serviceForm.default_rate),
+          unit: serviceForm.unit,
+        });
+        setEditingService(null);
+        setServiceMessage({ text: "Service updated.", error: false });
+        router.refresh();
+      } catch (error) {
+        setServiceMessage({ text: error instanceof Error ? error.message : "Unable to update service.", error: true });
+      }
+    });
+  };
+
+  const confirmDeleteService = () => {
+    if (!deletingService) return;
+    startServiceTransition(async () => {
+      try {
+        await deleteService(deletingService.id);
+        setDeletingService(null);
+        setServiceMessage({ text: `${deletingService.name} was deleted from the active service catalog. Historical work logs are preserved.`, error: false });
+        router.refresh();
+      } catch (error) {
+        setServiceMessage({ text: error instanceof Error ? error.message : "Unable to delete service.", error: true });
+      }
+    });
+  };
 
   const exportCsv = () => {
     const csvCell = (value: string | number | boolean) => {
@@ -220,7 +278,7 @@ export function AdminPayrollTable({ logs }: { logs: PayrollLog[] }) {
     pdf.setFontSize(16);
     pdf.text("Payroll task detail export", 14, 16);
     pdf.setFontSize(9);
-    pdf.text(`Period: ${from} to ${to} · Hotel: ${selectedHotel || "All hotels"} · Cleaner: ${selectedCleaner || "All cleaners"}`, 14, 23);
+    pdf.text(`Period: ${from} to ${to} · Hotel: ${hotelNames.get(selectedHotelId) ?? "All hotels"} · Cleaner: ${cleanerNames.get(selectedCleanerId) ?? "All cleaners"}`, 14, 23);
     const detailColumns = EXPORT_COLUMNS.filter((column) => !["Task date/time", "Cleaner", "Hotel", "Cost (GBP)"].includes(column));
     autoTable(pdf, {
       startY: 29,
@@ -243,13 +301,14 @@ export function AdminPayrollTable({ logs }: { logs: PayrollLog[] }) {
   };
 
   return <section className="rounded-2xl bg-white p-4 text-slate-900 shadow-sm ring-1 ring-slate-200 sm:p-6">
+    {serviceMessage && <p role={serviceMessage.error ? "alert" : "status"} className={`mb-4 rounded-lg border px-3 py-2 text-sm ${serviceMessage.error ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>{serviceMessage.text}</p>}
     <div className="flex flex-col gap-4 border-b border-slate-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
       <div><h3 className="text-lg font-semibold text-slate-950">Payroll</h3><p className="mt-1 text-sm text-slate-500">Configured service costs · {filteredLogs.length} records</p></div>
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <label className="text-xs font-medium text-slate-600">From<input type="date" value={from} max={to} onChange={(event) => setFrom(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" /></label>
         <label className="text-xs font-medium text-slate-600">To<input type="date" value={to} min={from} max={today} onChange={(event) => setTo(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" /></label>
-        <label className="text-xs font-medium text-slate-600">Hotel<select value={selectedHotel} onChange={(event) => setSelectedHotel(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"><option value="">All hotels</option>{hotels.map((hotel) => <option key={hotel} value={hotel}>{hotel}</option>)}</select></label>
-        <label className="text-xs font-medium text-slate-600">Cleaner<select value={selectedCleaner} onChange={(event) => setSelectedCleaner(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"><option value="">All cleaners</option>{cleaners.map((cleaner) => <option key={cleaner} value={cleaner}>{cleaner}</option>)}</select></label>
+        <label className="text-xs font-medium text-slate-600">Hotel<select value={selectedHotelId} onChange={(event) => setSelectedHotelId(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"><option value="">All hotels</option>{hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select></label>
+        <label className="text-xs font-medium text-slate-600">Cleaner<select value={selectedCleanerId} onChange={(event) => setSelectedCleanerId(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"><option value="">All cleaners</option>{cleaners.map((cleaner) => <option key={cleaner.id} value={cleaner.id}>{cleaner.name}</option>)}</select></label>
       </div>
       <div className="flex justify-end">
         <div className="relative">
@@ -276,7 +335,7 @@ export function AdminPayrollTable({ logs }: { logs: PayrollLog[] }) {
             return <tr key={log.id} className="hover:bg-slate-50">
               <td className="whitespace-nowrap px-3 py-3 text-slate-600">{new Date(log.start_time).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}</td>
               <td className="px-3 py-3 font-medium text-slate-900">{log.cleanerName}</td>
-              <td className="px-3 py-3 text-slate-700">{log.hotelName}<span className="block text-xs text-slate-500">{service.name ?? "Service"} · GBP {rate.toFixed(2)} {unitLabel}</span></td>
+              <td className="px-3 py-3 text-slate-700">{log.hotelName}<button type="button" disabled={!log.service_id} onClick={() => setSelectedServiceLog(log)} className="mt-0.5 block text-left text-xs font-medium text-sky-800 underline decoration-sky-300 underline-offset-2 hover:text-sky-950 disabled:cursor-default disabled:text-slate-500 disabled:no-underline">{service.name ?? log.service_name_snapshot ?? "Service"} · GBP {rate.toFixed(2)} {unitLabel}</button></td>
               <td className="px-3 py-3 text-right tabular-nums text-slate-700">{hours.toFixed(2)}</td>
               <td className="px-3 py-3 text-right tabular-nums text-slate-700">{log.rooms_completed}</td>
               <td className="px-3 py-3 text-right font-semibold tabular-nums text-slate-900">{cost.toFixed(2)}</td>
@@ -287,5 +346,32 @@ export function AdminPayrollTable({ logs }: { logs: PayrollLog[] }) {
         <tfoot><tr className="font-semibold text-slate-950"><td colSpan={3} className="px-3 py-3">Filtered totals</td><td className="px-3 py-3 text-right tabular-nums">{totals.hours.toFixed(2)}</td><td className="px-3 py-3 text-right tabular-nums">{totals.rooms}</td><td className="px-3 py-3 text-right tabular-nums">GBP {totals.cost.toFixed(2)}</td></tr></tfoot>
       </table>
     </div>
+    {selectedServiceLog && (() => {
+      const serviceRecord = services.find((item) => item.id === selectedServiceLog.service_id);
+      const serviceSnapshot = selectedServiceLog.services_config[0];
+      const serviceName = serviceRecord?.name ?? selectedServiceLog.service_name_snapshot ?? serviceSnapshot?.name ?? "Service";
+      const serviceDescription = serviceRecord?.description ?? selectedServiceLog.service_description_snapshot ?? serviceSnapshot?.description ?? "No description";
+      const serviceUnit = serviceRecord?.unit ?? serviceSnapshot?.unit ?? "hourly";
+      const serviceRate = serviceRecord?.default_rate ?? serviceSnapshot?.default_rate ?? 0;
+      return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-labelledby="payroll-service-title">
+        <section className="w-full max-w-lg rounded-2xl bg-white p-5 text-slate-900 shadow-2xl">
+          <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-sky-700">Service details</p><h2 id="payroll-service-title" className="mt-1 text-xl font-bold">{serviceName}</h2></div><button type="button" onClick={() => setSelectedServiceLog(null)} aria-label="Close service details" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div>
+          <p className="mt-4 text-sm text-slate-600">{serviceDescription}</p>
+          <dl className="mt-5 grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-4 text-sm"><div><dt className="text-slate-500">Rate</dt><dd className="mt-1 font-semibold">{new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(Number(serviceRate))}</dd></div><div><dt className="text-slate-500">Billing unit</dt><dd className="mt-1 font-semibold">{serviceUnit === "per_room" ? "Per room" : serviceUnit === "fixed" ? "Fixed per task" : "Hourly"}</dd></div><div><dt className="text-slate-500">Catalog status</dt><dd className="mt-1 font-semibold">{serviceRecord ? serviceRecord.is_active ? "Active" : "Inactive" : "Historical record"}</dd></div><div><dt className="text-slate-500">Service ID</dt><dd className="mt-1 break-all font-mono text-xs">{selectedServiceLog.service_id}</dd></div></dl>
+          <div className="mt-5 flex flex-wrap justify-end gap-2"><button type="button" onClick={() => setSelectedServiceLog(null)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Close</button>{canManageServices && serviceRecord && <><button type="button" onClick={() => startEditingService(serviceRecord)} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"><Pencil className="h-4 w-4" />Edit</button>{serviceRecord.is_active && <button type="button" onClick={() => { setSelectedServiceLog(null); setDeletingService(serviceRecord); }} className="inline-flex items-center gap-2 rounded-lg bg-rose-700 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-800"><Trash2 className="h-4 w-4" />Delete</button>}</>}</div>
+        </section>
+      </div>;
+    })()}
+    {editingService && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-labelledby="payroll-service-edit-title">
+      <form onSubmit={saveService} className="w-full max-w-lg rounded-2xl bg-white p-5 text-slate-900 shadow-2xl">
+        <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-sky-700">Service catalog</p><h2 id="payroll-service-edit-title" className="mt-1 text-xl font-bold">Edit service</h2></div><button type="button" onClick={() => setEditingService(null)} aria-label="Close edit form" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div>
+        <div className="mt-5 grid gap-4"><label className="text-sm font-medium text-slate-700">Service name<input required maxLength={120} value={serviceForm.name} onChange={(event) => setServiceForm((current) => ({ ...current, name: event.target.value }))} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900" /></label><label className="text-sm font-medium text-slate-700">Description<textarea rows={3} value={serviceForm.description} onChange={(event) => setServiceForm((current) => ({ ...current, description: event.target.value }))} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900" /></label><div className="grid gap-3 sm:grid-cols-2"><label className="text-sm font-medium text-slate-700">Rate (GBP)<input required type="number" min="0.01" step="0.01" value={serviceForm.default_rate} onChange={(event) => setServiceForm((current) => ({ ...current, default_rate: event.target.value }))} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900" /></label><label className="text-sm font-medium text-slate-700">Billing unit<select value={serviceForm.unit} onChange={(event) => setServiceForm((current) => ({ ...current, unit: event.target.value as BillingUnit }))} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-900"><option value="hourly">Hourly</option><option value="per_room">Per room</option><option value="fixed">Fixed per task</option></select></label></div></div>
+        {serviceMessage?.error && <p role="alert" className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800">{serviceMessage.text}</p>}
+        <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={() => setEditingService(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Cancel</button><button type="submit" disabled={isServicePending} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isServicePending ? "Saving…" : "Save changes"}</button></div>
+      </form>
+    </div>}
+    {deletingService && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4" role="alertdialog" aria-modal="true" aria-labelledby="payroll-service-delete-title">
+      <section className="w-full max-w-md rounded-2xl bg-white p-5 text-slate-900 shadow-2xl"><h2 id="payroll-service-delete-title" className="text-lg font-bold">Delete {deletingService.name}?</h2><p className="mt-2 text-sm leading-6 text-slate-600">This removes the service from the active catalog. Historical payroll records and service snapshots remain intact.</p>{serviceMessage?.error && <p role="alert" className="mt-3 text-sm text-rose-700">{serviceMessage.text}</p>}<div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setDeletingService(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Cancel</button><button type="button" onClick={confirmDeleteService} disabled={isServicePending} className="rounded-lg bg-rose-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isServicePending ? "Deleting…" : "Delete service"}</button></div></section>
+    </div>}
   </section>;
 }

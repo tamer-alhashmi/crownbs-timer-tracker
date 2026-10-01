@@ -6,6 +6,10 @@ The global floating chat and notification bell are mounted from the root layout.
 
 Apply `supabase/migrations/20261001_chat_system.sql` to create the `public.messages` table and private `chat_attachments` bucket. The migration also enables RLS, adds chat query indexes, and enables Realtime publication for `messages`. Chat attachments are limited to 12 MB and images, PDFs, and Word documents. The API stores attachment object paths in `messages.attachment_url` and authorizes each signed download against its conversation.
 
+## Admin property setup
+
+Apply `supabase/migrations/20261001_property_setup.sql` to ensure properties have generated UUIDs, creation timestamps, owner/manager assignments, locations, and active status. Administrators can manage properties and services from the dashboard's **Property & services** section.
+
 ## Getting Started
 
 First, run the development server:

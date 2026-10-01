@@ -13,12 +13,13 @@ import { importRoomsFromGoogleSheet } from "./roomImportActions";
 import { FullEditPanel } from "./FullEditPanel";
 import { AdminPayrollTable, type PayrollLog } from "./AdminPayrollTable";
 import { ServicePricingManager } from "./ServicePricingManager";
-import type { BillingUnit } from "@/lib/servicePricing";
+import type { ServiceRecord } from "./serviceActions";
+import type { PropertyRecord } from "./propertyActions";
 import type { LucideIcon } from "lucide-react";
 
-type Log = { id: string; user_id: string; hotel_id: string; cleanerName: string; hotelName: string; start_time: string; end_time: string | null; task_date: string; status: string; rooms_completed: number; room_number: string | null; room_numbers: string[]; service_name_snapshot: string | null; service_description_snapshot: string | null; notes: string | null; owner_id: string | null; owner_name: string | null; manager_id: string | null; manager_name: string | null; responsibility_recorded_at: string | null; manager_approved: boolean; owner_approved: boolean; manager_rejected: boolean; owner_rejected: boolean; is_locked: boolean; rejection_notes?: string | null; services_config?: { name: string; default_rate: number; unit?: string }[] };
+type Log = { id: string; user_id: string; hotel_id: string; service_id: string | null; cleanerName: string; hotelName: string; start_time: string; end_time: string | null; task_date: string; status: string; rooms_completed: number; room_number: string | null; room_numbers: string[]; service_name_snapshot: string | null; service_description_snapshot: string | null; notes: string | null; owner_id: string | null; owner_name: string | null; manager_id: string | null; manager_name: string | null; responsibility_recorded_at: string | null; manager_approved: boolean; owner_approved: boolean; manager_rejected: boolean; owner_rejected: boolean; is_locked: boolean; rejection_notes?: string | null; services_config?: { name: string; default_rate: number; unit?: string }[] };
 type Room = { id: string; hotel_id: string; room_name: string; category: string; status?: string };
-type Props = { data: { userRole: string; userName: string; userEmail: string; hotels: { id: string; name: string }[]; services: { id: string; name: string; description: string; unit: BillingUnit; default_rate: number; is_active: boolean; created_at: string }[]; rooms: Room[]; workLogs: Log[]; payroll: PayrollLog[]; brief: ManagementBrief } };
+type Props = { data: { userRole: string; userName: string; userEmail: string; hotels: PropertyRecord[]; propertyAssignees: { id: string; name: string; role: "owner" | "manager" }[]; cleaners: { id: string; name: string }[]; services: ServiceRecord[]; rooms: Room[]; workLogs: Log[]; payroll: PayrollLog[]; brief: ManagementBrief } };
 type Draft = { hotelId: string; serviceId: string; roomId: string; roomsCompleted: string; roomNumber: string; notes: string; startTime: string; endTime: string };
 type WorkLogSortColumn = "date" | "cleaner" | "hotel" | "service" | "status";
 type ApprovalFeedback = { logId: string; kind: "pending" | "success" | "error"; text: string };
@@ -72,21 +73,20 @@ export default function ManagementDashboardClient({ data }: Props) {
   const displayedPayrollLogs = [...data.payroll, ...optimisticPayrollLogs.filter((optimistic) => !data.payroll.some((log) => log.id === optimistic.id))];
   const payrollApprovalsPendingSync = optimisticPayrollLogs.filter((optimistic) => !data.payroll.some((log) => log.id === optimistic.id)).length;
   const filteredWorkLogs = displayedWorkLogs.filter((log) => {
-    const service = log.service_name_snapshot ?? log.services_config?.[0]?.name ?? "Service";
-    const status = log.status === "active" ? "Active" : log.is_locked ? "Approved" : "Pending approval";
+    const status = log.status === "active" ? "Active" : log.is_locked ? "Approved" : log.manager_rejected || log.owner_rejected ? "Rejected" : "Pending approval";
     return (!fromDate || log.task_date >= fromDate)
       && (!toDate || log.task_date <= toDate)
       && (!needsActionOnly || (log.status === "completed" && !log.is_locked))
-      && (!cleanerFilter || log.cleanerName === cleanerFilter)
-      && (!hotelFilter || log.hotelName === hotelFilter)
-      && (!serviceFilter || service === serviceFilter)
+      && (!cleanerFilter || log.user_id === cleanerFilter)
+      && (!hotelFilter || log.hotel_id === hotelFilter)
+      && (!serviceFilter || log.service_id === serviceFilter)
       && (!statusFilter || status === statusFilter);
   }).sort((left, right) => {
     const value = (log: Log) => {
       if (sortColumn === "cleaner") return log.cleanerName;
       if (sortColumn === "hotel") return log.hotelName;
       if (sortColumn === "service") return log.service_name_snapshot ?? log.services_config?.[0]?.name ?? "Service";
-      if (sortColumn === "status") return log.status === "active" ? "Active" : log.is_locked ? "Approved" : "Pending approval";
+      if (sortColumn === "status") return log.status === "active" ? "Active" : log.is_locked ? "Approved" : log.manager_rejected || log.owner_rejected ? "Rejected" : "Pending approval";
       return log.task_date;
     };
     const comparison = value(left).localeCompare(value(right), "en", { numeric: true });
@@ -104,9 +104,9 @@ export default function ManagementDashboardClient({ data }: Props) {
   const navigation = [
     { id: "overview", label: "Overview", icon: Gauge },
     { id: "operational-brief", label: "Operations", icon: Activity },
-    ...(data.userRole === "admin" ? [{ id: "service-pricing", label: "Service pricing", icon: CircleDollarSign }] : []),
+    ...(data.userRole === "admin" ? [{ id: "service-pricing", label: "Property & services", icon: CircleDollarSign }] : []),
     { id: "live-operations", label: "Live operations", icon: UsersRound },
-    { id: "work-log-filters", label: "Work logs", icon: ClipboardList },
+    { id: "cleaner-work-logs", label: "Work logs", icon: ClipboardList },
     { id: "payroll", label: "Payroll", icon: CircleDollarSign },
     { id: "responsibility-snapshots", label: "Audit history", icon: History },
   ];
@@ -247,11 +247,18 @@ export default function ManagementDashboardClient({ data }: Props) {
         <AdminSectionDisclosure id="operational-brief" title="Operational brief" description={`Operating summary · ${data.brief.periodLabel}`}>
           <OperationalBrief brief={data.brief} />
         </AdminSectionDisclosure>
-        {data.userRole === "admin" && <ServicePricingManager initialServices={data.services} />}
+        {data.userRole === "admin" && <ServicePricingManager
+          initialServices={data.services}
+          initialProperties={data.hotels}
+          propertyAssignees={data.propertyAssignees}
+        />}
         {message && <p className="sr-only" aria-live="polite">{message}</p>}
         <AdminSectionDisclosure id="live-operations" title="Live operations" description="Active cleaner assignments and current tasks."><LiveOperations logs={data.workLogs}/></AdminSectionDisclosure>
-        <AdminSectionDisclosure id="work-log-filters" title="Work log filters" description="Filter by cleaner, hotel, service, status, or date."><WorkLogFilters
-      logs={data.workLogs}
+    <AdminSectionDisclosure id="cleaner-work-logs" title="Cleaner work logs" description={`${filteredWorkLogs.length} records · page ${currentPage} of ${pageCount}`}>
+    <WorkLogFilters
+      hotels={data.hotels.map(({ id, name }) => ({ id, name }))}
+      cleaners={data.cleaners}
+      services={data.services.map((service) => ({ id: service.id, name: service.name }))}
       needsActionOnly={needsActionOnly}
       setNeedsActionOnly={(value) => { setNeedsActionOnly(value); setWorkLogPage(1); }}
       cleaner={cleanerFilter}
@@ -263,23 +270,15 @@ export default function ManagementDashboardClient({ data }: Props) {
       status={statusFilter}
       setStatus={(value) => { setStatusFilter(value); setWorkLogPage(1); }}
       sortColumn={sortColumn}
-      setSortColumn={(value) => setSortColumn(value)}
+      setSortColumn={setSortColumn}
       sortAscending={sortAscending}
       setSortAscending={setSortAscending}
       fromDate={fromDate}
       toDate={toDate}
       setFromDate={(value) => { setFromDate(value); setWorkLogPage(1); }}
       setToDate={(value) => { setToDate(value); setWorkLogPage(1); }}
-    /></AdminSectionDisclosure>
-    <AdminSectionDisclosure id="cleaner-work-logs" title="Cleaner work logs" description={`${filteredWorkLogs.length} records · page ${currentPage} of ${pageCount}`}>
+    />
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-end">
-        <div className="grid grid-cols-2 gap-2 sm:w-[22rem]">
-          <label className="text-xs font-medium text-slate-600">From<input type="date" value={fromDate} max={toDate || undefined} onChange={(event) => { setFromDate(event.target.value); setWorkLogPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900" /></label>
-          <label className="text-xs font-medium text-slate-600">To<input type="date" value={toDate} min={fromDate || undefined} onChange={(event) => { setToDate(event.target.value); setWorkLogPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900" /></label>
-          <button type="button" onClick={() => { setFromDate(""); setToDate(""); setWorkLogPage(1); }} className="col-span-2 justify-self-end rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Clear dates</button>
-        </div>
-      </div>
       <div className="overflow-x-auto rounded-lg border border-slate-200">
         <table className="min-w-[760px] w-full text-left text-sm">
           <thead><tr><th className="px-3 py-3">Cleaner</th><th className="px-3 py-3">Hotel / service</th><th className="px-3 py-3 text-right">Shift</th><th className="px-3 py-3">Approvals</th><th className="px-3 py-3">Actions</th></tr></thead>
@@ -291,7 +290,13 @@ export default function ManagementDashboardClient({ data }: Props) {
     </section>
     </AdminSectionDisclosure>
     {payrollApprovalsPendingSync > 0 && <p className="mt-6 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-900"><Check className="h-4 w-4 shrink-0" />Latest approval is reflected in this payroll preview while the saved totals refresh.</p>}
-    <AdminSectionDisclosure id="payroll" title="Payroll" description="Locked work logs and calculated service costs."><AdminPayrollTable logs={displayedPayrollLogs}/></AdminSectionDisclosure>
+    <AdminSectionDisclosure id="payroll" title="Payroll" description="Locked work logs and calculated service costs."><AdminPayrollTable
+      logs={displayedPayrollLogs}
+      services={data.services}
+      hotels={data.hotels.map(({ id, name }) => ({ id, name }))}
+      cleaners={data.cleaners}
+      canManageServices={data.userRole === "admin"}
+    /></AdminSectionDisclosure>
     <AdminSectionDisclosure id="responsibility-snapshots" title="Responsibility snapshots" description="Historical owner and manager assignments for recorded work."><SnapshotTransparency logs={data.workLogs}/></AdminSectionDisclosure>
     {selectedTask && <ServiceCard task={selectedTask} onClose={() => setSelectedTask(null)} onEdit={() => { const log = data.workLogs.find((item) => item.id === selectedTask.id); if (log) { setSelectedTask(null); beginEdit(log); } }} />}
     {editing && draft && <FullEditPanel draft={draft} setDraft={setDraft} services={data.services} hotels={data.hotels} rooms={data.rooms} saving={isPending} onCancel={() => { setEditing(null); setDraft(null); }} onSave={saveEdit}/>} 
@@ -322,8 +327,10 @@ function AdminSectionDisclosure({ id, title, description, children, defaultOpen 
   </div>;
 }
 
-function WorkLogFilters({ logs, needsActionOnly, setNeedsActionOnly, cleaner, setCleaner, hotel, setHotel, service, setService, status, setStatus, sortColumn, setSortColumn, sortAscending, setSortAscending, fromDate, toDate, setFromDate, setToDate }: {
-  logs: Log[];
+function WorkLogFilters({ hotels, cleaners, services, needsActionOnly, setNeedsActionOnly, cleaner, setCleaner, hotel, setHotel, service, setService, status, setStatus, sortColumn, setSortColumn, sortAscending, setSortAscending, fromDate, toDate, setFromDate, setToDate }: {
+  hotels: { id: string; name: string }[];
+  cleaners: { id: string; name: string }[];
+  services: { id: string; name: string }[];
   needsActionOnly: boolean;
   setNeedsActionOnly: (value: boolean) => void;
   cleaner: string;
@@ -343,13 +350,9 @@ function WorkLogFilters({ logs, needsActionOnly, setNeedsActionOnly, cleaner, se
   setFromDate: (value: string) => void;
   setToDate: (value: string) => void;
 }) {
-  const unique = (values: string[]) => [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
-  const cleaners = unique(logs.map((log) => log.cleanerName));
-  const hotels = unique(logs.map((log) => log.hotelName));
-  const services = unique(logs.map((log) => log.service_name_snapshot ?? log.services_config?.[0]?.name ?? "Service"));
-  const statuses = unique(logs.map((log) => log.status === "active" ? "Active" : log.is_locked ? "Approved" : "Pending approval"));
+  const statuses = ["Active", "Approved", "Pending approval", "Rejected"];
   const selectClass = "mt-1 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm font-normal text-slate-800";
-  return <section className="mb-4 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200" aria-label="Work log filters"><div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Work log filters</p><p className="mt-0.5 text-xs text-slate-500">Filter by column or sort the current results.</p></div><button type="button" aria-pressed={needsActionOnly} onClick={() => setNeedsActionOnly(!needsActionOnly)} className={`rounded-lg px-3 py-2 text-sm font-semibold ${needsActionOnly ? "bg-amber-700 text-white" : "border border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100"}`}>Needs Action / Pending Approval</button></div><div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4"><label className="text-xs font-semibold text-slate-500">Cleaner<select value={cleaner} onChange={(event) => setCleaner(event.target.value)} className={selectClass}><option value="">All cleaners</option>{cleaners.map((value) => <option key={value}>{value}</option>)}</select></label><label className="text-xs font-semibold text-slate-500">Hotel<select value={hotel} onChange={(event) => setHotel(event.target.value)} className={selectClass}><option value="">All hotels</option>{hotels.map((value) => <option key={value}>{value}</option>)}</select></label><label className="text-xs font-semibold text-slate-500">Service<select value={service} onChange={(event) => setService(event.target.value)} className={selectClass}><option value="">All services</option>{services.map((value) => <option key={value}>{value}</option>)}</select></label><label className="text-xs font-semibold text-slate-500">Approval status<select value={status} onChange={(event) => setStatus(event.target.value)} className={selectClass}><option value="">All statuses</option>{statuses.map((value) => <option key={value}>{value}</option>)}</select></label><label className="text-xs font-semibold text-slate-500">From task date<input type="date" value={fromDate} max={toDate || undefined} onChange={(event) => setFromDate(event.target.value)} className={selectClass} /></label><label className="text-xs font-semibold text-slate-500">To task date<input type="date" value={toDate} min={fromDate || undefined} onChange={(event) => setToDate(event.target.value)} className={selectClass} /></label><label className="text-xs font-semibold text-slate-500">Sort column<select value={sortColumn} onChange={(event) => setSortColumn(event.target.value as WorkLogSortColumn)} className={selectClass}><option value="date">Task date</option><option value="cleaner">Cleaner (A-Z)</option><option value="hotel">Hotel (A-Z)</option><option value="service">Service (A-Z)</option><option value="status">Approval status</option></select></label><button type="button" onClick={() => setSortAscending(!sortAscending)} className="self-end rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">{sortAscending ? "Ascending A-Z" : "Descending Z-A"}</button></div></section>;
+  return <section className="mb-4 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200" aria-label="Work log filters"><div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Work log filters</p><p className="mt-0.5 text-xs text-slate-500">Filter by column or sort the current results.</p></div><button type="button" aria-pressed={needsActionOnly} onClick={() => setNeedsActionOnly(!needsActionOnly)} className={`rounded-lg px-3 py-2 text-sm font-semibold ${needsActionOnly ? "bg-amber-700 text-white" : "border border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100"}`}>Needs Action / Pending Approval</button></div><div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4"><label className="text-xs font-semibold text-slate-500">Cleaner<select value={cleaner} onChange={(event) => setCleaner(event.target.value)} className={selectClass}><option value="">All cleaners</option>{cleaners.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="text-xs font-semibold text-slate-500">Hotel<select value={hotel} onChange={(event) => setHotel(event.target.value)} className={selectClass}><option value="">All hotels</option>{hotels.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="text-xs font-semibold text-slate-500">Service<select value={service} onChange={(event) => setService(event.target.value)} className={selectClass}><option value="">All services</option>{services.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="text-xs font-semibold text-slate-500">Approval status<select value={status} onChange={(event) => setStatus(event.target.value)} className={selectClass}><option value="">All statuses</option>{statuses.map((value) => <option key={value}>{value}</option>)}</select></label><label className="text-xs font-semibold text-slate-500">From task date<input type="date" value={fromDate} max={toDate || undefined} onChange={(event) => setFromDate(event.target.value)} className={selectClass} /></label><label className="text-xs font-semibold text-slate-500">To task date<input type="date" value={toDate} min={fromDate || undefined} onChange={(event) => setToDate(event.target.value)} className={selectClass} /></label><label className="text-xs font-semibold text-slate-500">Sort column<select value={sortColumn} onChange={(event) => setSortColumn(event.target.value as WorkLogSortColumn)} className={selectClass}><option value="date">Task date</option><option value="cleaner">Cleaner (A-Z)</option><option value="hotel">Hotel (A-Z)</option><option value="service">Service (A-Z)</option><option value="status">Approval status</option></select></label><button type="button" onClick={() => setSortAscending(!sortAscending)} className="self-end rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">{sortAscending ? "Ascending A-Z" : "Descending Z-A"}</button></div><div className="mt-3 flex justify-end"><button type="button" onClick={() => { setFromDate(""); setToDate(""); }} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Clear dates</button></div></section>;
 }
 
 function LiveOperations({ logs }: { logs: Log[] }) { const active = logs.filter((log) => log.status === "active"); return <section className="mb-6 rounded-3xl bg-slate-900 p-4 text-white"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">Live operations</p><h2 className="mt-1 text-xl font-bold">Active cleaners</h2><div className="mt-4 grid gap-3 md:grid-cols-2">{active.map((log) => <div key={log.id} className="rounded-2xl bg-white/10 p-3"><div className="flex justify-between"><p className="font-semibold">{log.cleanerName}</p><span className="text-xs text-emerald-200">Active</span></div><p className="mt-1 text-sm text-slate-300">{log.hotelName}</p><p className="mt-1 text-sm text-emerald-100">{log.services_config?.[0]?.name ?? "Task in progress"}{log.room_number ? ` - Room ${log.room_number}` : ""}</p></div>)}{active.length === 0 && <p className="rounded-2xl bg-white/10 p-4 text-sm text-slate-300">No cleaners are currently active.</p>}</div></section>; }
