@@ -25,7 +25,7 @@ export function NotificationBell() {
         aria-expanded={isOpen}
         title={error ? "Notifications could not be loaded" : undefined}
         onClick={() => setIsOpen((open) => !open)}
-        className="relative flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-lg shadow-slate-900/5 transition hover:bg-slate-50"
+        className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
       >
         <Bell className="h-5 w-5" />
         {unreadCount > 0 && (
@@ -35,7 +35,7 @@ export function NotificationBell() {
         )}
       </button>
       {isOpen && (
-        <div className="absolute right-0 top-14 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/15">
+        <div className="absolute right-0 top-12 z-[70] w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/15">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-slate-900">Notifications</p>
