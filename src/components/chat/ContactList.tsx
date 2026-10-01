@@ -12,6 +12,9 @@ export function ContactList() {
   const { data, isPending, error } = useQuery({
     queryKey: ["chat", "contacts"],
     queryFn: fetchContacts,
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
   const setActiveContact = useChatStore((state) => state.setActiveContact);
   const contacts = (data?.contacts ?? []).filter((contact) =>
@@ -57,8 +60,18 @@ export function ContactList() {
                 </span>
                 <span className="block truncate text-xs text-slate-600 dark:text-slate-300">{contact.email}</span>
               </span>
-              <span className="rounded-full bg-white px-2 py-1 text-[10px] font-medium text-slate-700 ring-1 ring-slate-200 dark:bg-[#2a3942] dark:text-slate-200 dark:ring-slate-600">
-                {roleLabel(contact.role)}
+              <span className="flex shrink-0 flex-col items-end gap-1.5">
+                {contact.unread_count ? (
+                  <span
+                    aria-label={`${contact.unread_count} unread messages`}
+                    className="flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1.5 text-[10px] font-bold leading-none text-white shadow-sm"
+                  >
+                    {contact.unread_count > 99 ? "99+" : contact.unread_count}
+                  </span>
+                ) : null}
+                <span className="rounded-full bg-white px-2 py-1 text-[10px] font-medium text-slate-700 ring-1 ring-slate-200 dark:bg-[#2a3942] dark:text-slate-200 dark:ring-slate-600">
+                  {roleLabel(contact.role)}
+                </span>
               </span>
             </button>
           ))

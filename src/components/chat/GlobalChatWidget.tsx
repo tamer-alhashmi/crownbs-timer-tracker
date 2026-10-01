@@ -13,6 +13,12 @@ export function GlobalChatWidget({ user }: { user: AppUserSession }) {
     events.onmessage = () => {
       void queryClient.invalidateQueries({ queryKey: ["chat"] });
     };
+    events.onopen = () => {
+      void queryClient.invalidateQueries({ queryKey: ["chat", "unread"] });
+    };
+    events.onerror = () => {
+      void queryClient.invalidateQueries({ queryKey: ["chat", "unread"] });
+    };
     return () => events.close();
   }, [queryClient]);
 

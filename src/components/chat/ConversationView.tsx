@@ -28,6 +28,7 @@ export function ConversationView({
     mutationFn: () => markConversationRead(contact.id),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["chat", "unread"] });
+      void queryClient.invalidateQueries({ queryKey: ["chat", "contacts"] });
       void queryClient.invalidateQueries({ queryKey });
     },
   });
@@ -92,6 +93,7 @@ export function ConversationView({
           onSent={() => {
             void queryClient.invalidateQueries({ queryKey });
             void queryClient.invalidateQueries({ queryKey: ["chat", "unread"] });
+            void queryClient.invalidateQueries({ queryKey: ["chat", "contacts"] });
           }}
         />
       </div>

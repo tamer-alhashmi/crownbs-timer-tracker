@@ -36,7 +36,34 @@ export async function GET(request: NextRequest) {
         ["admin", "owner", "manager", "cleaner"].includes(contact.role) &&
         canMessageRole(actor.role, contact.role)
     );
-    return NextResponse.json({ contacts });
+    const unreadCounts = await Promise.all(
+      contacts.map(async (contact) => {
+        const { count, error: countError } = await supabase
+          .from("messages")
+          .select("id", { count: "exact", head: true })
+          .eq("sender_id", contact.id)
+          .eq("receiver_id", actor.id)
+          .eq("is_read", false);
+
+        if (countError) {
+          console.error("Unread contact count query failed:", countError.message);
+          return null;
+        }
+        return [contact.id, count ?? 0] as const;
+      })
+    );
+    if (unreadCounts.some((item) => item === null)) {
+      return apiError("Could not load teammate unread counts.", 500);
+    }
+    const unreadCountBySender = new Map(
+      unreadCounts.filter((item): item is readonly [string, number] => item !== null)
+    );
+    return NextResponse.json({
+      contacts: contacts.map((contact) => ({
+        ...contact,
+        unread_count: unreadCountBySender.get(contact.id) ?? 0,
+      })),
+    });
   }
 
   if (view === "unread") {

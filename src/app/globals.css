@@ -1,3 +1,5 @@
+@import "tailwindcss";
+
 /*! tailwindcss v4.3.3 | MIT License | https://tailwindcss.com */
 @layer properties;
 @layer theme, base, components, utilities;
@@ -1546,5 +1548,66 @@ body {
       --tw-duration: initial;
       --tw-ease: initial;
     }
+  }
+
+}
+
+.chat-launcher {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 1.5rem;
+  z-index: 50;
+  display: flex;
+  width: 4rem;
+  height: 4rem;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 9999px;
+  background: #25d366;
+  color: #063b2a;
+  box-shadow: 0 25px 50px -12px rgb(6 59 42 / 0.35);
+}
+
+.chat-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  height: 100dvh;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 25px 50px -12px rgb(15 23 42 / 0.35);
+}
+
+.chat-unread-badge {
+  position: absolute;
+  top: -0.25rem;
+  right: -0.25rem;
+  z-index: 1;
+  display: flex;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #fff;
+  border-radius: 9999px;
+  background: #e11d48;
+  padding: 0 0.25rem;
+  color: #fff;
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 2px 5px rgb(15 23 42 / 0.2);
+}
+
+@media (min-width: 640px) {
+  .chat-panel {
+    inset: auto 1.5rem 1.5rem auto;
+    width: 25rem;
+    height: min(42.5rem, calc(100dvh - 3rem));
+    border: 1px solid #e2e8f0;
+    border-radius: 1.5rem;
   }
 }
