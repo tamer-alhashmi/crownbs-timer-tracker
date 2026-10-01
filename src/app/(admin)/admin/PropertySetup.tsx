@@ -11,7 +11,7 @@ const EMPTY_FORM: PropertyForm = { name: "", location: "", owner_id: "", manager
 
 export type PropertySetupHandle = { openCreate: () => void };
 
-export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties: PropertyRecord[]; assignees: Assignee[] }>(function PropertySetup({ initialProperties, assignees }, ref) {
+export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties: PropertyRecord[]; assignees: Assignee[]; canManage?: boolean }>(function PropertySetup({ initialProperties, assignees, canManage = true }, ref) {
   const [properties, setProperties] = useState(initialProperties);
   const [editing, setEditing] = useState<PropertyRecord | null>(null);
   const [form, setForm] = useState<PropertyForm>(EMPTY_FORM);
@@ -77,7 +77,7 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
 
   return <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/70 p-4 sm:p-5" aria-labelledby="property-setup-title">
     <div className="flex flex-col gap-3 border-b border-slate-800 pb-4 sm:flex-row sm:items-center sm:justify-between">
-      <div><h3 id="property-setup-title" className="text-lg font-bold text-white">Properties</h3><p className="mt-1 text-sm text-slate-400">Manage properties, assignments, and active status · {properties.length} total</p></div>
+      <div><h3 id="property-setup-title" className="text-lg font-bold text-white">Properties</h3><p className="mt-1 text-sm text-slate-400">{canManage ? "Manage properties, assignments, and active status" : "Properties and current management assignments"} · {properties.length} total</p></div>
     </div>
     {message && <p role={message.error ? "alert" : "status"} className={`mt-3 rounded-lg border px-3 py-2 text-sm ${message.error ? "border-rose-800 bg-rose-950/60 text-rose-200" : "border-emerald-800 bg-emerald-950/50 text-emerald-200"}`}>{message.text}</p>}
     <div className="admin-config-scroll mt-4 max-h-80 overflow-y-auto rounded-xl border border-slate-800 p-2">
@@ -86,15 +86,15 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
       {properties.map((property) => <article key={property.id} className="min-w-0 rounded-xl border border-slate-800 bg-slate-900 p-3">
         <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h4 className="break-words font-semibold text-white">{property.name}</h4><p className="mt-1 text-sm text-slate-300">{property.location || "No location"}</p></div><span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${property.is_active ? "bg-emerald-950 text-emerald-300" : "bg-slate-800 text-slate-400"}`}>{property.is_active ? "Active" : "Inactive"}</span></div>
         <dl className="mt-3 space-y-1.5 border-t border-slate-800 pt-3 text-xs text-slate-400"><div className="flex justify-between gap-3"><dt>Owner</dt><dd className="text-right text-slate-200">{ownerNames.get(property.owner_id ?? "") ?? "Unassigned"}</dd></div><div className="flex justify-between gap-3"><dt>Manager</dt><dd className="text-right text-slate-200">{managerNames.get(property.manager_id ?? "") ?? "Unassigned"}</dd></div><div><dt className="sr-only">Property UUID</dt><dd className="break-all font-mono text-[11px]">{property.id}</dd></div><div className="flex justify-between gap-3"><dt>Created</dt><dd>{new Date(property.created_at).toLocaleString()}</dd></div></dl>
-        <div className="mt-3 flex justify-end gap-1 border-t border-slate-800 pt-2">
+        {canManage && <div className="mt-3 flex justify-end gap-1 border-t border-slate-800 pt-2">
           <button type="button" onClick={() => openEdit(property)} aria-label={`Edit ${property.name}`} title="Edit property" className="rounded-lg p-2 text-slate-300 hover:bg-slate-800 hover:text-white"><Pencil className="h-4 w-4" /></button>
           <button type="button" role="switch" aria-checked={property.is_active} onClick={() => toggleProperty(property)} disabled={isPending} aria-label={`${property.is_active ? "Deactivate" : "Activate"} ${property.name}`} title={property.is_active ? "Deactivate property" : "Activate property"} className={`rounded-lg p-2 disabled:opacity-50 ${property.is_active ? "text-emerald-300 hover:bg-slate-800" : "text-slate-500 hover:bg-slate-800 hover:text-emerald-300"}`}><Power className="h-4 w-4" /></button>
-        </div>
+        </div>}
       </article>)}
       {!properties.length && <p className="rounded-xl border border-dashed border-slate-700 p-8 text-center text-sm text-slate-400 md:col-span-2 xl:col-span-3">No properties configured.</p>}
       </div>
     </div>
-    {formOpen && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/75 p-4" role="dialog" aria-modal="true" aria-labelledby="property-form-title">
+    {canManage && formOpen && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/75 p-4" role="dialog" aria-modal="true" aria-labelledby="property-form-title">
       <form onSubmit={saveProperty} className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-5 text-slate-100 shadow-2xl sm:p-6">
         <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-300">Property setup</p><h3 id="property-form-title" className="mt-1 text-lg font-bold text-white">{editing ? "Edit property" : "Add property"}</h3></div><button type="button" onClick={() => setFormOpen(false)} aria-label="Close form" className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white"><X className="h-4 w-4" /></button></div>
         <div className="mt-5 grid gap-4">
