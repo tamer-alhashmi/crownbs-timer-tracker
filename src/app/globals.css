@@ -1571,8 +1571,9 @@ body {
 
 .admin-config-scroll {
   scrollbar-width: thin;
-  scrollbar-color: #64748b #0f172a;
+  scrollbar-color: #94a3b8 #f1f5f9;
   scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
 }
 
 .admin-config-scroll::-webkit-scrollbar {
@@ -1581,17 +1582,27 @@ body {
 
 .admin-config-scroll::-webkit-scrollbar-track {
   border-radius: 9999px;
-  background: #0f172a;
+  background: #f1f5f9;
 }
 
 .admin-config-scroll::-webkit-scrollbar-thumb {
-  border: 2px solid #0f172a;
+  border: 2px solid #f1f5f9;
   border-radius: 9999px;
-  background: #64748b;
+  background: #94a3b8;
 }
 
 .admin-config-scroll::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #64748b;
+}
+
+.dashboard-tab-scrollbar {
+  scrollbar-width: none;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+.dashboard-tab-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 .chat-panel {
