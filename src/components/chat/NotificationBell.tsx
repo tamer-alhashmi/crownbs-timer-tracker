@@ -23,7 +23,7 @@ export function NotificationBell() {
     <div className="relative">
       <button
         type="button"
-        aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread messages` : ""}`}
+        aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread chat messages` : ""}`}
         aria-expanded={isOpen}
         title={error ? "Notifications could not be loaded" : undefined}
         onClick={() => setIsOpen((open) => !open)}
@@ -41,9 +41,11 @@ export function NotificationBell() {
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-slate-900">Notifications</p>
-              <p className="text-xs text-slate-500">{unreadCount} unread messages</p>
+              <p className="text-xs text-slate-500">
+                {unreadCount} unread {unreadCount === 1 ? "chat message" : "chat messages"}
+              </p>
             </div>
-            <MessageCircle className="h-4 w-4 text-indigo-600" />
+            <MessageCircle className="h-4 w-4 text-emerald-700" />
           </div>
           {error ? (
             <p role="alert" className="px-4 py-5 text-sm text-rose-600">
@@ -61,7 +63,7 @@ export function NotificationBell() {
                   }}
                   className="flex w-full gap-3 rounded-xl p-3 text-left transition hover:bg-slate-50"
                 >
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-semibold text-indigo-700">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#d9fdd3] text-sm font-semibold text-emerald-900">
                     {message.sender.full_name.charAt(0).toUpperCase()}
                   </span>
                   <span className="min-w-0 flex-1">
@@ -69,23 +71,23 @@ export function NotificationBell() {
                       <span className="truncate text-sm font-semibold text-slate-800">
                         {message.sender.full_name}
                       </span>
-                      <span className="text-[10px] text-slate-400">
+                      <span className="text-[10px] text-slate-500">
                         {new Date(message.created_at).toLocaleTimeString([], {
                           hour: "numeric",
                           minute: "2-digit",
                         })}
                       </span>
                     </span>
-                    <span className="block truncate text-xs text-slate-500">
+                    <span className="block truncate text-xs text-slate-600">
                       {message.content || (message.attachment_type === "image" ? "Photo" : "Attachment")}
-                      <span className="ml-1 text-slate-400">· {roleLabel(message.sender.role)}</span>
+                      <span className="ml-1 text-slate-500">· {roleLabel(message.sender.role)}</span>
                     </span>
                   </span>
                 </button>
               ))}
             </div>
           ) : (
-            <p className="px-4 py-8 text-center text-sm text-slate-500">You’re all caught up.</p>
+            <p className="px-4 py-8 text-center text-sm text-slate-600">You’re all caught up.</p>
           )}
         </div>
       )}

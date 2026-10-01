@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Search, Users } from "lucide-react";
+import { ArrowUpRight, Search, Users } from "lucide-react";
 import { useState } from "react";
 import { fetchContacts } from "./chatApi";
 import { useChatStore } from "./chatStore";
@@ -36,7 +36,7 @@ export function ContactList() {
           />
         </label>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-5 sm:px-4">
         {isPending ? (
           <p className="px-3 py-8 text-center text-sm text-slate-600 dark:text-slate-300">Loading teammates…</p>
         ) : error ? (
@@ -49,9 +49,9 @@ export function ContactList() {
               type="button"
               key={contact.id}
               onClick={() => setActiveContact(contact)}
-              className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-white dark:hover:bg-[#202c33]"
+              className="group mb-2 flex w-full items-center gap-3 rounded-2xl border border-transparent bg-white px-3.5 py-3.5 text-left shadow-[0_1px_3px_rgba(15,23,42,0.05)] transition hover:-translate-y-0.5 hover:border-emerald-100 hover:shadow-md hover:shadow-emerald-950/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:bg-[#202c33]"
             >
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#d9fdd3] font-semibold text-emerald-900 dark:bg-[#005c4b] dark:text-white">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#d9fdd3] font-semibold text-emerald-900 ring-1 ring-emerald-100 dark:bg-[#005c4b] dark:text-white dark:ring-emerald-900">
                 {contact.full_name.charAt(0).toUpperCase()}
               </span>
               <span className="min-w-0 flex-1">
@@ -60,7 +60,7 @@ export function ContactList() {
                 </span>
                 <span className="block truncate text-xs text-slate-600 dark:text-slate-300">{contact.email}</span>
               </span>
-              <span className="flex shrink-0 flex-col items-end gap-1.5">
+              <span className="flex shrink-0 flex-col items-end gap-1">
                 {contact.unread_count ? (
                   <span
                     aria-label={`${contact.unread_count} unread messages`}
@@ -72,6 +72,7 @@ export function ContactList() {
                 <span className="rounded-full bg-white px-2 py-1 text-[10px] font-medium text-slate-700 ring-1 ring-slate-200 dark:bg-[#2a3942] dark:text-slate-200 dark:ring-slate-600">
                   {roleLabel(contact.role)}
                 </span>
+                <ArrowUpRight aria-hidden="true" className="h-3.5 w-3.5 text-slate-300 transition group-hover:text-indigo-500" />
               </span>
             </button>
           ))

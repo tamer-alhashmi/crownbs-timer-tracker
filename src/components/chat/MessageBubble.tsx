@@ -60,7 +60,7 @@ export function MessageBubble({
           </a>
         )}
         {message.content && (
-          <p className="whitespace-pre-wrap break-words text-sm leading-5">{message.content}</p>
+          <p className="whitespace-pre-wrap break-words text-sm leading-6">{message.content}</p>
         )}
         <div
           className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${

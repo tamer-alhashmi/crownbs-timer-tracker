@@ -132,12 +132,12 @@ export function MessageInput({
           type="submit"
           disabled={mutation.isPending || (!content.trim() && !file)}
           aria-label="Send message"
-          className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#25d366] text-[#063b2a] transition hover:bg-[#20c45e] disabled:cursor-not-allowed disabled:opacity-40"
+          className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#25d366] text-[#063b2a] transition hover:bg-[#20c45e] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {mutation.isPending ? (
             <LoaderCircle className="h-4 w-4 animate-spin" />
           ) : (
-            <Send className="h-4 w-4" />
+            <Send aria-hidden="true" className="h-4 w-4" />
           )}
         </button>
       </div>
