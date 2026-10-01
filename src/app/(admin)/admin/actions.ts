@@ -137,6 +137,23 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
   ]);
   const scopedOverrideAudit = overrideAudit.filter((entry) => user.role === "admin"
     || (entry.entity_type === "task" ? taskIdsInScope.has(entry.entity_id) : shiftIdsInScope.has(entry.entity_id)));
+  const auditActorIds = [...new Set(scopedOverrideAudit.map((entry) => entry.actor_id))];
+  const auditActors = auditActorIds.length
+    ? await fetchAllRows("operational audit actors", (from, to) => supabase
+      .from("users")
+      .select("id, full_name, email")
+      .in("id", auditActorIds)
+      .order("id")
+      .range(from, to))
+    : [];
+  const auditActorsById = new Map(auditActors.map((actor) => [
+    actor.id,
+    actor.full_name?.trim() || actor.email?.trim() || `${actor.id.slice(0, 8)}…${actor.id.slice(-4)}`,
+  ]));
+  const overrideAuditWithActorNames = scopedOverrideAudit.map((entry) => ({
+    ...entry,
+    actor_name: auditActorsById.get(entry.actor_id) ?? `${entry.actor_id.slice(0, 8)}…${entry.actor_id.slice(-4)}`,
+  }));
   const cleanersById = new Map(cleaners.map((cleaner) => [cleaner.id, cleaner.full_name || cleaner.email]));
   const workLogsWithNames = workLogs.map((log) => ({
     ...log,
@@ -184,7 +201,7 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
     payroll: payrollWithNames,
     activeShifts: visibleActiveShifts,
     activeTasks: activeTasks,
-    overrideAudit: scopedOverrideAudit,
+    overrideAudit: overrideAuditWithActorNames,
     userRole: user.role,
     canViewServices: user.role === "admin" || servicePermission === null || servicePermission.can_view === true,
     canManageServices: user.role === "admin" || servicePermission === null || (servicePermission.can_create === true && servicePermission.can_edit === true && servicePermission.can_delete === true),
