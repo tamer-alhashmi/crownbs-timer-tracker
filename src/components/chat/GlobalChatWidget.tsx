@@ -38,14 +38,21 @@ export function GlobalChatWidget({ user }: { user: AppUserSession }) {
           type="button"
           aria-label={`Open team chat${unreadCount ? `, ${unreadCount} unread messages` : ""}`}
           onClick={() => openChat()}
-          className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-indigo-600 text-white shadow-xl shadow-indigo-900/25 transition hover:scale-105 hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+          className="group fixed bottom-5 right-5 z-40 flex h-16 w-16 items-center justify-center rounded-[1.4rem] bg-gradient-to-br from-indigo-500 via-indigo-600 to-violet-700 text-white shadow-xl shadow-indigo-950/30 ring-1 ring-white/20 transition duration-200 hover:-translate-y-1 hover:shadow-2xl hover:shadow-indigo-950/35 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-indigo-600 sm:bottom-7 sm:right-7"
         >
-          <MessageCircle aria-hidden="true" className="h-6 w-6" />
+          <MessageCircle
+            aria-hidden="true"
+            className="h-7 w-7 transition-transform duration-200 group-hover:scale-110"
+            strokeWidth={2}
+          />
           {unreadCount > 0 && (
-            <span className="absolute -right-1 -top-1 flex h-6 min-w-6 items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-bold text-white ring-2 ring-white">
+            <span className="absolute -right-2 -top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-rose-600 px-1.5 text-[10px] font-bold text-white ring-[3px] ring-white shadow-md">
               {unreadCount > 99 ? "99+" : unreadCount}
             </span>
           )}
+          <span className="pointer-events-none absolute right-[calc(100%+0.75rem)] whitespace-nowrap rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 max-sm:hidden">
+            Open team chat
+          </span>
         </button>
       )}
       <ChatWidget user={user} />

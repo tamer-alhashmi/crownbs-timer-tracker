@@ -50,8 +50,8 @@ export function ConversationView({
 
   return (
     <>
-      <div className="flex min-h-0 flex-1 flex-col bg-slate-50">
-        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-6">
+      <div className="flex min-h-0 flex-1 flex-col bg-[#f5f7fb]">
+        <div className="flex-1 space-y-4 overflow-y-auto bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-white/80 via-[#f5f7fb] to-[#f5f7fb] px-5 py-6 sm:px-6">
           {readMutation.isError && (
             <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
               {readMutation.error.message}

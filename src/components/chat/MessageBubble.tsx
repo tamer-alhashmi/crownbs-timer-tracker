@@ -17,10 +17,10 @@ export function MessageBubble({
   return (
     <div className={`flex ${isOwn ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-[84%] rounded-2xl px-4 py-3 shadow-sm ${
+        className={`max-w-[84%] rounded-[1.25rem] px-4 py-3 shadow-sm ${
           isOwn
-            ? "rounded-br-md bg-indigo-600 text-white"
-            : "rounded-bl-md border border-slate-200 bg-white text-slate-800"
+            ? "rounded-br-md bg-gradient-to-br from-indigo-600 to-violet-600 text-white shadow-indigo-950/10"
+            : "rounded-bl-md border border-slate-200/80 bg-white text-slate-800 shadow-slate-900/[0.04]"
         }`}
       >
         {message.attachment_type === "image" && attachmentHref && (
