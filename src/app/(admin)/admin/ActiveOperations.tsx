@@ -44,7 +44,7 @@ function localDateTimeValue() {
 }
 
 export function ActiveOperations({ shifts, tasks, canManage }: { shifts: ActiveShift[]; tasks: ActiveTask[]; canManage: boolean }) {
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState(0);
   const [draft, setDraft] = useState<OverrideDraft | null>(null);
   const [reason, setReason] = useState("");
   const [endTime, setEndTime] = useState("");
@@ -52,8 +52,12 @@ export function ActiveOperations({ shifts, tasks, canManage }: { shifts: ActiveS
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
+    const initialUpdate = window.setTimeout(() => setNow(Date.now()), 0);
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearTimeout(initialUpdate);
+      window.clearInterval(timer);
+    };
   }, []);
 
   const beginOverride = (next: OverrideDraft) => {
