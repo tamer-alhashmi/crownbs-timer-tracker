@@ -8,7 +8,8 @@ import { UserProfileMenu } from "@/components/layout/UserProfileMenu";
 import { OperationalBrief } from "@/components/dashboard/OperationalBrief";
 import { ServiceCard } from "@/components/dashboard/ServiceCard";
 import type { BriefTask, CleanerBrief } from "@/lib/operationalBrief";
-import { calculateServiceCost, resolveBillingUnit, resolveServiceRate } from "@/lib/servicePricing";
+import { calculateTaskCost, resolveBillingUnit, resolveServiceRate } from "@/lib/servicePricing";
+import { useWorkLogRealtimeRefresh } from "@/lib/useWorkLogRealtimeRefresh";
 import { RoomMediaCapture } from "./RoomMediaCapture";
 import { getWorkLogRoomMedia, type RoomMediaGalleryItem, type RoomMediaItem } from "./roomMediaActions";
 
@@ -30,6 +31,7 @@ type WorkLog = {
   room_number: string | null;
   room_numbers: string[];
   notes: string | null;
+  cost_override?: number | string | null;
   manager_id: string | null;
   manager_name: string | null;
   owner_id: string | null;
@@ -60,6 +62,7 @@ const PAGE_SIZE = 10;
 const dateLabel = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString("en-GB", { timeZone: "Europe/London", dateStyle: "medium" });
 
 export default function CleanerDashboard({ user, hotels, services, rooms, shift, logs, brief, roomMedia, roomMediaConfigured }: Props) {
+  useWorkLogRealtimeRefresh();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const activeTask = logs.find((log) => log.status === "active");
@@ -179,7 +182,7 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
       rooms: log.rooms_completed,
       hours,
       rate,
-      cost: calculateServiceCost(hours, log.rooms_completed, { name: log.serviceName, unit, default_rate: rate }),
+      cost: calculateTaskCost(hours, log.rooms_completed, { name: log.serviceName, unit, default_rate: rate }, log.cost_override),
       notes: log.notes ?? "",
       managerApproved: log.manager_approved,
       ownerApproved: log.owner_approved,

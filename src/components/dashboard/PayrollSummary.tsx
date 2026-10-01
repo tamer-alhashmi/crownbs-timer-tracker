@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { CalendarDays } from "lucide-react";
-import { calculateServiceCost, resolveBillingUnit, resolveServiceRate, type ServicePricing } from "@/lib/servicePricing";
+import { calculateTaskCost, resolveBillingUnit, resolveServiceRate, type ServicePricing } from "@/lib/servicePricing";
+import { useWorkLogRealtimeRefresh } from "@/lib/useWorkLogRealtimeRefresh";
 
 type ServiceConfig = { name: string; default_rate: number; unit?: string };
-type PayrollLog = { id: string; start_time: string; end_time: string | null; task_date: string; rooms_completed: number; is_locked: boolean; services_config?: ServiceConfig | ServiceConfig[] | null };
+type PayrollLog = { id: string; start_time: string; end_time: string | null; task_date: string; rooms_completed: number; is_locked: boolean; cost_override?: number | string | null; services_config?: ServiceConfig | ServiceConfig[] | null };
 
 function durationHours(start: string, end: string | null) {
   return end ? Math.max(0, (new Date(end).getTime() - new Date(start).getTime()) / 3_600_000) : 0;
@@ -16,6 +17,7 @@ function serviceFor(log: PayrollLog) {
 }
 
 export function PayrollSummary({ logs }: { logs: PayrollLog[] }) {
+  useWorkLogRealtimeRefresh();
   const today = new Date().toISOString().slice(0, 10);
   const monthStart = `${today.slice(0, 7)}-01`;
   const [from, setFrom] = useState(monthStart);
@@ -25,7 +27,7 @@ export function PayrollSummary({ logs }: { logs: PayrollLog[] }) {
   const unlocked = filtered.filter((log) => !log.is_locked);
   const lockedHours = locked.reduce((sum, log) => sum + durationHours(log.start_time, log.end_time), 0);
   const unlockedHours = unlocked.reduce((sum, log) => sum + durationHours(log.start_time, log.end_time), 0);
-  const earnings = (log: PayrollLog) => calculateServiceCost(durationHours(log.start_time, log.end_time), log.rooms_completed, serviceFor(log) ?? {});
+  const earnings = (log: PayrollLog) => calculateTaskCost(durationHours(log.start_time, log.end_time), log.rooms_completed, serviceFor(log) ?? {}, log.cost_override);
   const lockedEarnings = locked.reduce((sum, log) => sum + earnings(log), 0);
   const unlockedEarnings = unlocked.reduce((sum, log) => sum + earnings(log), 0);
   const totalEarnings = lockedEarnings + unlockedEarnings;

@@ -21,8 +21,9 @@ export default async function CleanerDashboardPage() {
     supabase.from("master_shifts").select("id, start_time, end_time, status").eq("user_id", user.userId).eq("status", "active").maybeSingle(),
     supabase
       .from("work_logs")
-      .select("id, shift_id, hotel_id, service_id, start_time, end_time, task_date, status, rooms_completed, room_ids, room_number, room_numbers, notes, manager_approved, owner_approved, is_locked, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, service_name_snapshot, service_description_snapshot")
+      .select("id, shift_id, hotel_id, service_id, start_time, end_time, task_date, status, rooms_completed, room_ids, room_number, room_numbers, notes, cost_override, manager_approved, owner_approved, is_locked, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, service_name_snapshot, service_description_snapshot")
       .eq("user_id", user.userId)
+      .is("deleted_at", null)
       .order("task_date", { ascending: false })
       .order("start_time", { ascending: false }),
     getCleanerOperationalBrief(user.userId),
