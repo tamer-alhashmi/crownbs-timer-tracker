@@ -80,10 +80,20 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
   const logsQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, shift_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, cost_override, deleted_at, cancelled_at, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, hotels(name), users!work_logs_user_id_fkey(full_name, email), services_config(name, description, default_rate, unit)").is("deleted_at", null).is("cancelled_at", null).order("start_time", { ascending: false }).order("id");
   const payrollQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, shift_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, room_ids, service_name_snapshot, service_description_snapshot, notes, cost_override, deleted_at, cancelled_at, travel_time_included, manager_approved, owner_approved, manager_approved_at, owner_approved_at, manager_rejected, owner_rejected, manager_rejected_at, owner_rejected_at, rejection_notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, import_key, is_locked, created_at, updated_at, hotels(name, location), users!work_logs_user_id_fkey(full_name, email), services_config(name, description, default_rate, unit)").eq("is_locked", true).eq("status", "completed").is("deleted_at", null).is("cancelled_at", null).order("start_time", { ascending: false }).order("id");
   const shiftsQuery = supabase.from("master_shifts").select("id, user_id, start_time, end_time, status").eq("status", "active").is("end_time", null).order("start_time").order("id");
-  if (hotelFilter) { logsQuery.in("hotel_id", hotelIds); payrollQuery.in("hotel_id", hotelIds); }
+  if (hotelFilter) {
+    const scopedHotelIds = hotelIds.length ? hotelIds : ["00000000-0000-0000-0000-000000000000"];
+    logsQuery.in("hotel_id", scopedHotelIds);
+    payrollQuery.in("hotel_id", scopedHotelIds);
+  }
   const servicesQuery = supabase.from("services_config").select("id, name, description, unit, default_rate, is_active, created_at").order("name").order("id");
   const roomsQuery = supabase.from("rooms").select("id, hotel_id, room_name, category, status").in("hotel_id", hotelIds.length ? hotelIds : ["00000000-0000-0000-0000-000000000000"]).eq("status", "active").order("room_name").order("id");
-  const [cleaners, propertyAssignees, services, workLogs, payroll, rooms, activeShifts] = await Promise.all([
+  const overrideAuditQuery = supabase.from("operations_override_audit").select("id, entity_type, entity_id, action, actor_id, override_reason, previous_values, new_values, created_at").order("created_at", { ascending: false }).order("id");
+  let taskScopeQuery = supabase.from("work_logs").select("id, hotel_id, user_id, shift_id");
+  if (hotelFilter) {
+    const scopedHotelIds = hotelIds.length ? hotelIds : ["00000000-0000-0000-0000-000000000000"];
+    taskScopeQuery = taskScopeQuery.in("hotel_id", scopedHotelIds);
+  }
+  const [cleaners, propertyAssignees, services, workLogs, payroll, rooms, activeShifts, overrideAudit, auditTaskScope] = await Promise.all([
     fetchAllRows("cleaners", (from, to) => cleanersQuery.range(from, to)),
     fetchAllRows("property assignees", (from, to) => assigneesQuery.range(from, to)),
     fetchAllRows("services", (from, to) => servicesQuery.range(from, to)),
@@ -91,6 +101,8 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
     fetchAllRows("payroll", (from, to) => payrollQuery.range(from, to)),
     fetchAllRows("rooms", (from, to) => roomsQuery.range(from, to)),
     fetchAllRows("active shifts", (from, to) => shiftsQuery.range(from, to)),
+    fetchAllRows("operational audit history", (from, to) => overrideAuditQuery.range(from, to)),
+    fetchAllRows("audit task scope", (from, to) => taskScopeQuery.range(from, to)),
   ]);
   const { data: currentUser } = await supabase.from("users").select("full_name, email").eq("id", user.userId).maybeSingle();
   const [servicePermissionResult, payrollPermissionResult] = user.role === "admin"
@@ -108,6 +120,23 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
   const cleanersInScope = user.role === "admin"
     ? cleaners
     : cleaners.filter((cleaner) => Boolean(cleaner.primary_hotel_id && hotelIds.includes(cleaner.primary_hotel_id)) || cleanerIdsInScope.has(cleaner.id));
+  const taskIdsInScope = new Set(auditTaskScope.map((log) => log.id));
+  const cleanerIdsInScopeForAudit = new Set(cleanersInScope
+    .filter((cleaner) => Boolean(cleaner.primary_hotel_id && hotelIds.includes(cleaner.primary_hotel_id)))
+    .map((cleaner) => cleaner.id));
+  const shiftScopeQuery = supabase.from("master_shifts").select("id, user_id");
+  if (user.role !== "admin") {
+    const assignedCleanerIds = [...cleanerIdsInScopeForAudit];
+    if (assignedCleanerIds.length) shiftScopeQuery.in("user_id", assignedCleanerIds);
+    else shiftScopeQuery.eq("user_id", "00000000-0000-0000-0000-000000000000");
+  }
+  const auditShiftScope = await fetchAllRows("audit shift scope", (from, to) => shiftScopeQuery.range(from, to));
+  const shiftIdsInScope = new Set([
+    ...auditShiftScope.filter((shift) => user.role === "admin" || cleanerIdsInScopeForAudit.has(shift.user_id)).map((shift) => shift.id),
+    ...auditTaskScope.flatMap((log) => log.shift_id ? [log.shift_id] : []),
+  ]);
+  const scopedOverrideAudit = overrideAudit.filter((entry) => user.role === "admin"
+    || (entry.entity_type === "task" ? taskIdsInScope.has(entry.entity_id) : shiftIdsInScope.has(entry.entity_id)));
   const cleanersById = new Map(cleaners.map((cleaner) => [cleaner.id, cleaner.full_name || cleaner.email]));
   const workLogsWithNames = workLogs.map((log) => ({
     ...log,
@@ -144,15 +173,18 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
   });
   const brief = await briefPromise;
   return {
-    cleaners: cleanersInScope.map((cleaner) => ({ id: cleaner.id, name: cleaner.full_name || cleaner.email })),
+    cleaners: cleanersInScope.map((cleaner) => ({ id: cleaner.id, name: cleaner.full_name || cleaner.email, primary_hotel_id: cleaner.primary_hotel_id ?? null })),
     hotels: visibleHotels,
-    propertyAssignees: propertyAssignees.map((assignee) => ({ id: assignee.id, name: assignee.full_name || assignee.email, role: assignee.role })),
+    propertyAssignees: propertyAssignees
+      .filter((assignee) => user.role === "admin" || visibleHotels.some((hotel) => hotel.owner_id === assignee.id || hotel.manager_id === assignee.id))
+      .map((assignee) => ({ id: assignee.id, name: assignee.full_name || assignee.email, role: assignee.role })),
     services,
     rooms,
     workLogs: workLogsWithNames,
     payroll: payrollWithNames,
     activeShifts: visibleActiveShifts,
     activeTasks: activeTasks,
+    overrideAudit: scopedOverrideAudit,
     userRole: user.role,
     canViewServices: user.role === "admin" || servicePermission === null || servicePermission.can_view === true,
     canManageServices: user.role === "admin" || servicePermission === null || (servicePermission.can_create === true && servicePermission.can_edit === true && servicePermission.can_delete === true),
