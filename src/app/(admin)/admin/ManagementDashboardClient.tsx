@@ -54,8 +54,9 @@ function useDashboardTab() {
 
 type Log = { id: string; user_id: string; hotel_id: string; service_id: string | null; cleanerName: string; hotelName: string; start_time: string; end_time: string | null; task_date: string; status: string; rooms_completed: number; room_number: string | null; room_numbers: string[]; service_name_snapshot: string | null; service_description_snapshot: string | null; notes: string | null; cost_override?: number | string | null; owner_id: string | null; owner_name: string | null; manager_id: string | null; manager_name: string | null; responsibility_recorded_at: string | null; manager_approved: boolean; owner_approved: boolean; manager_rejected: boolean; owner_rejected: boolean; is_locked: boolean; rejection_notes?: string | null; services_config?: { name: string; default_rate: number; unit?: string }[] };
 type Room = { id: string; hotel_id: string; room_name: string; category: string; status?: string };
-type Props = { data: { userRole: string; userName: string; userEmail: string; canViewServices: boolean; canManageServices: boolean; canManagePayrollTasks: boolean; canManageActiveOperations: boolean; hotels: PropertyRecord[]; propertyAssignees: { id: string; name: string; role: "owner" | "manager" }[]; cleaners: { id: string; name: string; primary_hotel_id: string | null }[]; services: ServiceRecord[]; rooms: Room[]; workLogs: Log[]; payroll: PayrollLog[]; activeShifts: { id: string; user_id: string; start_time: string; cleanerName: string; task: Log | null }[]; activeTasks: Log[]; overrideAudit: OverrideAuditRecord[]; brief: ManagementBrief } };
-type OverrideAuditRecord = { id: string; entity_type: "task" | "shift"; entity_id: string; action: string; actor_id: string; actor_name: string; override_reason: string; previous_values: Record<string, unknown>; new_values: Record<string, unknown>; created_at: string };
+type Props = { data: { userRole: string; userName: string; userEmail: string; userAvatarUrl: string | null; canViewServices: boolean; canManageServices: boolean; canManagePayrollTasks: boolean; canManageActiveOperations: boolean; hotels: PropertyRecord[]; propertyAssignees: { id: string; name: string; role: "owner" | "manager" }[]; cleaners: { id: string; name: string; primary_hotel_id: string | null }[]; services: ServiceRecord[]; rooms: Room[]; workLogs: Log[]; payroll: PayrollLog[]; activeShifts: { id: string; user_id: string; start_time: string; cleanerName: string; task: Log | null }[]; activeTasks: Log[]; overrideAudit: OverrideAuditRecord[]; brief: ManagementBrief } };
+type AuditDetail = { label: string; value: string };
+type OverrideAuditRecord = { id: string; entity_type: "task" | "shift"; action: string; actor_name: string; target_label: string; override_reason: string; previous_details: AuditDetail[]; new_details: AuditDetail[]; created_at: string };
 type Draft = { hotelId: string; serviceId: string; roomId: string; roomsCompleted: string; roomNumber: string; notes: string; startTime: string; endTime: string };
 type WorkLogSortColumn = "date" | "cleaner" | "hotel" | "service" | "status";
 type ApprovalFeedback = { logId: string; kind: "pending" | "success" | "error"; text: string };
@@ -278,7 +279,7 @@ export default function ManagementDashboardClient({ data }: Props) {
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="flex h-16 items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3"><span className="hidden h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-white sm:flex"><Hotel className="h-5 w-5" /></span><div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">{data.userRole} workspace</p><h1 className="text-lg font-semibold text-slate-950">Crown Operations</h1></div></div>
-          <div className="flex items-center gap-2">{data.userRole === "admin" && <button type="button" onClick={syncRooms} disabled={isPending} className="hidden min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:inline-flex">Fetch rooms</button>}<UserProfileMenu name={data.userName} email={data.userEmail} role={data.userRole} settingsHref="/settings" /></div>
+          <div className="flex items-center gap-2">{data.userRole === "admin" && <button type="button" onClick={syncRooms} disabled={isPending} className="hidden min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:inline-flex">Fetch rooms</button>}<UserProfileMenu name={data.userName} email={data.userEmail} avatarUrl={data.userAvatarUrl} role={data.userRole} settingsHref="/settings" /></div>
         </div>
         <nav aria-label="Dashboard tabs" role="tablist" className="dashboard-tab-scrollbar flex min-w-0 max-w-full gap-1 overflow-x-auto border-t border-slate-100 px-3 py-2 [-webkit-overflow-scrolling:touch] sm:px-6 lg:px-8">
           {DASHBOARD_TABS.map(({ id, label, icon: Icon }) => <button key={id} id={`tab-${id}`} type="button" role="tab" aria-selected={activeTab === id} aria-controls={`panel-${id}`} onClick={() => selectTab(id)} className={`inline-flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition sm:text-sm ${activeTab === id ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"}`}><Icon aria-hidden="true" className="h-4 w-4" />{label}</button>)}
@@ -537,36 +538,25 @@ function SnapshotTransparency({ logs }: { logs: Log[] }) {
   </section>;
 }
 
-const AUDIT_DIFF_FIELDS = [
-  { key: "status", label: "Status" },
-  { key: "end_time", label: "End time" },
-  { key: "cancelled_at", label: "Cancelled" },
-  { key: "cost_override", label: "Cost override" },
-  { key: "rooms_completed", label: "Rooms completed" },
-] as const;
-
-function formatAuditValue(key: string, value: unknown) {
-  if (key === "cancelled_at") return value ? "Yes" : "No";
-  if (value === null || value === undefined || value === "") return "—";
-  if (key === "end_time" && typeof value === "string") {
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? value : date.toLocaleString("en-GB", { timeZone: "Africa/Cairo" });
-  }
-  if (key === "cost_override" && (typeof value === "number" || typeof value === "string")) {
-    const amount = Number(value);
-    return Number.isFinite(amount) ? `GBP ${amount.toFixed(2)}` : String(value);
-  }
-  if (key === "status" && typeof value === "string") return value.replaceAll("_", " ");
-  return String(value);
+function getAuditChanges(entry: OverrideAuditRecord) {
+  const before = new Map(entry.previous_details.map((detail) => [detail.label, detail.value]));
+  const after = new Map(entry.new_details.map((detail) => [detail.label, detail.value]));
+  return [...new Set([...before.keys(), ...after.keys()])]
+    .filter((label) => before.get(label) !== after.get(label))
+    .map((label) => ({ label, before: before.get(label) ?? "—", after: after.get(label) ?? "—" }));
 }
 
-function getAuditChanges(entry: OverrideAuditRecord) {
-  return AUDIT_DIFF_FIELDS.flatMap(({ key, label }) => {
-    const before = entry.previous_values[key];
-    const after = entry.new_values[key];
-    if (JSON.stringify(before) === JSON.stringify(after)) return [];
-    return [{ key, label, before: formatAuditValue(key, before), after: formatAuditValue(key, after) }];
-  });
+function AuditDetailsPanel({ title, details }: { title: string; details: AuditDetail[] }) {
+  return (
+    <section className="min-w-0">
+      <h4 className="mb-2 text-sm font-semibold text-slate-800">{title}</h4>
+      {details.length ? (
+        <dl className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          {details.map((detail) => <div key={detail.label} className="grid grid-cols-[7rem_minmax(0,1fr)] gap-3 text-xs"><dt className="font-medium text-slate-500">{detail.label}</dt><dd className="break-words text-slate-800">{detail.value}</dd></div>)}
+        </dl>
+      ) : <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">No additional details.</p>}
+    </section>
+  );
 }
 
 function OverrideAuditTable({ entries }: { entries: OverrideAuditRecord[] }) {
@@ -586,12 +576,12 @@ function OverrideAuditTable({ entries }: { entries: OverrideAuditRecord[] }) {
             const changes = getAuditChanges(entry);
             return <tr key={entry.id} className="align-top hover:bg-slate-50">
             <td className="whitespace-nowrap px-3 py-3 text-slate-600">{new Date(entry.created_at).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}</td>
-            <td className="px-3 py-3"><span className="font-semibold capitalize text-slate-900">{entry.entity_type}</span><span className="block text-xs text-slate-500">{entry.action.replaceAll("_", " ")}</span><span className="block max-w-40 truncate font-mono text-[10px] text-slate-400">{entry.entity_id}</span></td>
-            <td className="max-w-40 px-3 py-3 text-slate-700" title={entry.actor_id}><span className="block truncate font-medium">{entry.actor_name}</span></td>
+            <td className="px-3 py-3"><span className="font-semibold capitalize text-slate-900">{entry.entity_type}</span><span className="block text-xs capitalize text-slate-500">{entry.action.replaceAll("_", " ")}</span><span className="mt-1 block max-w-48 text-xs text-slate-600">{entry.target_label}</span></td>
+            <td className="max-w-40 px-3 py-3 text-slate-700"><span className="block truncate font-medium">{entry.actor_name}</span></td>
             <td className="max-w-sm whitespace-normal px-3 py-3 text-slate-700">{entry.override_reason}</td>
             <td className="px-3 py-3 text-xs text-slate-600">
-              <div className="space-y-1.5">{changes.length ? changes.map((change) => <p key={change.key}><span className="font-semibold text-slate-800">{change.label}:</span> {change.key === "cancelled_at" ? change.after : <>{change.before} <span aria-label="changed to" className="px-1 text-slate-400">→</span> {change.after}</>}</p>) : <span className="text-slate-500">No tracked fields changed</span>}</div>
-              <button type="button" onClick={() => setRawEntry(entry)} className="mt-2 min-h-11 rounded-lg border border-slate-200 px-2.5 py-1.5 font-medium text-slate-700 hover:bg-slate-50">View raw details</button>
+              <div className="space-y-1.5">{changes.length ? changes.map((change) => <p key={change.label}><span className="font-semibold text-slate-800">{change.label}:</span> {change.label === "Cancelled" && change.after === "Yes" ? "Yes" : <>{change.before} <span aria-label="changed to" className="px-1 text-slate-400">→</span> {change.after}</>}</p>) : <span className="text-slate-500">No tracked fields changed</span>}</div>
+              <button type="button" onClick={() => setRawEntry(entry)} className="mt-2 min-h-11 rounded-lg border border-slate-200 px-2.5 py-1.5 font-medium text-slate-700 hover:bg-slate-50">View details</button>
             </td>
           </tr>;
           })}
@@ -603,11 +593,11 @@ function OverrideAuditTable({ entries }: { entries: OverrideAuditRecord[] }) {
   </section>
     {rawEntry && <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-labelledby="override-raw-details-title">
       <section className="max-h-[calc(100dvh-2rem)] w-full max-w-3xl overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-5 text-slate-900 shadow-2xl">
-        <div className="flex items-start justify-between gap-3"><div><h3 id="override-raw-details-title" className="text-lg font-semibold text-slate-950">Intervention details</h3><p className="mt-1 text-sm text-slate-600">{rawEntry.action.replaceAll("_", " ")} · {rawEntry.entity_type} · {rawEntry.actor_name}</p></div><button type="button" onClick={() => setRawEntry(null)} aria-label="Close raw details" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div>
+        <div className="flex items-start justify-between gap-3"><div><h3 id="override-raw-details-title" className="text-lg font-semibold text-slate-950">Intervention details</h3><p className="mt-1 text-sm capitalize text-slate-600">{rawEntry.action.replaceAll("_", " ")} · {rawEntry.entity_type} · {rawEntry.actor_name}</p><p className="mt-1 text-sm font-medium text-slate-700">{rawEntry.target_label}</p></div><button type="button" onClick={() => setRawEntry(null)} aria-label="Close details" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div>
         <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700"><span className="font-semibold">Reason:</span> {rawEntry.override_reason}</p>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <section className="min-w-0"><h4 className="mb-2 text-sm font-semibold text-slate-800">Before</h4><pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">{JSON.stringify(rawEntry.previous_values, null, 2)}</pre></section>
-          <section className="min-w-0"><h4 className="mb-2 text-sm font-semibold text-slate-800">After</h4><pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">{JSON.stringify(rawEntry.new_values, null, 2)}</pre></section>
+          <AuditDetailsPanel title="Before" details={rawEntry.previous_details} />
+          <AuditDetailsPanel title="After" details={rawEntry.new_details} />
         </div>
         <div className="mt-4 flex justify-end"><button type="button" onClick={() => setRawEntry(null)} className="min-h-11 rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Close</button></div>
       </section>

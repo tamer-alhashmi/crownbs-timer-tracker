@@ -104,7 +104,7 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
     fetchAllRows("operational audit history", (from, to) => overrideAuditQuery.range(from, to)),
     fetchAllRows("audit task scope", (from, to) => taskScopeQuery.range(from, to)),
   ]);
-  const { data: currentUser } = await supabase.from("users").select("full_name, email").eq("id", user.userId).maybeSingle();
+  const { data: currentUser } = await supabase.from("users").select("full_name, email, avatar_url").eq("id", user.userId).maybeSingle();
   const [servicePermissionResult, payrollPermissionResult] = user.role === "admin"
     ? [null, null]
     : await Promise.all([
@@ -148,12 +148,76 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
     : [];
   const auditActorsById = new Map(auditActors.map((actor) => [
     actor.id,
-    actor.full_name?.trim() || actor.email?.trim() || `${actor.id.slice(0, 8)}…${actor.id.slice(-4)}`,
+    actor.full_name?.trim() || actor.email?.trim() || "Unknown user",
   ]));
-  const overrideAuditWithActorNames = scopedOverrideAudit.map((entry) => ({
-    ...entry,
-    actor_name: auditActorsById.get(entry.actor_id) ?? `${entry.actor_id.slice(0, 8)}…${entry.actor_id.slice(-4)}`,
-  }));
+  const usersById = new Map([
+    ...cleaners.map((cleaner) => [cleaner.id, cleaner.full_name?.trim() || cleaner.email?.trim() || "Unknown user"] as const),
+    ...propertyAssignees.map((assignee) => [assignee.id, assignee.full_name?.trim() || assignee.email?.trim() || "Unknown user"] as const),
+    ...auditActorsById.entries(),
+  ]);
+  const servicesById = new Map(services.map((service) => [service.id, service.name]));
+  const displayAuditSnapshot = (snapshot: Record<string, unknown>) => {
+    const details: { label: string; value: string }[] = [];
+    const addRelated = (key: string, label: string, names: Map<string, string>) => {
+      const id = snapshot[key];
+      if (typeof id === "string") details.push({ label, value: names.get(id) ?? "Unavailable" });
+    };
+    addRelated("user_id", "User", usersById);
+    addRelated("hotel_id", "Hotel", hotelsById);
+    addRelated("service_id", "Service", servicesById);
+    addRelated("owner_id", "Owner", usersById);
+    addRelated("manager_id", "Manager", usersById);
+    const labels: Record<string, string> = {
+      status: "Status",
+      start_time: "Start time",
+      end_time: "End time",
+      rooms_completed: "Rooms completed",
+      cost_override: "Cost",
+      cancelled_at: "Cancelled",
+      room_number: "Room",
+    };
+    for (const [key, label] of Object.entries(labels)) {
+      if (!(key in snapshot)) continue;
+      const value = snapshot[key];
+      if (key === "cancelled_at") {
+        details.push({ label, value: value ? "Yes" : "No" });
+      } else if (key === "start_time" || key === "end_time") {
+        if (typeof value !== "string" || !value) details.push({ label, value: "—" });
+        else {
+          const date = new Date(value);
+          details.push({ label, value: Number.isNaN(date.getTime()) ? value : date.toLocaleString("en-GB", { timeZone: "Africa/Cairo" }) });
+        }
+      } else if (key === "cost_override" && value !== null && value !== undefined) {
+        const cost = Number(value);
+        details.push({ label, value: Number.isFinite(cost) ? `GBP ${cost.toFixed(2)}` : "Unavailable" });
+      } else if (value !== null && value !== undefined && value !== "") {
+        details.push({ label, value: key === "status" && typeof value === "string" ? value.replaceAll("_", " ") : String(value) });
+      }
+    }
+    return details;
+  };
+  const overrideAuditWithActorNames = scopedOverrideAudit.map((entry) => {
+    const previousDetails = displayAuditSnapshot(entry.previous_values);
+    const newDetails = displayAuditSnapshot(entry.new_values);
+    const details = new Map([...previousDetails, ...newDetails].map(({ label, value }) => [label, value]));
+    const targetLabel = ["User", "Hotel", "Service"]
+      .flatMap((label) => {
+        const value = details.get(label);
+        return value ? [`${label}: ${value}`] : [];
+      })
+      .join(" · ");
+    return {
+      id: entry.id,
+      entity_type: entry.entity_type,
+      action: entry.action,
+      actor_name: auditActorsById.get(entry.actor_id) ?? "Unknown user",
+      target_label: targetLabel || (entry.entity_type === "shift" ? "Shift" : "Task"),
+      override_reason: entry.override_reason,
+      previous_details: previousDetails,
+      new_details: newDetails,
+      created_at: entry.created_at,
+    };
+  });
   const cleanersById = new Map(cleaners.map((cleaner) => [cleaner.id, cleaner.full_name || cleaner.email]));
   const workLogsWithNames = workLogs.map((log) => ({
     ...log,
@@ -209,6 +273,7 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
     canManageActiveOperations: user.role === "admin" || payrollPermission === null || payrollPermission.can_edit === true,
     userName: currentUser?.full_name ?? user.email,
     userEmail: currentUser?.email ?? user.email,
+    userAvatarUrl: currentUser?.avatar_url ?? null,
     brief,
   };
 }

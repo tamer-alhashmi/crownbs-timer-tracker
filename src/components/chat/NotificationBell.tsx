@@ -6,6 +6,7 @@ import { useState } from "react";
 import { fetchUnread } from "./chatApi";
 import { useChatStore } from "./chatStore";
 import { roleLabel } from "@/lib/chat/types";
+import { UserAvatar } from "@/components/shared/UserAvatar";
 
 export function NotificationBell() {
   const [isOpen, setIsOpen] = useState(false);
@@ -63,9 +64,7 @@ export function NotificationBell() {
                   }}
                   className="flex w-full gap-3 rounded-xl p-3 text-left transition hover:bg-slate-50"
                 >
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#d9fdd3] text-sm font-semibold text-emerald-900">
-                    {message.sender.full_name.charAt(0).toUpperCase()}
-                  </span>
+                  <UserAvatar name={message.sender.full_name} avatarUrl={message.sender.avatar_url} className="h-9 w-9 bg-[#d9fdd3] text-sm font-semibold text-emerald-900" />
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center justify-between gap-2">
                       <span className="truncate text-sm font-semibold text-slate-800">

@@ -6,6 +6,7 @@ export type ChatContact = {
   full_name: string;
   email: string;
   role: ChatRole;
+  avatar_url: string | null;
   unread_count?: number;
 };
 

@@ -2,20 +2,26 @@
 
 import { Check, CheckCheck, FileText } from "lucide-react";
 import type { ChatMessage } from "@/lib/chat/types";
+import { UserAvatar } from "@/components/shared/UserAvatar";
 
 export function MessageBubble({
   message,
   isOwn,
+  senderName,
+  senderAvatarUrl,
 }: {
   message: ChatMessage;
   isOwn: boolean;
+  senderName: string;
+  senderAvatarUrl: string | null;
 }) {
   const attachmentHref = message.attachment_url
     ? `/api/chat/attachment?path=${encodeURIComponent(message.attachment_url)}`
     : undefined;
 
   return (
-    <div className={`flex ${isOwn ? "justify-end" : "justify-start"}`}>
+    <div className={`flex items-end gap-1.5 ${isOwn ? "justify-end" : "justify-start"}`}>
+      {!isOwn && <UserAvatar name={senderName} avatarUrl={senderAvatarUrl} className="mb-0.5 h-7 w-7 bg-white text-xs font-semibold text-slate-700 ring-1 ring-slate-200 dark:bg-[#202c33] dark:text-slate-100 dark:ring-slate-700" />}
       <div
         className={`relative max-w-[80%] rounded-2xl px-3.5 py-2.5 shadow-sm ${
           isOwn
@@ -81,6 +87,7 @@ export function MessageBubble({
             ))}
         </div>
       </div>
+      {isOwn && <UserAvatar name={senderName} avatarUrl={senderAvatarUrl} className="mb-0.5 h-7 w-7 bg-white text-xs font-semibold text-slate-700 ring-1 ring-slate-200 dark:bg-[#202c33] dark:text-slate-100 dark:ring-slate-700" />}
     </div>
   );
 }

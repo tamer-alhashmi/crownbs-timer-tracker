@@ -6,6 +6,7 @@ import { useState } from "react";
 import { fetchContacts } from "./chatApi";
 import { useChatStore } from "./chatStore";
 import { roleLabel } from "@/lib/chat/types";
+import { UserAvatar } from "@/components/shared/UserAvatar";
 
 export function ContactList() {
   const [search, setSearch] = useState("");
@@ -51,9 +52,7 @@ export function ContactList() {
               onClick={() => setActiveContact(contact)}
               className="group mb-2 flex w-full items-center gap-3 rounded-2xl border border-transparent bg-white px-3.5 py-3.5 text-left shadow-[0_1px_3px_rgba(15,23,42,0.05)] transition hover:-translate-y-0.5 hover:border-emerald-100 hover:shadow-md hover:shadow-emerald-950/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:bg-[#202c33]"
             >
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#d9fdd3] font-semibold text-emerald-900 ring-1 ring-emerald-100 dark:bg-[#005c4b] dark:text-white dark:ring-emerald-900">
-                {contact.full_name.charAt(0).toUpperCase()}
-              </span>
+              <UserAvatar name={contact.full_name} avatarUrl={contact.avatar_url} className="h-11 w-11 bg-[#d9fdd3] font-semibold text-emerald-900 ring-1 ring-emerald-100 dark:bg-[#005c4b] dark:text-white dark:ring-emerald-900" />
               <span className="min-w-0 flex-1">
                 <span                 className="block truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
                   {contact.full_name}

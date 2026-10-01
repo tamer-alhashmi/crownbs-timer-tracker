@@ -52,3 +52,27 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Android app
+
+The Android application uses Capacitor to load the Next.js deployment at `https://crownbs.vercel.app`. It requires network access for Next.js server rendering, Supabase, chat, and live updates. The bundled `capacitor-web` page is only a placeholder; offline application features are not implemented.
+
+Capacitor documents `server.url` for live-reload workflows and does not recommend it for production. This project is configured to load the hosted URL as requested, so review Google Play's minimum-functionality and WebView policies before submitting; the app also depends on that deployment being available.
+
+After changing the web app or Capacitor plugins, synchronize the native project and open it in Android Studio:
+
+```powershell
+npm install
+npx cap sync android
+npx cap open android
+```
+
+In Android Studio, select **Build > Generate Signed Bundle / APK > Android App Bundle**, create or select a release signing key, then finish the wizard. For a previously configured signing setup, the release bundle can also be built from PowerShell:
+
+```powershell
+.\android\gradlew.bat bundleRelease
+```
+
+The generated bundle is `android\app\build\outputs\bundle\release\app-release.aab`. Keep the upload keystore and its passwords private and backed up; Google Play updates must continue to use the same signing identity.
+
+The app ID is `com.crownbs.timetracker`. Before the first Play release, configure the Play Console listing, privacy policy, data safety declarations, and release signing. Photo uploads use Android's system file picker and camera capture; only the camera permission is declared, with no broad media-storage permission.
