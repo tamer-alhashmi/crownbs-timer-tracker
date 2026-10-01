@@ -55,7 +55,7 @@ function useDashboardTab() {
 type Log = { id: string; user_id: string; hotel_id: string; service_id: string | null; cleanerName: string; hotelName: string; start_time: string; end_time: string | null; task_date: string; status: string; rooms_completed: number; room_number: string | null; room_numbers: string[]; service_name_snapshot: string | null; service_description_snapshot: string | null; notes: string | null; cost_override?: number | string | null; owner_id: string | null; owner_name: string | null; manager_id: string | null; manager_name: string | null; responsibility_recorded_at: string | null; manager_approved: boolean; owner_approved: boolean; manager_rejected: boolean; owner_rejected: boolean; is_locked: boolean; rejection_notes?: string | null; services_config?: { name: string; default_rate: number; unit?: string }[] };
 type Room = { id: string; hotel_id: string; room_name: string; category: string; status?: string };
 type Props = { data: { userRole: string; userName: string; userEmail: string; canViewServices: boolean; canManageServices: boolean; canManagePayrollTasks: boolean; canManageActiveOperations: boolean; hotels: PropertyRecord[]; propertyAssignees: { id: string; name: string; role: "owner" | "manager" }[]; cleaners: { id: string; name: string; primary_hotel_id: string | null }[]; services: ServiceRecord[]; rooms: Room[]; workLogs: Log[]; payroll: PayrollLog[]; activeShifts: { id: string; user_id: string; start_time: string; cleanerName: string; task: Log | null }[]; activeTasks: Log[]; overrideAudit: OverrideAuditRecord[]; brief: ManagementBrief } };
-type OverrideAuditRecord = { id: string; entity_type: "task" | "shift"; entity_id: string; action: string; actor_id: string; override_reason: string; previous_values: Record<string, unknown>; new_values: Record<string, unknown>; created_at: string };
+type OverrideAuditRecord = { id: string; entity_type: "task" | "shift"; entity_id: string; action: string; actor_id: string; actor_name: string; override_reason: string; previous_values: Record<string, unknown>; new_values: Record<string, unknown>; created_at: string };
 type Draft = { hotelId: string; serviceId: string; roomId: string; roomsCompleted: string; roomNumber: string; notes: string; startTime: string; endTime: string };
 type WorkLogSortColumn = "date" | "cleaner" | "hotel" | "service" | "status";
 type ApprovalFeedback = { logId: string; kind: "pending" | "success" | "error"; text: string };
@@ -172,7 +172,7 @@ export default function ManagementDashboardClient({ data }: Props) {
   const selectTab = (tab: DashboardTab) => {
     const url = new URL(window.location.href);
     url.searchParams.set("tab", tab);
-    window.history.pushState(window.history.state, "", url);
+    window.history.pushState(null, "", url);
     window.dispatchEvent(new Event(DASHBOARD_TAB_CHANGE));
   };
   const run = (operation: () => Promise<unknown>, success = "Saved.") => startTransition(async () => {
@@ -537,30 +537,82 @@ function SnapshotTransparency({ logs }: { logs: Log[] }) {
   </section>;
 }
 
+const AUDIT_DIFF_FIELDS = [
+  { key: "status", label: "Status" },
+  { key: "end_time", label: "End time" },
+  { key: "cancelled_at", label: "Cancelled" },
+  { key: "cost_override", label: "Cost override" },
+  { key: "rooms_completed", label: "Rooms completed" },
+] as const;
+
+function formatAuditValue(key: string, value: unknown) {
+  if (key === "cancelled_at") return value ? "Yes" : "No";
+  if (value === null || value === undefined || value === "") return "—";
+  if (key === "end_time" && typeof value === "string") {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString("en-GB", { timeZone: "Africa/Cairo" });
+  }
+  if (key === "cost_override" && (typeof value === "number" || typeof value === "string")) {
+    const amount = Number(value);
+    return Number.isFinite(amount) ? `GBP ${amount.toFixed(2)}` : String(value);
+  }
+  if (key === "status" && typeof value === "string") return value.replaceAll("_", " ");
+  return String(value);
+}
+
+function getAuditChanges(entry: OverrideAuditRecord) {
+  return AUDIT_DIFF_FIELDS.flatMap(({ key, label }) => {
+    const before = entry.previous_values[key];
+    const after = entry.new_values[key];
+    if (JSON.stringify(before) === JSON.stringify(after)) return [];
+    return [{ key, label, before: formatAuditValue(key, before), after: formatAuditValue(key, after) }];
+  });
+}
+
 function OverrideAuditTable({ entries }: { entries: OverrideAuditRecord[] }) {
   const [page, setPage] = useState(1);
+  const [rawEntry, setRawEntry] = useState<OverrideAuditRecord | null>(null);
   const pageCount = Math.max(1, Math.ceil(entries.length / RECORDS_PER_PAGE));
   const currentPage = Math.min(page, pageCount);
   const visibleEntries = entries.slice((currentPage - 1) * RECORDS_PER_PAGE, currentPage * RECORDS_PER_PAGE);
-  return <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-200/50 sm:p-5">
+  return <>
+  <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-200/50 sm:p-5">
     <div className="mb-4"><h3 className="text-base font-semibold text-slate-950">Operational intervention audit</h3><p className="mt-1 text-sm text-slate-500">Force clock-outs and task overrides, including the actor, reason, and recorded change.</p></div>
-    <div className="max-h-[65vh] overflow-auto rounded-lg border border-slate-200">
+    <div className="admin-config-scroll max-h-[65vh] overflow-auto rounded-lg border border-slate-200 [-webkit-overflow-scrolling:touch]">
       <table className="min-w-[900px] w-full text-left text-sm">
         <thead className="sticky top-0 z-10 bg-white/95 text-slate-600 shadow-sm backdrop-blur"><tr><th className="px-3 py-3">When</th><th className="px-3 py-3">Entity / action</th><th className="px-3 py-3">Actor</th><th className="px-3 py-3">Reason</th><th className="px-3 py-3">Recorded change</th></tr></thead>
         <tbody className="divide-y divide-slate-100">
-          {visibleEntries.map((entry) => <tr key={entry.id} className="align-top hover:bg-slate-50">
+          {visibleEntries.map((entry) => {
+            const changes = getAuditChanges(entry);
+            return <tr key={entry.id} className="align-top hover:bg-slate-50">
             <td className="whitespace-nowrap px-3 py-3 text-slate-600">{new Date(entry.created_at).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}</td>
             <td className="px-3 py-3"><span className="font-semibold capitalize text-slate-900">{entry.entity_type}</span><span className="block text-xs text-slate-500">{entry.action.replaceAll("_", " ")}</span><span className="block max-w-40 truncate font-mono text-[10px] text-slate-400">{entry.entity_id}</span></td>
-            <td className="max-w-36 truncate px-3 py-3 font-mono text-xs text-slate-600" title={entry.actor_id}>{entry.actor_id}</td>
+            <td className="max-w-40 px-3 py-3 text-slate-700" title={entry.actor_id}><span className="block truncate font-medium">{entry.actor_name}</span></td>
             <td className="max-w-sm whitespace-normal px-3 py-3 text-slate-700">{entry.override_reason}</td>
-            <td className="max-w-sm whitespace-normal px-3 py-3 text-xs text-slate-600"><span className="block"><strong className="text-slate-700">Before:</strong> {JSON.stringify(entry.previous_values)}</span><span className="mt-1 block"><strong className="text-slate-700">After:</strong> {JSON.stringify(entry.new_values)}</span></td>
-          </tr>)}
+            <td className="px-3 py-3 text-xs text-slate-600">
+              <div className="space-y-1.5">{changes.length ? changes.map((change) => <p key={change.key}><span className="font-semibold text-slate-800">{change.label}:</span> {change.key === "cancelled_at" ? change.after : <>{change.before} <span aria-label="changed to" className="px-1 text-slate-400">→</span> {change.after}</>}</p>) : <span className="text-slate-500">No tracked fields changed</span>}</div>
+              <button type="button" onClick={() => setRawEntry(entry)} className="mt-2 min-h-11 rounded-lg border border-slate-200 px-2.5 py-1.5 font-medium text-slate-700 hover:bg-slate-50">View raw details</button>
+            </td>
+          </tr>;
+          })}
           {!entries.length && <tr><td colSpan={5} className="px-3 py-8 text-center text-slate-500">No operational interventions have been recorded.</td></tr>}
         </tbody>
       </table>
     </div>
     <DashboardPagination currentPage={currentPage} pageCount={pageCount} total={entries.length} pageSize={RECORDS_PER_PAGE} label="interventions" onPageChange={setPage} />
-  </section>;
+  </section>
+    {rawEntry && <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-labelledby="override-raw-details-title">
+      <section className="max-h-[calc(100dvh-2rem)] w-full max-w-3xl overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-5 text-slate-900 shadow-2xl">
+        <div className="flex items-start justify-between gap-3"><div><h3 id="override-raw-details-title" className="text-lg font-semibold text-slate-950">Intervention details</h3><p className="mt-1 text-sm text-slate-600">{rawEntry.action.replaceAll("_", " ")} · {rawEntry.entity_type} · {rawEntry.actor_name}</p></div><button type="button" onClick={() => setRawEntry(null)} aria-label="Close raw details" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div>
+        <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700"><span className="font-semibold">Reason:</span> {rawEntry.override_reason}</p>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <section className="min-w-0"><h4 className="mb-2 text-sm font-semibold text-slate-800">Before</h4><pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">{JSON.stringify(rawEntry.previous_values, null, 2)}</pre></section>
+          <section className="min-w-0"><h4 className="mb-2 text-sm font-semibold text-slate-800">After</h4><pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">{JSON.stringify(rawEntry.new_values, null, 2)}</pre></section>
+        </div>
+        <div className="mt-4 flex justify-end"><button type="button" onClick={() => setRawEntry(null)} className="min-h-11 rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Close</button></div>
+      </section>
+    </div>}
+  </>;
 }
 
 function EditPanel({ draft, setDraft, services, hotels, saving, onCancel, onSave }: { draft: Draft; setDraft: (draft: Draft) => void; services: { id: string; name: string }[]; hotels: { id: string; name: string }[]; saving: boolean; onCancel: () => void; onSave: () => void }) { const hours = durationHours(draft.startTime, draft.endTime); return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4"><div className="w-full max-w-lg rounded-2xl bg-white p-5 text-slate-900 shadow-xl"><div className="flex items-center justify-between"><h2 className="text-xl font-bold">Edit work log</h2><button type="button" onClick={onCancel} className="rounded-lg p-2 text-slate-500"><X className="h-5 w-5"/></button></div><div className="mt-4 grid gap-3"><select value={draft.hotelId} onChange={(event) => setDraft({...draft, hotelId: event.target.value})} className="rounded-lg border border-slate-200 bg-white p-2 text-slate-900">{hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select><select value={draft.serviceId} onChange={(event) => setDraft({...draft, serviceId: event.target.value})} className="rounded-lg border border-slate-200 bg-white p-2 text-slate-900">{services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select><div className="grid grid-cols-2 gap-3"><label className="text-xs font-semibold text-slate-600">Start time<input type="datetime-local" value={draft.startTime} onChange={(event) => setDraft({...draft, startTime: event.target.value})} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-900"/></label><label className="text-xs font-semibold text-slate-600">End time<input type="datetime-local" value={draft.endTime} onChange={(event) => setDraft({...draft, endTime: event.target.value})} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-900"/></label></div><div className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">Calculated duration: <strong>{hours.toFixed(2)} hours</strong></div><label className="text-xs font-semibold text-slate-600">Rooms completed<input type="number" min="0" value={draft.roomsCompleted} onChange={(event) => setDraft({...draft, roomsCompleted: event.target.value})} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-slate-900"/></label><label className="text-xs font-semibold text-slate-600">Room number<input value={draft.roomNumber} onChange={(event) => setDraft({...draft, roomNumber: event.target.value})} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-slate-900"/></label><label className="text-xs font-semibold text-slate-600">Notes<textarea value={draft.notes} onChange={(event) => setDraft({...draft, notes: event.target.value})} rows={4} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-slate-900"/></label></div><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={onCancel} className="rounded-lg border px-4 py-2 text-sm text-slate-700">Cancel</button><button type="button" disabled={saving} onClick={onSave} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Save changes</button></div></div></div>; }
