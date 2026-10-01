@@ -20,16 +20,20 @@ type WorkLogUpdate = {
 
 type PageResult<T> = { data: T[] | null; error: { message: string } | null };
 
-async function fetchAllRows<T>(fetchPage: (from: number, to: number) => PromiseLike<PageResult<T>>) {
+async function fetchAllRows<T>(label: string, fetchPage: (from: number, to: number) => PromiseLike<PageResult<T>>) {
   const rows: T[] = [];
   const pageSize = 500;
 
   for (let from = 0; ; from += pageSize) {
-    const { data, error } = await fetchPage(from, from + pageSize - 1);
-    if (error) throw new Error(error.message);
-    const page = data ?? [];
-    rows.push(...page);
-    if (page.length < pageSize) return rows;
+    try {
+      const { data, error } = await fetchPage(from, from + pageSize - 1);
+      if (error) throw new Error(error.message);
+      const page = data ?? [];
+      rows.push(...page);
+      if (page.length < pageSize) return rows;
+    } catch (error) {
+      throw new Error(`Failed to load management ${label}.`, { cause: error });
+    }
   }
 }
 
@@ -55,13 +59,13 @@ async function assertRoleControlsLog(role: ApprovalRole, log: { hotel_id: string
   return user;
 }
 
-export async function getManagementOverview(period?: { from: string; to: string }) {
+async function loadManagementOverview(period?: { from: string; to: string }) {
   const user = await requireFeatureAccess("dashboard");
   if (!["admin", "owner", "manager"].includes(user.role)) throw new Error("Management access required.");
   const supabase = createPrivilegedServerSupabaseClient();
   const briefPromise = getManagementOperationalBrief(user, period);
   const hotelsQuery = supabase.from("hotels").select("id, name, location, owner_id, manager_id, created_at, is_active").order("name").order("id");
-  const hotels = await fetchAllRows((from, to) => hotelsQuery.range(from, to));
+  const hotels = await fetchAllRows("properties", (from, to) => hotelsQuery.range(from, to));
   const assignedHotelId = user.hotelId ?? null;
   const visibleHotels = user.role === "admin"
     ? hotels ?? []
@@ -80,13 +84,13 @@ export async function getManagementOverview(period?: { from: string; to: string 
   const servicesQuery = supabase.from("services_config").select("id, name, description, unit, default_rate, is_active, created_at").order("name").order("id");
   const roomsQuery = supabase.from("rooms").select("id, hotel_id, room_name, category, status").in("hotel_id", hotelIds.length ? hotelIds : ["00000000-0000-0000-0000-000000000000"]).eq("status", "active").order("room_name").order("id");
   const [cleaners, propertyAssignees, services, workLogs, payroll, rooms, activeShifts] = await Promise.all([
-    fetchAllRows((from, to) => cleanersQuery.range(from, to)),
-    fetchAllRows((from, to) => assigneesQuery.range(from, to)),
-    fetchAllRows((from, to) => servicesQuery.range(from, to)),
-    fetchAllRows((from, to) => logsQuery.range(from, to)),
-    fetchAllRows((from, to) => payrollQuery.range(from, to)),
-    fetchAllRows((from, to) => roomsQuery.range(from, to)),
-    fetchAllRows((from, to) => shiftsQuery.range(from, to)),
+    fetchAllRows("cleaners", (from, to) => cleanersQuery.range(from, to)),
+    fetchAllRows("property assignees", (from, to) => assigneesQuery.range(from, to)),
+    fetchAllRows("services", (from, to) => servicesQuery.range(from, to)),
+    fetchAllRows("work logs", (from, to) => logsQuery.range(from, to)),
+    fetchAllRows("payroll", (from, to) => payrollQuery.range(from, to)),
+    fetchAllRows("rooms", (from, to) => roomsQuery.range(from, to)),
+    fetchAllRows("active shifts", (from, to) => shiftsQuery.range(from, to)),
   ]);
   const { data: currentUser } = await supabase.from("users").select("full_name, email").eq("id", user.userId).maybeSingle();
   const [servicePermissionResult, payrollPermissionResult] = user.role === "admin"
@@ -107,6 +111,7 @@ export async function getManagementOverview(period?: { from: string; to: string 
   const cleanersById = new Map(cleaners.map((cleaner) => [cleaner.id, cleaner.full_name || cleaner.email]));
   const workLogsWithNames = workLogs.map((log) => ({
     ...log,
+    room_numbers: Array.isArray(log.room_numbers) ? log.room_numbers : [],
     cleanerName: cleanersById.get(log.user_id) ?? "Unknown cleaner",
     hotelName: hotelsById.get(log.hotel_id) ?? "Unknown hotel",
   }));
@@ -157,6 +162,20 @@ export async function getManagementOverview(period?: { from: string; to: string 
     userEmail: currentUser?.email ?? user.email,
     brief,
   };
+}
+
+export async function getManagementOverview(period?: { from: string; to: string }) {
+  try {
+    return await loadManagementOverview(period);
+  } catch (error) {
+    const isExpectedStaticGeneration = Boolean(
+      error && typeof error === "object" && "digest" in error && error.digest === "DYNAMIC_SERVER_USAGE"
+    );
+    if (!isExpectedStaticGeneration) {
+      console.error("Failed to render the management dashboard.", { period, error });
+    }
+    throw error;
+  }
 }
 
 export type ManagementOverrideInput = {
