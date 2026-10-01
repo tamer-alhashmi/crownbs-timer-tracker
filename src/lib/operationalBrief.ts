@@ -119,7 +119,7 @@ export async function getManagementOperationalBrief(user: AppUserSession, period
   if (user.role === "manager") hotelsQuery = hotelsQuery.eq("manager_id", user.userId);
   let logQuery = supabase
     .from("work_logs")
-    .select("id, hotel_id, user_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, cost_override, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, rejection_notes, hotels(name), users(full_name, email), services_config(name, description, default_rate, unit)")
+    .select("id, hotel_id, user_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, cost_override, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, rejection_notes, hotels(name), users!work_logs_user_id_fkey(full_name, email), services_config(name, description, default_rate, unit)")
     .is("deleted_at", null)
     .is("cancelled_at", null)
     .order("start_time", { ascending: false });
