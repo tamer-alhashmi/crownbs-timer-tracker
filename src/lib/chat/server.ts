@@ -35,7 +35,7 @@ export async function getChatActor() {
   const supabase = createPrivilegedServerSupabaseClient();
   const { data: profile, error } = await supabase
     .from("users")
-    .select("id, full_name, email, role")
+    .select("id, full_name, email, role, avatar_url")
     .eq("id", session.userId)
     .maybeSingle();
 
@@ -64,7 +64,7 @@ export async function getChatContact(
 ): Promise<ChatContact | null> {
   const { data, error } = await supabase
     .from("users")
-    .select("id, full_name, email, role")
+    .select("id, full_name, email, role, avatar_url")
     .eq("id", id)
     .maybeSingle();
   if (error) {

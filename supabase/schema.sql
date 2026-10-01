@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS users (
     pin_code TEXT,
     role user_role NOT NULL,
     full_name TEXT NOT NULL,
+    phone_number TEXT,
+    avatar_url TEXT,
     hourly_rate NUMERIC(10, 2) NOT NULL DEFAULT 12.00 CHECK (hourly_rate >= 0),
     primary_hotel_id UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

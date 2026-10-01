@@ -14,7 +14,7 @@ export default async function CleanerDashboardPage() {
 
   const supabase = createPrivilegedServerSupabaseClient();
   const [{ data: profile }, { data: hotels }, { data: services }, { data: rooms }, { data: shift }, { data: logs }, brief] = await Promise.all([
-    supabase.from("users").select("full_name").eq("id", user.userId).maybeSingle(),
+    supabase.from("users").select("full_name, avatar_url").eq("id", user.userId).maybeSingle(),
     supabase.from("hotels").select("id, name, location").eq("is_active", true).order("name"),
     supabase.from("services_config").select("id, name, description, default_rate, unit").eq("is_active", true).order("name"),
     supabase.from("rooms").select("id, hotel_id, room_name, category").eq("status", "active").order("room_name"),
@@ -64,7 +64,7 @@ export default async function CleanerDashboardPage() {
 
   return (
     <CleanerDashboard
-      user={{ fullName: profile?.full_name ?? user.email, email: user.email, hotelId: user.hotelId ?? null }}
+      user={{ fullName: profile?.full_name ?? user.email, email: user.email, hotelId: user.hotelId ?? null, avatarUrl: profile?.avatar_url ?? null }}
       hotels={hotels ?? []}
       services={services ?? []}
       rooms={rooms ?? []}

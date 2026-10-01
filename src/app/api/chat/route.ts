@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
   if (view === "contacts") {
     const { data, error } = await supabase
       .from("users")
-      .select("id, full_name, email, role")
+      .select("id, full_name, email, role, avatar_url")
       .neq("id", actor.id)
       .order("full_name");
     if (error) {
@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
     }
     const senderIds = [...new Set((data ?? []).map((message) => message.sender_id))];
     const { data: senders, error: sendersError } = senderIds.length
-      ? await supabase.from("users").select("id, full_name, email, role").in("id", senderIds)
+      ? await supabase.from("users").select("id, full_name, email, role, avatar_url").in("id", senderIds)
       : { data: [], error: null };
     if (sendersError) {
       console.error("Chat notification sender lookup failed:", sendersError.message);

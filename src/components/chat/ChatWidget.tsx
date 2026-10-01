@@ -8,8 +8,9 @@ import { roleLabel } from "@/lib/chat/types";
 import { useChatStore } from "./chatStore";
 import { ContactList } from "./ContactList";
 import { ConversationView } from "./ConversationView";
+import { UserAvatar } from "@/components/shared/UserAvatar";
 
-export function ChatWidget({ user }: { user: AppUserSession }) {
+export function ChatWidget({ user, profile }: { user: AppUserSession; profile: { name: string; avatarUrl: string | null } }) {
   const widgetId = useId().replaceAll(":", "");
   const isChatOpen = useChatStore((state) => state.isChatOpen);
   const activeContact = useChatStore((state) => state.activeContact);
@@ -133,13 +134,13 @@ export function ChatWidget({ user }: { user: AppUserSession }) {
               <ArrowLeft aria-hidden="true" className="h-5 w-5" />
             </button>
           )}
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/15 text-base font-semibold text-white ring-1 ring-white/20">
-            {activeContact ? (
-              activeContact.full_name.trim().charAt(0).toUpperCase()
-            ) : (
+          {activeContact ? (
+            <UserAvatar name={activeContact.full_name} avatarUrl={activeContact.avatar_url} className="h-11 w-11 bg-white/15 text-base font-semibold text-white ring-1 ring-white/20" />
+          ) : (
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/15 text-base font-semibold text-white ring-1 ring-white/20">
               <MessageCircle aria-hidden="true" className="h-5 w-5" />
-            )}
-          </span>
+            </span>
+          )}
           <span className="min-w-0">
             <span className="block truncate text-[15px] font-semibold leading-5">
               {activeContact?.full_name ?? "Team chat"}
@@ -176,7 +177,7 @@ export function ChatWidget({ user }: { user: AppUserSession }) {
         </div>
       </header>
       {activeContact ? (
-        <ConversationView userId={user.userId} contact={activeContact} />
+        <ConversationView userId={user.userId} userName={profile.name} userAvatarUrl={profile.avatarUrl} contact={activeContact} />
       ) : (
         <ContactList />
       )}

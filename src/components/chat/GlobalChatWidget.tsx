@@ -8,7 +8,7 @@ import { fetchUnread } from "./chatApi";
 import { useChatStore } from "./chatStore";
 import { ChatWidget } from "./ChatWidget";
 
-export function GlobalChatWidget({ user }: { user: AppUserSession }) {
+export function GlobalChatWidget({ user, profile }: { user: AppUserSession; profile: { name: string; avatarUrl: string | null } }) {
   const queryClient = useQueryClient();
   const isChatOpen = useChatStore((state) => state.isChatOpen);
   const openChat = useChatStore((state) => state.openChat);
@@ -53,7 +53,7 @@ export function GlobalChatWidget({ user }: { user: AppUserSession }) {
           )}
         </button>
       )}
-      <ChatWidget user={user} />
+      <ChatWidget user={user} profile={profile} />
     </>
   );
 }

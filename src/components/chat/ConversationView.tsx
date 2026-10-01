@@ -11,9 +11,13 @@ import { MessageInput } from "./MessageInput";
 
 export function ConversationView({
   userId,
+  userName,
+  userAvatarUrl,
   contact,
 }: {
   userId: AppUserSession["userId"];
+  userName: string;
+  userAvatarUrl: string | null;
   contact: ChatContact;
 }) {
   const queryClient = useQueryClient();
@@ -73,7 +77,13 @@ export function ConversationView({
             </p>
           ) : data?.messages.length ? (
             data.messages.map((message) => (
-              <MessageBubble key={message.id} message={message} isOwn={message.sender_id === userId} />
+              <MessageBubble
+                key={message.id}
+                message={message}
+                isOwn={message.sender_id === userId}
+                senderName={message.sender_id === userId ? userName : contact.full_name}
+                senderAvatarUrl={message.sender_id === userId ? userAvatarUrl : contact.avatar_url}
+              />
             ))
           ) : (
             <div className="flex h-full flex-col items-center justify-center text-center">

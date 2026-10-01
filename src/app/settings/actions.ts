@@ -3,13 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { FEATURE_KEYS, type FeatureKey, type FeaturePermission } from "./permissionConfig";
-import { requireFeatureAccess } from "@/lib/featureAccess";
+import { requireFeatureAccess, type FeatureAction } from "@/lib/featureAccess";
 
 export type ManagedUser = {
   id: string;
   full_name: string;
   email: string;
   role: "admin" | "owner" | "manager" | "cleaner";
+  phone_number: string | null;
+  avatar_url: string | null;
   pin_code: string | null;
   primary_hotel_id: string | null;
   hotelName: string;
@@ -22,12 +24,13 @@ type UserInput = {
   role: ManagedUser["role"];
   pinCode: string;
   hotelId: string;
+  phoneNumber: string;
   password?: string;
 };
 
-async function requireSettingsAccess() {
-  const actor = await requireFeatureAccess("settings");
-  if (!actor || actor.role !== "admin") throw new Error("Administrator access required.");
+async function requireSettingsAccess(action: FeatureAction = "view") {
+  const actor = await requireFeatureAccess("settings", action);
+  if (!["admin", "owner", "manager"].includes(actor.role)) throw new Error("Management settings access required.");
   const supabase = createPrivilegedServerSupabaseClient();
   const { data: hotels, error } = await supabase.from("hotels").select("id, name, owner_id, manager_id").order("name");
   if (error) throw new Error(error.message);
@@ -45,20 +48,22 @@ function validateInput(input: UserInput) {
   const fullName = input.fullName.trim();
   const email = input.email.trim().toLowerCase();
   const pinCode = input.pinCode.trim();
+  const phoneNumber = input.phoneNumber.trim();
   if (!fullName || !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Enter a valid name and email.");
   if (pinCode && !/^\d{4}$/.test(pinCode)) throw new Error("PIN must be exactly 4 digits.");
-  return { ...input, fullName, email, pinCode };
+  if (phoneNumber.length > 32 || (phoneNumber && !/^[+()\d\s.-]{5,32}$/.test(phoneNumber))) throw new Error("Enter a valid phone number or leave it blank.");
+  return { ...input, fullName, email, pinCode, phoneNumber };
 }
 
 async function assertTargetScope(targetId: string, targetRole: ManagedUser["role"], hotelId: string | null, actor: Awaited<ReturnType<typeof requireSettingsAccess>>) {
-  if (targetId === actor.actor.userId) throw new Error("You cannot manage your own account here.");
+  if (targetId !== "new" && targetId === actor.actor.userId) throw new Error("You cannot manage your own account here.");
   if (!roleAllowed(actor.actor.role, targetRole)) throw new Error("Your role cannot manage this user type.");
   if (actor.actor.role !== "admin" && (!hotelId || !actor.visibleHotels.some((hotel) => hotel.id === hotelId))) throw new Error("That hotel is outside your management scope.");
 }
 
 export async function getSettingsData() {
   const context = await requireSettingsAccess();
-  const { data: users, error } = await context.supabase.from("users").select("id, full_name, email, role, pin_code, primary_hotel_id").order("full_name");
+  const { data: users, error } = await context.supabase.from("users").select("id, full_name, email, phone_number, avatar_url, role, pin_code, primary_hotel_id").order("full_name");
   if (error) throw new Error(error.message);
   const { data: permissions, error: permissionsError } = await context.supabase.from("user_feature_permissions").select("user_id, feature_key, can_view, can_create, can_edit, can_delete");
   if (permissionsError && permissionsError.code !== "PGRST205") throw new Error(permissionsError.message);
@@ -68,6 +73,8 @@ export async function getSettingsData() {
     actorRole: context.actor.role,
     actorName: (users ?? []).find((user) => user.id === context.actor.userId)?.full_name ?? context.actor.email,
     actorEmail: context.actor.email,
+    actorPhoneNumber: (users ?? []).find((user) => user.id === context.actor.userId)?.phone_number ?? null,
+    actorAvatarUrl: (users ?? []).find((user) => user.id === context.actor.userId)?.avatar_url ?? null,
     hotels: context.visibleHotels.map((hotel) => ({ id: hotel.id, name: hotel.name })),
     users: visibleUsers.map((user) => {
       const assignedHotels = context.visibleHotels.filter((hotel) => user.role === "owner" ? hotel.owner_id === user.id : user.role === "manager" ? hotel.manager_id === user.id : user.role === "cleaner" && hotel.id === user.primary_hotel_id).map((hotel) => ({ id: hotel.id, name: hotel.name }));
@@ -78,7 +85,7 @@ export async function getSettingsData() {
 }
 
 export async function updateUserFeaturePermissions(userId: string, permissions: Array<Omit<FeaturePermission, "user_id">>) {
-  const context = await requireSettingsAccess();
+  const context = await requireSettingsAccess("edit");
   if (context.actor.role !== "admin") throw new Error("Only administrators can change feature permissions.");
   if (!permissions.every((permission) => FEATURE_KEYS.includes(permission.feature_key))) throw new Error("An invalid feature permission was submitted.");
   const { data: target, error: targetError } = await context.supabase.from("users").select("id, role").eq("id", userId).maybeSingle();
@@ -91,14 +98,14 @@ export async function updateUserFeaturePermissions(userId: string, permissions: 
 }
 
 export async function createManagedUser(input: UserInput) {
-  const context = await requireSettingsAccess();
+  const context = await requireSettingsAccess("create");
   const values = validateInput(input);
-  await assertTargetScope("new", values.role, values.hotelId || null, { ...context, actor: { ...context.actor, userId: "new" } });
+  await assertTargetScope("new", values.role, values.hotelId || null, context);
   if (!values.password && !values.pinCode) throw new Error("Provide a password or a 4-digit PIN.");
   const password = values.password?.trim() || `${crypto.randomUUID()}Aa1!`;
   const { data: authUser, error: authError } = await context.supabase.auth.admin.createUser({ email: values.email, password, email_confirm: true });
   if (authError || !authUser.user) throw new Error(authError?.message ?? "Unable to create login account.");
-  const { error: profileError } = await context.supabase.from("users").insert({ id: authUser.user.id, full_name: values.fullName, email: values.email, role: values.role, pin_code: values.pinCode || null, primary_hotel_id: values.hotelId || null });
+  const { error: profileError } = await context.supabase.from("users").insert({ id: authUser.user.id, full_name: values.fullName, email: values.email, phone_number: values.phoneNumber || null, role: values.role, pin_code: values.pinCode || null, primary_hotel_id: values.hotelId || null });
   if (profileError) {
     await context.supabase.auth.admin.deleteUser(authUser.user.id);
     throw new Error(profileError.message);
@@ -119,7 +126,7 @@ export async function createManagedUser(input: UserInput) {
 }
 
 export async function updateManagedUser(userId: string, input: UserInput) {
-  const context = await requireSettingsAccess();
+  const context = await requireSettingsAccess("edit");
   const values = validateInput(input);
   const { data: current, error: readError } = await context.supabase.from("users").select("id, role, primary_hotel_id").eq("id", userId).maybeSingle();
   if (readError || !current) throw new Error("User was not found.");
@@ -129,14 +136,14 @@ export async function updateManagedUser(userId: string, input: UserInput) {
   await assertTargetScope(userId, values.role, values.hotelId || null, context);
   const { error: authError } = await context.supabase.auth.admin.updateUserById(userId, { email: values.email, ...(values.password?.trim() ? { password: values.password.trim() } : {}) });
   if (authError) throw new Error(authError.message);
-  const { error } = await context.supabase.from("users").update({ full_name: values.fullName, email: values.email, role: values.role, pin_code: values.pinCode || null, primary_hotel_id: values.hotelId || null, updated_at: new Date().toISOString() }).eq("id", userId);
+  const { error } = await context.supabase.from("users").update({ full_name: values.fullName, email: values.email, phone_number: values.phoneNumber || null, role: values.role, pin_code: values.pinCode || null, primary_hotel_id: values.hotelId || null, updated_at: new Date().toISOString() }).eq("id", userId);
   if (error) throw new Error(error.message);
   if ((values.role === "owner" || values.role === "manager") && values.hotelId) await assignManagedUserToHotel(userId, values.hotelId);
   revalidatePath("/settings");
 }
 
 export async function deleteManagedUser(userId: string) {
-  const context = await requireSettingsAccess();
+  const context = await requireSettingsAccess("delete");
   if (context.actor.role !== "admin") throw new Error("Only administrators can delete user accounts.");
   const { data: target, error: readError } = await context.supabase.from("users").select("id, role, primary_hotel_id").eq("id", userId).maybeSingle();
   if (readError || !target) throw new Error("User was not found.");
@@ -151,7 +158,7 @@ export async function deleteManagedUser(userId: string) {
 }
 
 export async function assignManagedUserToHotel(userId: string, hotelId: string) {
-  const context = await requireSettingsAccess();
+  const context = await requireSettingsAccess("edit");
   const { data: target, error: targetError } = await context.supabase.from("users").select("id, role, primary_hotel_id").eq("id", userId).maybeSingle();
   if (targetError || !target) throw new Error("User was not found.");
   const targetRole = target.role as ManagedUser["role"];
@@ -176,7 +183,7 @@ export async function assignManagedUserToHotel(userId: string, hotelId: string) 
 }
 
 export async function unassignManagedUserFromHotel(userId: string, hotelId: string) {
-  const context = await requireSettingsAccess();
+  const context = await requireSettingsAccess("edit");
   const { data: target, error: targetError } = await context.supabase.from("users").select("id, role, primary_hotel_id").eq("id", userId).maybeSingle();
   if (targetError || !target) throw new Error("User was not found.");
   const targetRole = target.role as ManagedUser["role"];
