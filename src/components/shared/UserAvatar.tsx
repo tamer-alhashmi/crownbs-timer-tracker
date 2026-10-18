@@ -1,3 +1,5 @@
+"use client";
+
 type Props = {
   name: string;
   avatarUrl?: string | null;
