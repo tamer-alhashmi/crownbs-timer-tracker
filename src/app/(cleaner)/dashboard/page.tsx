@@ -13,11 +13,28 @@ export default async function CleanerDashboardPage() {
   }
 
   const supabase = createPrivilegedServerSupabaseClient();
-  const [{ data: profile }, { data: hotels }, { data: services }, { data: rooms }, { data: shift }, { data: logs }, brief] = await Promise.all([
-    supabase.from("users").select("full_name, avatar_url").eq("id", user.userId).maybeSingle(),
-    supabase.from("hotels").select("id, name, location").eq("is_active", true).order("name"),
-    supabase.from("services_config").select("id, name, description, default_rate, unit").eq("is_active", true).order("name"),
-    supabase.from("rooms").select("id, hotel_id, room_name, category").eq("status", "active").order("room_name"),
+  const { data: profile, error: profileError } = await supabase
+    .from("users")
+    .select("full_name, avatar_url, primary_hotel_id")
+    .eq("id", user.userId)
+    .maybeSingle();
+  if (profileError || !profile || !profile.primary_hotel_id) {
+    throw new Error(profileError?.message ?? "Your account does not have an assigned property.");
+  }
+  const { data: hotel, error: hotelError } = await supabase
+    .from("hotels")
+    .select("id, name, location, owner_id")
+    .eq("id", profile.primary_hotel_id)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (hotelError || !hotel) throw new Error(hotelError?.message ?? "Your assigned property is unavailable.");
+  let servicesQuery = supabase.from("services_config").select("id, name, description, default_rate, unit").eq("is_active", true);
+  servicesQuery = hotel.owner_id
+    ? servicesQuery.or(`owner_id.is.null,owner_id.eq.${hotel.owner_id}`)
+    : servicesQuery.is("owner_id", null);
+  const [{ data: services }, { data: rooms }, { data: shift }, { data: logs }, brief] = await Promise.all([
+    servicesQuery.order("name"),
+    supabase.from("rooms").select("id, hotel_id, room_name, category").eq("hotel_id", hotel.id).eq("status", "active").order("room_name"),
     supabase.from("master_shifts").select("id, start_time, end_time, status").eq("user_id", user.userId).eq("status", "active").maybeSingle(),
     supabase
       .from("work_logs")
@@ -51,7 +68,7 @@ export default async function CleanerDashboardPage() {
     }
   }
 
-  const hotelById = new Map((hotels ?? []).map((hotel) => [hotel.id, hotel.name]));
+  const hotelById = new Map<string, string>([[hotel.id, hotel.name]]);
   const serviceById = new Map((services ?? []).map((service) => [service.id, service.name]));
   const logsWithNames = (logs ?? []).map((log) => ({
     ...log,
@@ -64,8 +81,8 @@ export default async function CleanerDashboardPage() {
 
   return (
     <CleanerDashboard
-      user={{ fullName: profile?.full_name ?? user.email, email: user.email, hotelId: user.hotelId ?? null, avatarUrl: profile?.avatar_url ?? null }}
-      hotels={hotels ?? []}
+      user={{ fullName: profile.full_name ?? user.email, email: user.email, hotelId: profile.primary_hotel_id, avatarUrl: profile.avatar_url ?? null }}
+      hotels={[hotel]}
       services={services ?? []}
       rooms={rooms ?? []}
       shift={shift}

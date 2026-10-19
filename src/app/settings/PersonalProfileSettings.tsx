@@ -3,41 +3,66 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
 import { Camera, Check, LoaderCircle, Trash2, UserRound } from "lucide-react";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 import { savePersonalProfile } from "./profileActions";
+
+const profileSchema = z.object({
+  fullName: z.string().trim().min(1, "Enter your name.").max(120),
+  email: z.string().trim().email("Enter a valid email address."),
+  phoneNumber: z.string().trim().max(32).refine((value) => !value || /^[+()\d\s.-]{5,32}$/.test(value), "Enter a valid phone number or leave it blank."),
+  languagePreference: z.enum(["en", "ar", "fr", "es"]),
+});
+type ProfileValues = z.infer<typeof profileSchema>;
 
 type Props = {
   fullName: string;
   email: string;
   phoneNumber: string | null;
   avatarUrl: string | null;
+  languagePreference: string;
 };
 
-export default function PersonalProfileSettings({ fullName, email, phoneNumber, avatarUrl }: Props) {
+export default function PersonalProfileSettings({ fullName, email, phoneNumber, avatarUrl, languagePreference }: Props) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const fileInput = useRef<HTMLInputElement>(null);
-  const [name, setName] = useState(fullName);
-  const [phone, setPhone] = useState(phoneNumber ?? "");
   const [photo, setPhoto] = useState(avatarUrl);
   const [notice, setNotice] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [isSaving, startSaving] = useTransition();
   const [photoBusy, setPhotoBusy] = useState(false);
+  const form = useForm<ProfileValues>({
+    resolver: zodResolver(profileSchema),
+    defaultValues: {
+      fullName,
+      email,
+      phoneNumber: phoneNumber ?? "",
+      languagePreference: ["en", "ar", "fr", "es"].includes(languagePreference) ? languagePreference as ProfileValues["languagePreference"] : "en",
+    },
+  });
+  const name = form.watch("fullName");
 
-  const save = () => startSaving(async () => {
+  const save = form.handleSubmit((values) => startSaving(async () => {
     try {
       setNotice(null);
-      await savePersonalProfile({ fullName: name, phoneNumber: phone });
+      await savePersonalProfile(values);
       setNotice({ kind: "success", text: "Your personal details were saved." });
       router.refresh();
     } catch (error) {
       setNotice({ kind: "error", text: error instanceof Error ? error.message : "Unable to save your profile." });
     }
-  });
+  }));
 
   const changePhoto = async (file: File | undefined) => {
     if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size === 0 || file.size > 5 * 1024 * 1024) {
+      setNotice({ kind: "error", text: "Choose a non-empty JPEG, PNG, or WebP image up to 5 MB." });
+      if (fileInput.current) fileInput.current.value = "";
+      return;
+    }
     setNotice(null);
     setPhotoBusy(true);
     try {
@@ -124,45 +149,53 @@ export default function PersonalProfileSettings({ fullName, email, phoneNumber, 
             <UserRound className="h-4 w-4 text-sky-700" />
             <h2 className="text-lg font-bold text-slate-950">Personal information</h2>
           </div>
+          <form onSubmit={save} noValidate>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="text-sm font-medium text-slate-700">
               Full name
               <input
-                value={name}
+                {...form.register("fullName")}
                 maxLength={120}
-                onChange={(event) => setName(event.target.value)}
                 autoComplete="name"
                 className="mt-1.5 min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
               />
+              {form.formState.errors.fullName?.message && <span role="alert" className="mt-1 block text-xs text-rose-700">{form.formState.errors.fullName.message}</span>}
             </label>
             <label className="text-sm font-medium text-slate-700">
               Phone number
               <input
                 type="tel"
-                value={phone}
+                {...form.register("phoneNumber")}
                 maxLength={32}
-                onChange={(event) => setPhone(event.target.value)}
                 autoComplete="tel"
                 placeholder="+44 7700 900000"
                 className="mt-1.5 min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
               />
+              {form.formState.errors.phoneNumber?.message && <span role="alert" className="mt-1 block text-xs text-rose-700">{form.formState.errors.phoneNumber.message}</span>}
             </label>
             <label className="text-sm font-medium text-slate-700 sm:col-span-2">
               Email address
               <input
                 type="email"
-                value={email}
-                readOnly
-                aria-describedby="profile-email-help"
-                className="mt-1.5 min-h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600"
+                {...form.register("email")}
+                autoComplete="email"
+                className="mt-1.5 min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
               />
-              <span id="profile-email-help" className="mt-1 block text-xs font-normal text-slate-500">Email address cannot be changed here.</span>
+              {form.formState.errors.email?.message && <span role="alert" className="mt-1 block text-xs text-rose-700">{form.formState.errors.email.message}</span>}
+            </label>
+            <label className="text-sm font-medium text-slate-700 sm:col-span-2">
+              Preferred language
+              <select {...form.register("languagePreference")} className="mt-1.5 min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900">
+                <option value="en">English</option>
+                <option value="ar">العربية</option>
+                <option value="fr">Français</option>
+                <option value="es">Español</option>
+              </select>
             </label>
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <button
-              type="button"
-              onClick={save}
+              type="submit"
               disabled={isSaving}
               className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
             >
@@ -175,6 +208,7 @@ export default function PersonalProfileSettings({ fullName, email, phoneNumber, 
               </p>
             )}
           </div>
+          </form>
         </div>
       </div>
     </section>

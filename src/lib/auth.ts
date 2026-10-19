@@ -1,10 +1,11 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
+import { isUserRole, type UserRole } from "@/lib/roles";
 
 export type AppUserSession = {
   userId: string;
   email: string;
-  role: "admin" | "owner" | "manager" | "cleaner";
+  role: UserRole;
   hotelId?: string | null;
 };
 
@@ -76,7 +77,7 @@ export async function clearSessionCookies() {
 }
 
 export async function getVerifiedChatSessionUser(): Promise<AppUserSession | null> {
-  const user = await getSessionUser();
+  const user = await readSessionUser();
   if (!user) return null;
 
   const expected = chatSessionProof(user);
@@ -96,19 +97,23 @@ export async function getVerifiedChatSessionUser(): Promise<AppUserSession | nul
 }
 
 export async function getSessionUser(): Promise<AppUserSession | null> {
+  return getVerifiedChatSessionUser();
+}
+
+async function readSessionUser(): Promise<AppUserSession | null> {
   const cookieStore = await cookies();
-  const role = cookieStore.get("role")?.value as AppUserSession["role"] | undefined;
+  const roleValue = cookieStore.get("role")?.value;
   const userId = cookieStore.get("user-id")?.value;
   const email = cookieStore.get("user-email")?.value;
 
-  if (!role || !userId || !email) {
+  if (!isUserRole(roleValue) || !userId || !email) {
     return null;
   }
 
   return {
     userId,
     email,
-    role,
+    role: roleValue as UserRole,
     hotelId: cookieStore.get("hotel-id")?.value || null,
   };
 }

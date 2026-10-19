@@ -33,6 +33,30 @@ export const fetchContacts = () =>
 export const fetchUnread = () =>
   request<{ count: number; messages: UnreadMessage[] }>("/api/chat?view=unread");
 
+export type TaskNotice = {
+  id: string;
+  hotel_id: string;
+  service_name_snapshot: string | null;
+  notes: string | null;
+  assigned_at: string | null;
+  status: string;
+  priority: "low" | "medium" | "high" | "urgent";
+  due_at: string | null;
+  dispatch_metadata: {
+    roomIds?: string[];
+    floorSection?: string;
+    linenChecklist?: string[];
+    durationHours?: number | null;
+    issueDescription?: string;
+    assetId?: string;
+    photoPath?: string | null;
+  } | null;
+  assignee_name?: string;
+};
+
+export const fetchTaskNotifications = () =>
+  request<{ incoming: TaskNotice[]; outgoing: TaskNotice[] }>("/api/tasks/notifications");
+
 export const fetchConversation = (contactId: string) =>
   request<{ messages: ChatMessage[] }>(
     `/api/chat?view=history&contactId=${encodeURIComponent(contactId)}`

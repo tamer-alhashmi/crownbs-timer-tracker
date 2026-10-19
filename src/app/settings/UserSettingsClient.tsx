@@ -1,16 +1,16 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition, type ReactNode } from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
 import { ChevronLeft, ChevronRight, Pencil, Plus, Search, ShieldAlert, Trash2, UserRound, X } from "lucide-react";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 import { assignManagedUserToHotel, createManagedUser, deleteManagedUser, unassignManagedUserFromHotel, updateManagedUser, type ManagedUser } from "./actions";
-import { UserProfileMenu } from "@/components/layout/UserProfileMenu";
+import { ROLE_LABELS, USER_ROLES } from "@/lib/roles";
 
 type Props = {
   actorRole: string;
-  actorName: string;
-  actorEmail: string;
-  actorAvatarUrl: string | null;
   hotels: { id: string; name: string }[];
   users: ManagedUser[];
 };
@@ -26,9 +26,17 @@ type FormState = {
 type UnlinkTarget = { userId: string; userName: string; hotels: { id: string; name: string }[] };
 const PAGE_SIZE = 10;
 const emptyForm: FormState = { fullName: "", email: "", phoneNumber: "", role: "cleaner", pinCode: "", hotelId: "", password: "" };
+const userSchema = z.object({
+  fullName: z.string().trim().min(1, "Enter a full name.").max(120),
+  email: z.string().trim().email("Enter a valid email address."),
+  phoneNumber: z.string().trim().max(32).refine((value) => !value || /^[+()\d\s.-]{5,32}$/.test(value), "Enter a valid phone number or leave it blank."),
+  role: z.enum(USER_ROLES),
+  pinCode: z.string().refine((value) => !value || /^\d{4}$/.test(value), "PIN must be exactly 4 digits."),
+  hotelId: z.string(),
+  password: z.string().max(128),
+});
 
-export default function UserSettingsClient({ actorRole, actorName, actorEmail, actorAvatarUrl, hotels, users }: Props) {
-  const [form, setForm] = useState<FormState>(emptyForm);
+export default function UserSettingsClient({ actorRole, hotels, users }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [assigningId, setAssigningId] = useState<string | null>(null);
@@ -38,7 +46,12 @@ export default function UserSettingsClient({ actorRole, actorName, actorEmail, a
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [isPending, startTransition] = useTransition();
-  const roles = actorRole === "admin" ? ["admin", "owner", "manager", "cleaner"] : actorRole === "owner" ? ["manager", "cleaner"] : ["cleaner"];
+  const form = useForm<FormState>({ resolver: zodResolver(userSchema), defaultValues: emptyForm });
+  const roles = USER_ROLES.filter((role) =>
+    actorRole === "admin" ||
+    (actorRole === "owner" && ["manager", "hk_admin", "cleaner"].includes(role)) ||
+    (actorRole === "manager" && ["hk_admin", "cleaner"].includes(role))
+  );
   const filteredUsers = useMemo(() => {
     const query = search.trim().toLowerCase();
     return users.filter((user) => !query || `${user.full_name} ${user.email} ${user.phone_number ?? ""} ${user.role}`.toLowerCase().includes(query));
@@ -46,26 +59,33 @@ export default function UserSettingsClient({ actorRole, actorName, actorEmail, a
   const pageCount = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
   const visibleUsers = filteredUsers.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-  const setField = (field: keyof FormState, value: string) => setForm((current) => ({ ...current, [field]: value }));
-
-  const save = () => startTransition(async () => {
+  const save = form.handleSubmit((values) => startTransition(async () => {
     try {
       setMessage("");
+      if (!editingId && !values.password.trim() && !values.pinCode) {
+        setMessage("Provide a password or a 4-digit PIN.");
+        return;
+      }
       const wasEditing = Boolean(editingId);
-      if (editingId) await updateManagedUser(editingId, form);
-      else await createManagedUser(form);
-      setForm(emptyForm);
+      const result = editingId
+        ? await updateManagedUser(editingId, values)
+        : await createManagedUser(values);
+      if (!result.success) {
+        setMessage(result.error);
+        return;
+      }
+      form.reset(emptyForm);
       setEditingId(null);
       setMessage(wasEditing ? "User updated." : "User created.");
       window.location.reload();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to save user.");
     }
-  });
+  }));
 
   const edit = (user: ManagedUser) => {
     setEditingId(user.id);
-    setForm({
+    form.reset({
       fullName: user.full_name,
       email: user.email,
       phoneNumber: user.phone_number ?? "",
@@ -121,21 +141,9 @@ export default function UserSettingsClient({ actorRole, actorName, actorEmail, a
   };
 
   return (
-    <main className="min-h-screen bg-slate-50 p-3 text-slate-900 sm:p-6">
+    <section className="space-y-5 p-1 text-slate-900 sm:p-2">
       <div className="mx-auto max-w-7xl">
-        <header className="mb-6 flex flex-col gap-4 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-700">{actorRole} settings</p>
-            <h1 className="mt-2 text-2xl font-bold text-slate-950 sm:text-3xl">User management</h1>
-            <p className="mt-2 text-sm text-slate-600">Manage accounts and hotel assignments within your role scope.</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <a href={actorRole === "admin" ? "/admin" : actorRole === "owner" ? "/owner" : "/manager"} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Back to dashboard</a>
-            <UserProfileMenu name={actorName} email={actorEmail} role={actorRole} avatarUrl={actorAvatarUrl} settingsHref="/settings" />
-          </div>
-        </header>
-
-        <section className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-6">
+        <form onSubmit={save} noValidate className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-6">
           <div className="mb-4 flex items-center gap-3">
             <div className="rounded-xl bg-sky-100 p-2 text-sky-700"><UserRound className="h-5 w-5" /></div>
             <div>
@@ -144,19 +152,19 @@ export default function UserSettingsClient({ actorRole, actorName, actorEmail, a
             </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <input value={form.fullName} onChange={(event) => setField("fullName", event.target.value)} placeholder="Full name" autoComplete="name" className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" />
-            <input type="email" value={form.email} onChange={(event) => setField("email", event.target.value)} placeholder="Email" autoComplete="email" className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" />
-            <input type="tel" value={form.phoneNumber} onChange={(event) => setField("phoneNumber", event.target.value)} placeholder="Phone number" autoComplete="tel" className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" />
-            <select value={form.role} onChange={(event) => setField("role", event.target.value)} className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900">{roles.map((role) => <option key={role} value={role}>{role[0].toUpperCase() + role.slice(1)}</option>)}</select>
-            <select value={form.hotelId} onChange={(event) => setField("hotelId", event.target.value)} className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900"><option value="">Unassigned hotel</option>{hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select>
-            <input value={form.pinCode} onChange={(event) => setField("pinCode", event.target.value)} inputMode="numeric" maxLength={4} placeholder="4-digit PIN" className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" />
-            <input type="password" value={form.password} onChange={(event) => setField("password", event.target.value)} placeholder={editingId ? "New password (optional)" : "Password (optional with PIN)"} autoComplete="new-password" className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 sm:col-span-2 lg:col-span-1" />
+            <Field label="Full name" error={form.formState.errors.fullName?.message}><input {...form.register("fullName")} placeholder="Full name" autoComplete="name" className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" /></Field>
+            <Field label="Email" error={form.formState.errors.email?.message}><input {...form.register("email")} type="email" placeholder="Email" autoComplete="email" className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" /></Field>
+            <Field label="Phone number" error={form.formState.errors.phoneNumber?.message}><input {...form.register("phoneNumber")} type="tel" placeholder="Phone number" autoComplete="tel" className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" /></Field>
+            <Field label="Role" error={form.formState.errors.role?.message}><select {...form.register("role")} className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900">{roles.map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}</select></Field>
+            <Field label="Property assignment" error={form.formState.errors.hotelId?.message}><select {...form.register("hotelId")} className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900"><option value="">{actorRole === "admin" ? "Unassigned hotel" : "Select a hotel"}</option>{hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select></Field>
+            <Field label="4-digit PIN" error={form.formState.errors.pinCode?.message}><input {...form.register("pinCode")} inputMode="numeric" maxLength={4} placeholder="PIN" className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" /></Field>
+            <Field label="Password" error={form.formState.errors.password?.message}><input {...form.register("password")} type="password" placeholder={editingId ? "New password (optional)" : "Password (optional with PIN)"} autoComplete="new-password" className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 sm:col-span-2 lg:col-span-1" /></Field>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            <button type="button" onClick={save} disabled={isPending} className="min-h-11 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{isPending ? "Saving..." : editingId ? "Save changes" : "Create user"}</button>
-            {editingId && <button type="button" onClick={() => { setEditingId(null); setForm(emptyForm); }} className="inline-flex min-h-11 items-center gap-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700"><X className="h-4 w-4" /> Cancel edit</button>}
+            <button type="submit" disabled={isPending} className="min-h-11 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{isPending ? "Saving..." : editingId ? "Save changes" : "Create user"}</button>
+            {editingId && <button type="button" onClick={() => { setEditingId(null); form.reset(emptyForm); }} className="inline-flex min-h-11 items-center gap-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700"><X className="h-4 w-4" /> Cancel edit</button>}
           </div>
-        </section>
+        </form>
 
         <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-6">
           <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -179,7 +187,7 @@ export default function UserSettingsClient({ actorRole, actorName, actorEmail, a
                         <div className="min-w-0"><p className="truncate font-semibold text-slate-900">{user.full_name}</p><p className="max-w-56 truncate text-xs text-slate-500">{user.email}</p></div>
                       </div>
                     </td>
-                    <td className="px-4 py-3"><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold capitalize text-slate-700">{user.role}</span></td>
+                    <td className="px-4 py-3"><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{ROLE_LABELS[user.role]}</span></td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-700">{user.phone_number || <span className="text-slate-400">Not provided</span>}</td>
                     <td className="max-w-64 px-4 py-3">
                       <div className="flex flex-wrap gap-1.5">{user.assignedHotels.length ? user.assignedHotels.map((hotel) => <span key={hotel.id} className="inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-800">{hotel.name}</span>) : <span className="text-xs text-slate-500">No assigned hotel</span>}</div>
@@ -211,9 +219,13 @@ export default function UserSettingsClient({ actorRole, actorName, actorEmail, a
             </div>
           </div>
         </section>
-        {message && <p role="status" className="mt-4 rounded-xl bg-slate-900 px-3 py-2 text-sm text-white">{message}</p>}
+        {message && <p role="alert" className="mt-4 rounded-xl bg-slate-900 px-3 py-2 text-sm text-white">{message}</p>}
         {unlinkTarget && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-labelledby="unlink-title"><div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"><div className="flex items-start gap-3"><div className="rounded-xl bg-amber-100 p-2 text-amber-700"><ShieldAlert className="h-5 w-5" /></div><div className="min-w-0"><h2 id="unlink-title" className="text-lg font-bold text-slate-900">Unlink hotel?</h2><p className="mt-2 text-sm leading-6 text-slate-600">Are you sure you want to unlink this hotel from <strong>{unlinkTarget.userName}</strong>?</p><select value={unlinkHotelId} onChange={(event) => setUnlinkHotelId(event.target.value)} className="mt-3 min-h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900">{unlinkTarget.hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select><p className="mt-2 text-xs text-slate-500">This changes the user&apos;s property access but does not delete the hotel or work history.</p></div></div><div className="mt-6 flex justify-end gap-2"><button type="button" onClick={() => setUnlinkTarget(null)} disabled={isPending} className="min-h-11 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700">Cancel</button><button type="button" onClick={confirmUnlink} disabled={isPending} className="min-h-11 rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{isPending ? "Unlinking..." : "Confirm unlink"}</button></div></div></div>}
       </div>
-    </main>
+    </section>
   );
+}
+
+function Field({ label, error, children }: { label: string; error?: string; children: ReactNode }) {
+  return <label className="block text-sm font-medium text-slate-700">{label}{children}{error && <span role="alert" className="mt-1 block text-xs text-rose-700">{error}</span>}</label>;
 }

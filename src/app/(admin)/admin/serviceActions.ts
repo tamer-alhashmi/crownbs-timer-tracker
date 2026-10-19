@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireFeatureAccess } from "@/lib/featureAccess";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import type { BillingUnit } from "@/lib/servicePricing";
+import type { UserRole } from "@/lib/roles";
 
 export type ServiceRecord = {
   id: string;
@@ -12,6 +13,7 @@ export type ServiceRecord = {
   unit: BillingUnit;
   default_rate: number;
   is_active: boolean;
+  owner_id: string | null;
   created_at: string;
 };
 
@@ -24,13 +26,17 @@ type ServiceInput = {
 
 type ServiceUpdates = Partial<ServiceInput> & { is_active?: boolean };
 
-const SERVICE_COLUMNS = "id, name, description, unit, default_rate, is_active, created_at";
+const SERVICE_COLUMNS = "id, name, description, unit, default_rate, is_active, owner_id, created_at";
 const BILLING_UNITS: BillingUnit[] = ["hourly", "per_room", "fixed"];
 
 async function requireAdmin(action: "view" | "create" | "edit" | "delete") {
   const user = await requireFeatureAccess("settings", action);
-  if (!["admin", "owner", "manager"].includes(user.role)) throw new Error("Management access required to manage service pricing.");
-  return createPrivilegedServerSupabaseClient();
+  if (!["admin", "owner"].includes(user.role)) throw new Error("Only owners and administrators can manage service pricing.");
+  const supabase = createPrivilegedServerSupabaseClient();
+  const { data: profile, error } = await supabase.from("users").select("role").eq("id", user.userId).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!profile || profile.role !== user.role) throw new Error("Your account role could not be verified.");
+  return { supabase, user: { ...user, role: profile.role as UserRole } };
 }
 
 function validateService(input: ServiceInput) {
@@ -48,23 +54,25 @@ function revalidateServiceViews() {
 }
 
 export async function getServices(): Promise<ServiceRecord[]> {
-  const supabase = await requireAdmin("view");
-  const { data, error } = await supabase.from("services_config").select(SERVICE_COLUMNS).order("name");
+  const { supabase, user } = await requireAdmin("view");
+  let query = supabase.from("services_config").select(SERVICE_COLUMNS);
+  if (user.role !== "admin") query = query.eq("owner_id", user.userId);
+  const { data, error } = await query.order("name");
   if (error) throw new Error(error.message);
   return (data ?? []) as ServiceRecord[];
 }
 
 export async function createService(input: ServiceInput): Promise<ServiceRecord> {
-  const supabase = await requireAdmin("create");
+  const { supabase, user } = await requireAdmin("create");
   const values = validateService(input);
-  const { data, error } = await supabase.from("services_config").insert(values).select(SERVICE_COLUMNS).single();
+  const { data, error } = await supabase.from("services_config").insert({ ...values, owner_id: user.role === "admin" ? null : user.userId }).select(SERVICE_COLUMNS).single();
   if (error || !data) throw new Error(error?.message ?? "Unable to create service.");
   revalidateServiceViews();
   return data as ServiceRecord;
 }
 
 export async function updateService(id: string, updates: ServiceUpdates): Promise<ServiceRecord> {
-  const supabase = await requireAdmin("edit");
+  const { supabase, user } = await requireAdmin("edit");
   if (!id) throw new Error("Service id is required.");
   if (updates.is_active !== undefined && typeof updates.is_active !== "boolean") throw new Error("Active status must be true or false.");
   const values: Record<string, string | number | boolean> = {};
@@ -85,16 +93,20 @@ export async function updateService(id: string, updates: ServiceUpdates): Promis
   if (updates.description !== undefined) values.description = updates.description.trim();
   if (updates.is_active !== undefined) values.is_active = updates.is_active;
   if (!Object.keys(values).length) throw new Error("No service changes were provided.");
-  const { data, error } = await supabase.from("services_config").update({ ...values, updated_at: new Date().toISOString() }).eq("id", id).select(SERVICE_COLUMNS).maybeSingle();
+  let query = supabase.from("services_config").update({ ...values, updated_at: new Date().toISOString() }).eq("id", id);
+  if (user.role !== "admin") query = query.eq("owner_id", user.userId);
+  const { data, error } = await query.select(SERVICE_COLUMNS).maybeSingle();
   if (error || !data) throw new Error(error?.message ?? "Service was not found.");
   revalidateServiceViews();
   return data as ServiceRecord;
 }
 
 export async function deleteService(id: string): Promise<ServiceRecord> {
-  const supabase = await requireAdmin("delete");
+  const { supabase, user } = await requireAdmin("delete");
   if (!id) throw new Error("Service id is required.");
-  const { data, error } = await supabase.from("services_config").update({ is_active: false, updated_at: new Date().toISOString() }).eq("id", id).select(SERVICE_COLUMNS).maybeSingle();
+  let query = supabase.from("services_config").update({ is_active: false, updated_at: new Date().toISOString() }).eq("id", id);
+  if (user.role !== "admin") query = query.eq("owner_id", user.userId);
+  const { data, error } = await query.select(SERVICE_COLUMNS).maybeSingle();
   if (error || !data) throw new Error(error?.message ?? "Service was not found.");
   revalidateServiceViews();
   return data as ServiceRecord;

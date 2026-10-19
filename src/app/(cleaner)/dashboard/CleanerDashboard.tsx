@@ -27,7 +27,7 @@ type WorkLog = {
   end_time: string | null;
   task_date: string;
   room_ids: string[];
-  status: "active" | "completed";
+  status: "assigned" | "active" | "completed";
   rooms_completed: number;
   room_number: string | null;
   room_numbers: string[];

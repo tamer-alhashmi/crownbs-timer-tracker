@@ -1,9 +1,9 @@
 -- Hotel Time Tracker | Production schema draft
 -- Date and time are stored in UTC in Supabase and rendered in local time zones in the app.
 
-CREATE TYPE user_role AS ENUM ('admin', 'owner', 'manager', 'cleaner');
+CREATE TYPE user_role AS ENUM ('admin', 'owner', 'manager', 'hk_admin', 'cleaner');
 
-CREATE TYPE work_status AS ENUM ('active', 'completed');
+CREATE TYPE work_status AS ENUM ('assigned', 'active', 'completed');
 
 CREATE TABLE IF NOT EXISTS hotels (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS hotels (
     location TEXT NOT NULL,
     owner_id UUID,
     manager_id UUID,
+    room_count INTEGER NOT NULL DEFAULT 0 CHECK (room_count >= 0),
+    floor_count INTEGER NOT NULL DEFAULT 0 CHECK (floor_count >= 0),
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -26,11 +28,20 @@ CREATE TABLE IF NOT EXISTS users (
     full_name TEXT NOT NULL,
     phone_number TEXT,
     avatar_url TEXT,
+    language_preference TEXT NOT NULL DEFAULT 'en',
     hourly_rate NUMERIC(10, 2) NOT NULL DEFAULT 12.00 CHECK (hourly_rate >= 0),
     primary_hotel_id UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_primary_hotel FOREIGN KEY (primary_hotel_id) REFERENCES hotels (id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_hotel_assignments (
+    user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    hotel_id UUID NOT NULL REFERENCES hotels (id) ON DELETE CASCADE,
+    assigned_by UUID REFERENCES users (id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, hotel_id)
 );
 
 ALTER TABLE hotels
@@ -39,14 +50,27 @@ ADD CONSTRAINT fk_hotel_manager FOREIGN KEY (manager_id) REFERENCES users (id) O
 
 CREATE TABLE IF NOT EXISTS services_config (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
-    name TEXT NOT NULL UNIQUE,
+    hotel_id UUID REFERENCES hotels (id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     unit TEXT NOT NULL DEFAULT 'hourly' CHECK (unit IN ('hourly', 'per_room', 'fixed')),
     default_rate NUMERIC(10, 2) NOT NULL DEFAULT 0,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    owner_id UUID REFERENCES users (id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS services_config_owner_name_key
+    ON services_config(owner_id, name)
+    WHERE owner_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS services_config_global_name_key
+    ON services_config(name)
+    WHERE owner_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS services_config_hotel_name_key
+    ON services_config(hotel_id, name)
+    WHERE hotel_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS rooms (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
@@ -111,6 +135,12 @@ CREATE TABLE IF NOT EXISTS work_logs (
   owner_name TEXT,
   manager_id UUID,
   manager_name TEXT,
+  assigned_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  assigned_to UUID REFERENCES users(id) ON DELETE SET NULL,
+  assigned_at TIMESTAMPTZ,
+  priority TEXT NOT NULL DEFAULT 'low' CHECK (priority IN ('low', 'medium', 'high', 'urgent')),
+  due_at TIMESTAMPTZ,
+  dispatch_metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
   responsibility_recorded_at TIMESTAMPTZ,
   import_key TEXT,
   is_locked BOOLEAN NOT NULL DEFAULT FALSE,
@@ -211,6 +241,12 @@ CREATE INDEX IF NOT EXISTS idx_work_logs_hotel_id ON work_logs (hotel_id);
 CREATE INDEX IF NOT EXISTS idx_work_logs_service_id ON work_logs (service_id);
 
 CREATE INDEX IF NOT EXISTS idx_work_logs_status ON work_logs (status);
+CREATE INDEX IF NOT EXISTS idx_work_logs_assigned_to_status
+  ON work_logs(assigned_to, status, assigned_at DESC)
+  WHERE assigned_to IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_work_logs_assigned_by_status
+  ON work_logs(assigned_by, status, assigned_at DESC)
+  WHERE assigned_by IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_work_logs_locked ON work_logs (is_locked);
 
@@ -228,12 +264,37 @@ CREATE INDEX IF NOT EXISTS idx_master_shifts_user_id ON master_shifts (user_id);
 
 CREATE INDEX IF NOT EXISTS idx_master_shifts_status ON master_shifts (status);
 
+CREATE OR REPLACE FUNCTION public.enforce_single_active_work_log()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.status = 'active' AND NEW.end_time IS NULL THEN
+    PERFORM pg_advisory_xact_lock(hashtextextended(NEW.user_id::TEXT, 0));
+    IF EXISTS (
+      SELECT 1 FROM public.work_logs existing
+      WHERE existing.user_id = NEW.user_id
+        AND existing.status = 'active'
+        AND existing.end_time IS NULL
+        AND existing.id IS DISTINCT FROM NEW.id
+    ) THEN
+      RAISE EXCEPTION 'You already have an active running task. Please complete or pause your current task before starting a new one.';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS work_logs_single_active_task ON public.work_logs;
+CREATE TRIGGER work_logs_single_active_task
+BEFORE INSERT OR UPDATE OF status, user_id, end_time ON public.work_logs
+FOR EACH ROW EXECUTE FUNCTION public.enforce_single_active_work_log();
+
 CREATE INDEX IF NOT EXISTS idx_work_logs_shift_id ON work_logs (shift_id);
 
 CREATE INDEX IF NOT EXISTS idx_users_email_pin_code ON users (email, pin_code);
 
 CREATE INDEX IF NOT EXISTS idx_work_logs_user_status ON work_logs (user_id, status);
-
 CREATE INDEX IF NOT EXISTS idx_work_logs_shift_status ON work_logs (shift_id, status);
 
 CREATE INDEX IF NOT EXISTS idx_work_logs_owner_snapshot ON work_logs (owner_id, start_time);
@@ -348,7 +409,7 @@ VALUES
   ('Night Shift', 'Night shift service charged for each recorded hour.', 'hourly', 20.00, TRUE),
   ('Product Delivery', 'Product delivery charged as a fixed task rate.', 'fixed', 9.50, TRUE),
   ('Reception', 'Reception service charged for each recorded hour.', 'hourly', 16.00, TRUE)
-ON CONFLICT (name) DO UPDATE SET
+ON CONFLICT (name) WHERE owner_id IS NULL DO UPDATE SET
   description = EXCLUDED.description,
   unit = EXCLUDED.unit,
   default_rate = EXCLUDED.default_rate,

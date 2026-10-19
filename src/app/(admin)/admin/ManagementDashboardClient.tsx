@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Activity, CalendarDays, Check, CircleDollarSign, ClipboardList, Gauge, History, Hotel, Pencil, UsersRound, X, BookOpen, Building2, Wallet } from "lucide-react";
+import { Activity, CalendarDays, Check, CircleDollarSign, ClipboardList, Gauge, History, Hotel, Pencil, UsersRound, X, BookOpen, Wallet } from "lucide-react";
 import { OperationalBrief } from "@/components/dashboard/OperationalBrief";
 import { ServiceCard } from "@/components/dashboard/ServiceCard";
 import { SystemManual } from "@/components/dashboard/SystemManual";
@@ -14,9 +14,10 @@ import { importRoomsFromGoogleSheet } from "./roomImportActions";
 import { FullEditPanel } from "./FullEditPanel";
 import { AdminPayrollTable, type PayrollLog } from "./AdminPayrollTable";
 import { ActiveOperations } from "./ActiveOperations";
-import { ServicePricingManager } from "./ServicePricingManager";
-import type { ServiceRecord } from "./serviceActions";
 import type { PropertyRecord } from "./propertyActions";
+import { TaskDispatchClient } from "@/app/settings/TaskDispatchClient";
+import type { getTaskDispatchData } from "@/app/settings/taskActions";
+import type { ServiceRecord } from "./serviceActions";
 import { useWorkLogRealtimeRefresh } from "@/lib/useWorkLogRealtimeRefresh";
 import type { LucideIcon } from "lucide-react";
 import { DashboardPagination } from "@/components/dashboard/DashboardPagination";
@@ -24,7 +25,6 @@ import { DashboardPagination } from "@/components/dashboard/DashboardPagination"
 const DASHBOARD_TABS = [
   { id: "overview", label: "Overview", icon: Gauge },
   { id: "operations", label: "Live Operations", icon: Activity },
-  { id: "properties", label: "Properties & Services", icon: Building2 },
   { id: "work-logs", label: "Work Logs & History", icon: ClipboardList },
   { id: "financials", label: "Financials & Payroll", icon: Wallet },
   { id: "audit", label: "Audit & Compliance", icon: History },
@@ -54,7 +54,8 @@ function useDashboardTab() {
 
 type Log = { id: string; user_id: string; hotel_id: string; service_id: string | null; cleanerName: string; hotelName: string; start_time: string; end_time: string | null; task_date: string; status: string; rooms_completed: number; room_number: string | null; room_numbers: string[]; service_name_snapshot: string | null; service_description_snapshot: string | null; notes: string | null; cost_override?: number | string | null; owner_id: string | null; owner_name: string | null; manager_id: string | null; manager_name: string | null; responsibility_recorded_at: string | null; manager_approved: boolean; owner_approved: boolean; manager_rejected: boolean; owner_rejected: boolean; is_locked: boolean; rejection_notes?: string | null; services_config?: { name: string; default_rate: number; unit?: string }[] };
 type Room = { id: string; hotel_id: string; room_name: string; category: string; status?: string };
-type Props = { data: { userRole: string; userName: string; userEmail: string; userAvatarUrl: string | null; canViewServices: boolean; canManageServices: boolean; canManagePayrollTasks: boolean; canManageActiveOperations: boolean; hotels: PropertyRecord[]; propertyAssignees: { id: string; name: string; role: "owner" | "manager" }[]; cleaners: { id: string; name: string; primary_hotel_id: string | null }[]; services: ServiceRecord[]; rooms: Room[]; workLogs: Log[]; payroll: PayrollLog[]; activeShifts: { id: string; user_id: string; start_time: string; cleanerName: string; task: Log | null }[]; activeTasks: Log[]; overrideAudit: OverrideAuditRecord[]; brief: ManagementBrief } };
+type DispatchData = Awaited<ReturnType<typeof getTaskDispatchData>>;
+type Props = { data: { userRole: string; userName: string; userEmail: string; userAvatarUrl: string | null; canManagePayrollTasks: boolean; canManageActiveOperations: boolean; hotels: PropertyRecord[]; services: ServiceRecord[]; cleaners: { id: string; name: string; primary_hotel_id: string | null }[]; rooms: Room[]; workLogs: Log[]; payroll: PayrollLog[]; activeShifts: { id: string; user_id: string; start_time: string; cleanerName: string; task: Log | null }[]; activeTasks: Log[]; overrideAudit: OverrideAuditRecord[]; brief: ManagementBrief }; dispatchData?: DispatchData };
 type AuditDetail = { label: string; value: string };
 type OverrideAuditRecord = { id: string; entity_type: "task" | "shift"; action: string; actor_name: string; target_label: string; override_reason: string; previous_details: AuditDetail[]; new_details: AuditDetail[]; created_at: string };
 type Draft = { hotelId: string; serviceId: string; roomId: string; roomsCompleted: string; roomNumber: string; notes: string; startTime: string; endTime: string };
@@ -91,7 +92,7 @@ function toBriefTask(log: Log): BriefTask {
   return { id: log.id, cleaner: log.cleanerName, hotel: log.hotelName, service: serviceName, serviceDescription: log.service_description_snapshot ?? serviceName, taskDate: log.task_date, status: log.status, startTime: log.start_time, endTime: log.end_time, ownerId: log.owner_id, ownerName: log.owner_name ?? "Unassigned owner", managerId: log.manager_id, managerName: log.manager_name ?? "Unassigned manager", responsibilityRecordedAt: log.responsibility_recorded_at ?? log.start_time, room: log.room_numbers.join(", ") || log.room_number || "", rooms: log.rooms_completed, hours, rate, cost: calculateTaskCost(hours, log.rooms_completed, { name: serviceName, unit, default_rate: rate }, log.cost_override), notes: log.notes ?? "", managerApproved: log.manager_approved, ownerApproved: log.owner_approved, managerRejected: log.manager_rejected, ownerRejected: log.owner_rejected, isLocked: log.is_locked, rejectionNotes: log.rejection_notes ?? "" };
 }
 
-export default function ManagementDashboardClient({ data }: Props) {
+export default function ManagementDashboardClient({ data, dispatchData }: Props) {
   useWorkLogRealtimeRefresh();
   const router = useRouter();
   const activeTab = useDashboardTab();
@@ -288,6 +289,7 @@ export default function ManagementDashboardClient({ data }: Props) {
       <main className="mx-auto min-w-0 max-w-[1600px] space-y-4 p-4 sm:p-6 lg:p-8">
         {message && <p className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm" role="status">{message}</p>}
         <section id="panel-overview" role="tabpanel" aria-labelledby="tab-overview" hidden={activeTab !== "overview"} className="space-y-5">
+          {dispatchData && <TaskDispatchClient role={data.userRole as "owner" | "manager"} {...dispatchData} />}
           <DashboardHeading title="Executive overview" description="Portfolio performance, approvals, and operating costs at a glance." />
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <Metric label="Properties" value={data.hotels.length} icon={Hotel} />
@@ -309,18 +311,6 @@ export default function ManagementDashboardClient({ data }: Props) {
         <section id="panel-operations" role="tabpanel" aria-labelledby="tab-operations" hidden={activeTab !== "operations"} className="space-y-5">
           <DashboardHeading title="Live operations & shifts" description="Monitor on-shift cleaners and resolve hanging work with audited interventions." />
           <ActiveOperations shifts={data.activeShifts} tasks={data.activeTasks} canManage={data.canManageActiveOperations} />
-        </section>
-
-        <section id="panel-properties" role="tabpanel" aria-labelledby="tab-properties" hidden={activeTab !== "properties"} className="space-y-5">
-          <DashboardHeading title="Properties & services" description="Property assignments and the shared service catalog." />
-          {data.canViewServices ? <ServicePricingManager
-            key={JSON.stringify([data.services, data.hotels])}
-            initialServices={data.services}
-            initialProperties={data.hotels}
-            propertyAssignees={data.propertyAssignees}
-            canManageServices={data.canManageServices}
-            canManageProperties={data.userRole === "admin"}
-          /> : <p className="rounded-2xl bg-white p-6 text-sm text-slate-600 ring-1 ring-slate-200">Your account does not have permission to view service configuration.</p>}
         </section>
 
         <section id="panel-work-logs" role="tabpanel" aria-labelledby="tab-work-logs" hidden={activeTab !== "work-logs"} className="space-y-5">

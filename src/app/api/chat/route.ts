@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   apiError,
+  canSeeChatContact,
   getChatActor,
   getChatContact,
   hasSameOrigin,
   isChatRole,
   isUuid,
 } from "@/lib/chat/server";
-import { canMessageRole, type AttachmentType } from "@/lib/chat/types";
+import type { AttachmentType } from "@/lib/chat/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,10 +32,8 @@ export async function GET(request: NextRequest) {
       console.error("Chat contacts query failed:", error.message);
       return apiError("Could not load teammates.", 500);
     }
-    const contacts = (data ?? []).filter(
-      (contact) =>
-        ["admin", "owner", "manager", "cleaner"].includes(contact.role) &&
-        canMessageRole(actor.role, contact.role)
+    const contacts = (data ?? []).filter((contact) =>
+      isChatRole(contact.role) && canSeeChatContact(actor, contact.id)
     );
     const unreadCounts = await Promise.all(
       contacts.map(async (contact) => {
@@ -67,6 +66,8 @@ export async function GET(request: NextRequest) {
   }
 
   if (view === "unread") {
+    const visibleContactIds = [...actor.visibleContactIds];
+    if (!visibleContactIds.length) return NextResponse.json({ count: 0, messages: [] });
     const { data, count, error } = await supabase
       .from("messages")
       .select("id, sender_id, receiver_id, content, attachment_url, attachment_type, is_read, created_at", {
@@ -74,6 +75,7 @@ export async function GET(request: NextRequest) {
       })
       .eq("receiver_id", actor.id)
       .eq("is_read", false)
+      .in("sender_id", visibleContactIds)
       .order("created_at", { ascending: false })
       .limit(8);
     if (error) {
@@ -94,7 +96,7 @@ export async function GET(request: NextRequest) {
     const messages = (data ?? [])
       .map((message) => {
         const sender = senderMap.get(message.sender_id);
-        return sender && isChatRole(sender.role) && canMessageRole(sender.role, actor.role)
+        return sender && isChatRole(sender.role) && canSeeChatContact(actor, sender.id)
           ? { ...message, sender }
           : null;
       })
@@ -109,7 +111,7 @@ export async function GET(request: NextRequest) {
     }
     const contact = await getChatContact(supabase, contactId);
     if (!contact) return apiError("Chat contact not found.", 404);
-    if (!canMessageRole(actor.role, contact.role)) {
+    if (!canSeeChatContact(actor, contact.id)) {
       return apiError("You are not permitted to message this teammate.", 403);
     }
     const { data, error } = await supabase
@@ -169,7 +171,7 @@ export async function POST(request: NextRequest) {
 
   const contact = await getChatContact(supabase, receiverId);
   if (!contact) return apiError("Recipient not found.", 404);
-  if (!canMessageRole(actor.role, contact.role)) {
+  if (!canSeeChatContact(actor, contact.id)) {
     return apiError("You are not permitted to message this teammate.", 403);
   }
   if (attachmentUrl && !attachmentUrl.startsWith(`${actor.id}/${receiverId}/`)) {
@@ -212,7 +214,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   const contact = await getChatContact(context.supabase, receiverId);
-  if (!contact || !canMessageRole(context.actor.role, contact.role)) {
+  if (!contact || !canSeeChatContact(context.actor, contact.id)) {
     return apiError("You are not permitted to access this conversation.", 403);
   }
   const { data, error } = await context.supabase
