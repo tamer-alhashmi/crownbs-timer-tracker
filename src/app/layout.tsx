@@ -41,14 +41,16 @@ export const viewport: Viewport = {
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const user = await getSessionUser();
-  let chatProfile = user ? { name: user.email, avatarUrl: null as string | null } : null;
+  let chatProfile = user ? { name: user.email, avatarUrl: null as string | null, role: user.role } : null;
+  let soundNotificationsEnabled = true;
   if (user) {
     const supabase = createPrivilegedServerSupabaseClient();
-    const { data: profile, error } = await supabase.from("users").select("full_name, avatar_url").eq("id", user.userId).maybeSingle();
+    const { data: profile, error } = await supabase.from("users").select("full_name, avatar_url, sound_notifications_enabled").eq("id", user.userId).maybeSingle();
     if (error) {
       console.error("Global chat profile lookup failed:", error.message);
     } else if (profile) {
-      chatProfile = { name: profile.full_name || user.email, avatarUrl: profile.avatar_url };
+      chatProfile = { name: profile.full_name || user.email, avatarUrl: profile.avatar_url, role: user.role };
+      soundNotificationsEnabled = profile.sound_notifications_enabled;
     }
   }
 
@@ -58,11 +60,18 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body suppressHydrationWarning className="min-h-full flex flex-col bg-slate-100 text-slate-900">
-        <ChatProviders>
-          {children}
-          {user && chatProfile && <GlobalChatWidget user={user} profile={chatProfile} />}
-          <BackButtonHandler />
-        </ChatProviders>
+        {user ? (
+          <ChatProviders key={user.userId} soundEnabled={soundNotificationsEnabled}>
+            {children}
+            {chatProfile && <GlobalChatWidget user={user} profile={chatProfile} />}
+            <BackButtonHandler userRole={user.role} />
+          </ChatProviders>
+        ) : (
+          <>
+            {children}
+            <BackButtonHandler userRole={null} />
+          </>
+        )}
       </body>
     </html>
   );

@@ -2,21 +2,26 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Bell, MessageCircle } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fetchTaskNotifications, fetchUnread } from "./chatApi";
 import { useChatStore } from "./chatStore";
 import { roleLabel } from "@/lib/chat/types";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 import { startAssignedTask } from "@/app/settings/taskActions";
+import { useSoundSettings } from "./ChatProviders";
+import { playChatSound } from "./chatSound";
 
 export function NotificationBell() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const seenTaskIds = useRef<Set<string> | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [taskError, setTaskError] = useState("");
   const [activeTaskWarning, setActiveTaskWarning] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const router = useRouter();
+  const { soundNotificationsEnabled } = useSoundSettings();
   const { data, error } = useQuery({
     queryKey: ["chat", "unread"],
     queryFn: fetchUnread,
@@ -35,6 +40,36 @@ export function NotificationBell() {
   const incoming = taskQuery.data?.incoming ?? [];
   const outgoing = taskQuery.data?.outgoing ?? [];
   const unreadCount = (data?.count ?? 0) + incoming.length;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const dismissOutside = (event: PointerEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) setIsOpen(false);
+    };
+    const dismissEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsOpen(false);
+    };
+    document.addEventListener("pointerdown", dismissOutside);
+    document.addEventListener("keydown", dismissEscape);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOutside);
+      document.removeEventListener("keydown", dismissEscape);
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!taskQuery.data) return;
+    const ids = new Set(taskQuery.data.incoming.map((task) => task.id));
+    if (!seenTaskIds.current) {
+      seenTaskIds.current = ids;
+      return;
+    }
+    const newlyAssignedUrgent = taskQuery.data.incoming.find(
+      (task) => !seenTaskIds.current?.has(task.id) && (task.priority === "high" || task.priority === "urgent")
+    );
+    seenTaskIds.current = ids;
+    if (newlyAssignedUrgent && soundNotificationsEnabled) playChatSound("alert");
+  }, [soundNotificationsEnabled, taskQuery.data]);
 
   const startTask = async (taskId: string) => {
     setTaskError("");
@@ -57,7 +92,7 @@ export function NotificationBell() {
   };
 
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       <button
         type="button"
         aria-label={`Notifications${unreadCount ? `, ${unreadCount} pending notifications` : ""}`}
@@ -74,7 +109,7 @@ export function NotificationBell() {
         )}
       </button>
       {isOpen && (
-        <div className="absolute right-0 top-12 z-[70] w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/15">
+        <div data-back-button-overlay="true" className="absolute right-0 top-12 z-[70] w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/15">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-slate-900">Notifications</p>
@@ -155,7 +190,7 @@ export function NotificationBell() {
                   }}
                   className="flex w-full gap-3 rounded-xl p-3 text-left transition hover:bg-slate-50"
                 >
-                  <UserAvatar name={message.sender.full_name} avatarUrl={message.sender.avatar_url} className="h-9 w-9 bg-[#d9fdd3] text-sm font-semibold text-emerald-900" />
+                  <UserAvatar name={message.sender.full_name} avatarUrl={message.sender.avatar_url} role={message.sender.role} className="h-9 w-9 bg-[#d9fdd3] text-sm font-semibold text-emerald-900" />
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center justify-between gap-2">
                       <span className="truncate text-sm font-semibold text-slate-800">

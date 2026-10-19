@@ -20,8 +20,21 @@ export async function GET() {
         table: "messages",
         filter: `receiver_id=eq.${context.actor.id}`,
       },
-      () => {
-        if (!stopped) controller.enqueue(encoder.encode("data: {\"type\":\"message\"}\n\n"));
+      (payload) => {
+        if (stopped) return;
+        controller.enqueue(encoder.encode("data: {\"type\":\"message\"}\n\n"));
+        const messageId = payload.new.id;
+        if (typeof messageId === "string") {
+          void context.supabase
+            .from("messages")
+            .update({ delivered_at: new Date().toISOString() })
+            .eq("id", messageId)
+            .eq("receiver_id", context.actor.id)
+            .is("delivered_at", null)
+            .then(({ error }) => {
+              if (error) console.error("Chat delivery receipt update failed:", error.message);
+            });
+        }
       }
     )
     .on(

@@ -11,11 +11,13 @@ import { MessageInput } from "./MessageInput";
 
 export function ConversationView({
   userId,
+  userRole,
   userName,
   userAvatarUrl,
   contact,
 }: {
   userId: AppUserSession["userId"];
+  userRole: AppUserSession["role"];
   userName: string;
   userAvatarUrl: string | null;
   contact: ChatContact;
@@ -40,7 +42,7 @@ export function ConversationView({
 
   useEffect(() => {
     const unreadMessages = data?.messages.filter(
-      (message) => message.receiver_id === userId && !message.is_read
+      (message) => message.receiver_id === userId && !message.read_at && !message.is_read
     );
     const lastUnreadId = unreadMessages?.at(-1)?.id ?? null;
     if (lastUnreadId && lastUnreadId !== markedThroughRef.current && !readMutation.isPending) {
@@ -83,6 +85,7 @@ export function ConversationView({
                 isOwn={message.sender_id === userId}
                 senderName={message.sender_id === userId ? userName : contact.full_name}
                 senderAvatarUrl={message.sender_id === userId ? userAvatarUrl : contact.avatar_url}
+                senderRole={message.sender_id === userId ? userRole : contact.role}
               />
             ))
           ) : (

@@ -5,6 +5,8 @@ import { Camera, LoaderCircle, Paperclip, Send, X } from "lucide-react";
 import { useRef, useState, type FormEvent } from "react";
 import type { AttachmentType } from "@/lib/chat/types";
 import { sendMessage, uploadAttachment } from "./chatApi";
+import { playChatSound } from "./chatSound";
+import { useSoundSettings } from "./ChatProviders";
 
 const MAX_FILE_SIZE = 12 * 1024 * 1024;
 
@@ -28,6 +30,7 @@ export function MessageInput({
   const [content, setContent] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { soundNotificationsEnabled } = useSoundSettings();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const mutation = useMutation({
@@ -35,17 +38,19 @@ export function MessageInput({
       if (file && !attachmentType(file)) throw new Error("Choose an image, PDF, or Word document.");
       let attachment: { path: string; type: AttachmentType } | undefined;
       if (file) attachment = await uploadAttachment(file, receiverId);
-      await sendMessage({
+      const result = await sendMessage({
         receiverId,
         content: content.trim(),
         attachmentUrl: attachment?.path,
         attachmentType: attachment?.type,
       });
+      return result;
     },
     onSuccess: () => {
       setContent("");
       setFile(null);
       setError(null);
+      if (soundNotificationsEnabled) playChatSound("sent");
       onSent();
     },
     onError: (sendError) => setError(sendError.message),

@@ -183,7 +183,7 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
                   <tr key={user.id} className="align-top hover:bg-slate-50/80">
                     <td className="px-4 py-3">
                       <div className="flex min-w-56 items-center gap-3">
-                        <UserAvatar name={user.full_name} avatarUrl={user.avatar_url} className="h-10 w-10 bg-sky-100 text-sm font-semibold text-sky-800" />
+                        <UserAvatar name={user.full_name} avatarUrl={user.avatar_url} role={user.role} className="h-10 w-10 bg-sky-100 text-sm font-semibold text-sky-800" />
                         <div className="min-w-0"><p className="truncate font-semibold text-slate-900">{user.full_name}</p><p className="max-w-56 truncate text-xs text-slate-500">{user.email}</p></div>
                       </div>
                     </td>
