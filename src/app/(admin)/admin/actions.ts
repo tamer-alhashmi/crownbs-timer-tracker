@@ -85,7 +85,7 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
     logsQuery.in("hotel_id", scopedHotelIds);
     payrollQuery.in("hotel_id", scopedHotelIds);
   }
-  const servicesQuery = supabase.from("services_config").select("id, name, description, unit, default_rate, is_active, created_at").order("name").order("id");
+  const servicesQuery = supabase.from("services_config").select("id, name, description, unit, default_rate, is_active, owner_id, created_at").order("name").order("id");
   const roomsQuery = supabase.from("rooms").select("id, hotel_id, room_name, category, status").in("hotel_id", hotelIds.length ? hotelIds : ["00000000-0000-0000-0000-000000000000"]).eq("status", "active").order("room_name").order("id");
   const overrideAuditQuery = supabase.from("operations_override_audit").select("id, entity_type, entity_id, action, actor_id, override_reason, previous_values, new_values, created_at").order("created_at", { ascending: false }).order("id");
   let taskScopeQuery = supabase.from("work_logs").select("id, hotel_id, user_id, shift_id");
@@ -104,6 +104,10 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
     fetchAllRows("operational audit history", (from, to) => overrideAuditQuery.range(from, to)),
     fetchAllRows("audit task scope", (from, to) => taskScopeQuery.range(from, to)),
   ]);
+  const tenantOwnerIds = new Set(visibleHotels.map((hotel) => hotel.owner_id).filter((id): id is string => Boolean(id)));
+  const visibleServices = user.role === "admin"
+    ? services
+    : services.filter((service) => service.owner_id === null || tenantOwnerIds.has(service.owner_id));
   const { data: currentUser } = await supabase.from("users").select("full_name, email, avatar_url").eq("id", user.userId).maybeSingle();
   const [servicePermissionResult, payrollPermissionResult] = user.role === "admin"
     ? [null, null]
@@ -259,7 +263,7 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
     propertyAssignees: propertyAssignees
       .filter((assignee) => user.role === "admin" || visibleHotels.some((hotel) => hotel.owner_id === assignee.id || hotel.manager_id === assignee.id))
       .map((assignee) => ({ id: assignee.id, name: assignee.full_name || assignee.email, role: assignee.role })),
-    services,
+    services: visibleServices,
     rooms,
     workLogs: workLogsWithNames,
     payroll: payrollWithNames,

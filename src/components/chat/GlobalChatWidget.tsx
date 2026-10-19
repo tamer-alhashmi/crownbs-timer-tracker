@@ -25,6 +25,7 @@ export function GlobalChatWidget({ user, profile }: { user: AppUserSession; prof
     const events = new EventSource("/api/chat/events");
     const refreshChat = () => {
       void queryClient.invalidateQueries({ queryKey: ["chat"] });
+      void queryClient.invalidateQueries({ queryKey: ["tasks", "notifications"] });
     };
     events.onmessage = refreshChat;
     events.onopen = refreshChat;

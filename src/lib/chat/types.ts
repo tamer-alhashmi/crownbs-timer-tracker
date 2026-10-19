@@ -1,4 +1,6 @@
-export type ChatRole = "admin" | "owner" | "manager" | "cleaner";
+import type { UserRole } from "@/lib/roles";
+
+export type ChatRole = UserRole;
 export type AttachmentType = "image" | "pdf" | "doc";
 
 export type ChatContact = {
@@ -26,18 +28,9 @@ export type UnreadMessage = ChatMessage & {
 };
 
 export function roleLabel(role: ChatRole): string {
-  return role === "admin" ? "HK Admin" : role[0].toUpperCase() + role.slice(1);
+  return role === "hk_admin" ? "Housekeeping Admin" : role[0].toUpperCase() + role.slice(1);
 }
 
 export function canMessageRole(sender: ChatRole, recipient: ChatRole): boolean {
-  if (recipient === "owner") return sender === "manager";
-  if (sender === "owner") return true;
-
-  switch (sender) {
-    case "manager":
-      return recipient === "admin" || recipient === "cleaner";
-    case "admin":
-    case "cleaner":
-      return recipient === "manager" || recipient === (sender === "admin" ? "cleaner" : "admin");
-  }
+  return sender === "admin" || recipient !== "admin";
 }

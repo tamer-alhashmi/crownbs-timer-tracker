@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createPrivilegedServerSupabaseClient, createServerSupabaseClient } from "@/lib/supabase/server";
 import { setSessionCookies } from "@/lib/auth";
+import type { UserRole } from "@/lib/roles";
 
 export type LoginMethod = "email" | "pin";
 
@@ -15,10 +16,11 @@ function dashboardForRole(role: string) {
   if (role === "cleaner") return "/dashboard";
   if (role === "manager") return "/manager";
   if (role === "owner") return "/owner";
+  if (role === "hk_admin") return "/hk-admin";
   return "/admin";
 }
 
-async function establishUserSession(user: { id: string; email: string; role: "admin" | "owner" | "manager" | "cleaner"; primary_hotel_id: string | null }): Promise<never> {
+async function establishUserSession(user: { id: string; email: string; role: UserRole; primary_hotel_id: string | null }): Promise<never> {
   await setSessionCookies({
     userId: user.id,
     email: user.email,

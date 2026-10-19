@@ -35,6 +35,42 @@ export async function GET() {
       () => {
         if (!stopped) controller.enqueue(encoder.encode("data: {\"type\":\"read\"}\n\n"));
       }
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "work_logs",
+        filter: `assigned_to=eq.${context.actor.id}`,
+      },
+      () => {
+        if (!stopped) controller.enqueue(encoder.encode("data: {\"type\":\"task_assigned\"}\n\n"));
+      }
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "work_logs",
+        filter: `assigned_to=eq.${context.actor.id}`,
+      },
+      () => {
+        if (!stopped) controller.enqueue(encoder.encode("data: {\"type\":\"task_updated\"}\n\n"));
+      }
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "work_logs",
+        filter: `assigned_by=eq.${context.actor.id}`,
+      },
+      () => {
+        if (!stopped) controller.enqueue(encoder.encode("data: {\"type\":\"task_started\"}\n\n"));
+      }
     );
 
   let controller: ReadableStreamDefaultController<Uint8Array>;

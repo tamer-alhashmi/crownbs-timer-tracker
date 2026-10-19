@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { apiError, getChatActor, getChatContact, hasSameOrigin, isUuid } from "@/lib/chat/server";
-import { canMessageRole, type AttachmentType } from "@/lib/chat/types";
+import { apiError, canSeeChatContact, getChatActor, getChatContact, hasSameOrigin, isUuid } from "@/lib/chat/server";
+import type { AttachmentType } from "@/lib/chat/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     return apiError("Attachments must be non-empty and 12 MB or smaller.", 413);
   }
   const contact = await getChatContact(context.supabase, receiverId);
-  if (!contact || !canMessageRole(context.actor.role, contact.role)) {
+  if (!contact || !canSeeChatContact(context.actor, contact.id)) {
     return apiError("You are not permitted to message this teammate.", 403);
   }
 
@@ -95,7 +95,7 @@ export async function GET(request: NextRequest) {
   }
   const contactId = message.sender_id === context.actor.id ? message.receiver_id : message.sender_id;
   const contact = await getChatContact(context.supabase, contactId);
-  if (!contact || !canMessageRole(context.actor.role, contact.role)) {
+  if (!contact || !canSeeChatContact(context.actor, contact.id)) {
     return apiError("You are not permitted to access this attachment.", 403);
   }
 

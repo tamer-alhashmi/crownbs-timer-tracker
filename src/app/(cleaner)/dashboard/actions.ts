@@ -7,12 +7,21 @@ import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 async function requireCleaner() {
   const user = await getSessionUser();
   if (!user || user.role !== "cleaner") throw new Error("Unauthorized: cleaner access required.");
-  return user;
+  const supabase = createPrivilegedServerSupabaseClient();
+  const { data: profile, error } = await supabase
+    .from("users")
+    .select("role, primary_hotel_id")
+    .eq("id", user.userId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!profile || profile.role !== "cleaner" || profile.role !== user.role) throw new Error("Your account role could not be verified.");
+  return { ...user, hotelId: profile.primary_hotel_id };
 }
 
 async function activeShiftFor(userId: string) {
   const supabase = createPrivilegedServerSupabaseClient();
-  const { data: shift } = await supabase.from("master_shifts").select("id, user_id, start_time, end_time, status").eq("user_id", userId).eq("status", "active").maybeSingle();
+  const { data: shift, error } = await supabase.from("master_shifts").select("id, user_id, start_time, end_time, status").eq("user_id", userId).eq("status", "active").maybeSingle();
+  if (error) throw new Error(error.message);
   return { supabase, shift };
 }
 
@@ -20,11 +29,11 @@ async function validateSelection(hotelId: string, serviceId: string, roomIds: st
   const supabase = createPrivilegedServerSupabaseClient();
   const uniqueRoomIds = [...new Set(roomIds)];
   const [{ data: hotel }, { data: service }, roomResult] = await Promise.all([
-    supabase.from("hotels").select("id").eq("id", hotelId).eq("is_active", true).maybeSingle(),
-    supabase.from("services_config").select("id, name, description, unit").eq("id", serviceId).eq("is_active", true).maybeSingle(),
+    supabase.from("hotels").select("id, owner_id").eq("id", hotelId).eq("is_active", true).maybeSingle(),
+    supabase.from("services_config").select("id, name, description, unit, owner_id").eq("id", serviceId).eq("is_active", true).maybeSingle(),
     uniqueRoomIds.length ? supabase.from("rooms").select("id, room_name").in("id", uniqueRoomIds).eq("hotel_id", hotelId).eq("status", "active") : Promise.resolve({ data: [] }),
   ]);
-  if (!hotel || !service) throw new Error("Select an active hotel and service.");
+  if (!hotel || !service || (service.owner_id !== null && service.owner_id !== hotel.owner_id)) throw new Error("Select an active hotel and service configured for your property.");
   const selectedRooms = roomResult.data ?? [];
   if (selectedRooms.length !== uniqueRoomIds.length) throw new Error("Every selected room must belong to the active hotel.");
   if ((service.unit === "per_room" || /maintenance|cleaning\s*\(hourly\)/i.test(service.name)) && selectedRooms.length === 0) throw new Error("Select at least one room for this service.");
@@ -43,10 +52,12 @@ export async function clockIn() {
 
 export async function startTask(data: { hotelId: string; serviceId: string; roomIds?: string[]; notes?: string }) {
   const user = await requireCleaner();
+  if (!user.hotelId || data.hotelId !== user.hotelId) throw new Error("Select your assigned property.");
   const { supabase: selectionClient, service, selectedRooms } = await validateSelection(data.hotelId, data.serviceId, data.roomIds);
   const { shift } = await activeShiftFor(user.userId);
   if (!shift) throw new Error("Clock in before starting a task.");
-  const { data: activeTask } = await selectionClient.from("work_logs").select("id").eq("shift_id", shift.id).eq("status", "active").maybeSingle();
+  const { data: activeTask, error: activeError } = await selectionClient.from("work_logs").select("id").eq("user_id", user.userId).eq("status", "active").is("end_time", null).limit(1).maybeSingle();
+  if (activeError) throw new Error(activeError.message);
   if (activeTask) throw new Error("End the current task before starting another.");
   const requiresNotes = /maintenance|linen|delivery/i.test(service.name);
   if (requiresNotes && !data.notes?.trim()) throw new Error("Notes are required for this service.");
@@ -59,6 +70,7 @@ export async function startTask(data: { hotelId: string; serviceId: string; room
 
 export async function endTask(taskId: string, data: { roomIds?: string[]; notes?: string }) {
   const user = await requireCleaner();
+  if (!user.hotelId) throw new Error("Your account does not have an assigned property.");
   const supabase = createPrivilegedServerSupabaseClient();
   const { data: task } = await supabase.from("work_logs").select("id, status, is_locked").eq("id", taskId).eq("user_id", user.userId).maybeSingle();
   if (!task || task.status !== "active") throw new Error("Active task was not found.");
@@ -72,7 +84,8 @@ export async function clockOut() {
   const user = await requireCleaner();
   const { supabase, shift } = await activeShiftFor(user.userId);
   if (!shift) throw new Error("No active master shift.");
-  const { data: activeTask } = await supabase.from("work_logs").select("id").eq("shift_id", shift.id).eq("status", "active").maybeSingle();
+  const { data: activeTask, error: activeError } = await supabase.from("work_logs").select("id").eq("user_id", user.userId).eq("status", "active").is("end_time", null).limit(1).maybeSingle();
+  if (activeError) throw new Error(activeError.message);
   if (activeTask) throw new Error("End the active task before clocking out.");
   const { error } = await supabase.from("master_shifts").update({ end_time: new Date().toISOString(), status: "completed", updated_at: new Date().toISOString() }).eq("id", shift.id).eq("user_id", user.userId);
   if (error) throw new Error(error.message);
@@ -81,6 +94,7 @@ export async function clockOut() {
 
 export async function updateTask(taskId: string, data: { hotelId: string; serviceId: string; roomIds?: string[]; notes?: string }) {
   const user = await requireCleaner();
+  if (!user.hotelId || data.hotelId !== user.hotelId) throw new Error("Select your assigned property.");
   const { supabase, service, selectedRooms } = await validateSelection(data.hotelId, data.serviceId, data.roomIds);
   const { data: task } = await supabase.from("work_logs").select("id, is_locked, status").eq("id", taskId).eq("user_id", user.userId).maybeSingle();
   if (!task || task.is_locked) throw new Error("This task cannot be modified.");
@@ -94,8 +108,10 @@ export async function updateTask(taskId: string, data: { hotelId: string; servic
 export async function switchHotel(newHotelId: string) {
   const user = await requireCleaner();
   const supabase = createPrivilegedServerSupabaseClient();
-  const { data: hotel } = await supabase.from("hotels").select("id").eq("id", newHotelId).eq("is_active", true).maybeSingle();
+  if (newHotelId !== user.hotelId) throw new Error("You can only work at your assigned property.");
+  const { data: hotel, error } = await supabase.from("hotels").select("id").eq("id", newHotelId).eq("is_active", true).maybeSingle();
+  if (error) throw new Error(error.message);
   if (!hotel) throw new Error("Select an active hotel.");
-  await setSessionCookies({ ...user, hotelId: newHotelId });
+  await setSessionCookies({ ...user, hotelId: user.hotelId });
   revalidatePath("/dashboard");
 }

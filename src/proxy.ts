@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const protectedRoutes = ["/admin", "/dashboard", "/manager", "/owner", "/settings"];
+const protectedRoutes = ["/admin", "/dashboard", "/manager", "/owner", "/hk-admin", "/settings"];
+const supportedRoles = ["admin", "owner", "manager", "hk_admin", "cleaner"];
 
 export function proxy(request: NextRequest) {
 	const pathname = request.nextUrl.pathname;
@@ -16,7 +17,7 @@ export function proxy(request: NextRequest) {
 	const userId = request.cookies.get("user-id")?.value;
 	const email = request.cookies.get("user-email")?.value;
 
-	if (!role || !userId || !email) {
+	if (!role || !supportedRoles.includes(role) || !userId || !email) {
 		const loginUrl = new URL("/login", request.url);
 		loginUrl.searchParams.set("next", pathname);
 		return NextResponse.redirect(loginUrl);
@@ -38,7 +39,11 @@ export function proxy(request: NextRequest) {
 		return NextResponse.redirect(new URL("/admin", request.url));
 	}
 
-	if (pathname.startsWith("/settings") && !["admin", "owner", "manager", "cleaner"].includes(role)) {
+	if (pathname.startsWith("/hk-admin") && role !== "hk_admin") {
+		return NextResponse.redirect(new URL("/settings", request.url));
+	}
+
+	if (pathname.startsWith("/settings") && !supportedRoles.includes(role)) {
 		return NextResponse.redirect(new URL("/admin", request.url));
 	}
 
@@ -46,5 +51,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-	matcher: ["/admin/:path*", "/dashboard/:path*", "/manager/:path*", "/owner/:path*", "/settings/:path*"],
+	matcher: ["/admin/:path*", "/dashboard/:path*", "/manager/:path*", "/owner/:path*", "/hk-admin/:path*", "/settings/:path*"],
 };
