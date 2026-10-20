@@ -20,6 +20,9 @@ export type ChatMessage = {
   attachment_url: string | null;
   attachment_type: AttachmentType | null;
   is_read: boolean;
+  sent_at: string;
+  delivered_at: string | null;
+  read_at: string | null;
   created_at: string;
 };
 

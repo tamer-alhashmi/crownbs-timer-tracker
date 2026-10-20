@@ -18,23 +18,36 @@ export default async function CleanerDashboardPage() {
     .select("full_name, avatar_url, primary_hotel_id")
     .eq("id", user.userId)
     .maybeSingle();
-  if (profileError || !profile || !profile.primary_hotel_id) {
+  if (profileError || !profile) {
     throw new Error(profileError?.message ?? "Your account does not have an assigned property.");
   }
-  const { data: hotel, error: hotelError } = await supabase
+  const { data: assignments, error: assignmentsError } = await supabase
+    .from("user_hotel_assignments")
+    .select("hotel_id")
+    .eq("user_id", user.userId);
+  if (assignmentsError) throw new Error(assignmentsError.message);
+  const assignedHotelIds = [...new Set([
+    ...(assignments ?? []).map((assignment) => assignment.hotel_id),
+    ...(profile.primary_hotel_id ? [profile.primary_hotel_id] : []),
+  ])];
+  if (!assignedHotelIds.length) throw new Error("Your account does not have an assigned property.");
+  const { data: hotels, error: hotelError } = await supabase
     .from("hotels")
     .select("id, name, location, owner_id")
-    .eq("id", profile.primary_hotel_id)
+    .in("id", assignedHotelIds)
     .eq("is_active", true)
-    .maybeSingle();
-  if (hotelError || !hotel) throw new Error(hotelError?.message ?? "Your assigned property is unavailable.");
-  let servicesQuery = supabase.from("services_config").select("id, name, description, default_rate, unit").eq("is_active", true);
+    .order("name");
+  if (hotelError || !hotels?.length) throw new Error(hotelError?.message ?? "Your assigned properties are unavailable.");
+  const hotel = hotels.find((item) => item.id === user.hotelId)
+    ?? hotels.find((item) => item.id === profile.primary_hotel_id)
+    ?? hotels[0];
+  let servicesQuery = supabase.from("services_config").select("id, hotel_id, name, description, default_rate, unit").eq("is_active", true);
   servicesQuery = hotel.owner_id
-    ? servicesQuery.or(`owner_id.is.null,owner_id.eq.${hotel.owner_id}`)
-    : servicesQuery.is("owner_id", null);
+    ? servicesQuery.or(`hotel_id.eq.${hotel.id},owner_id.is.null,owner_id.eq.${hotel.owner_id}`)
+    : servicesQuery.or(`hotel_id.eq.${hotel.id},owner_id.is.null`);
   const [{ data: services }, { data: rooms }, { data: shift }, { data: logs }, brief] = await Promise.all([
     servicesQuery.order("name"),
-    supabase.from("rooms").select("id, hotel_id, room_name, category").eq("hotel_id", hotel.id).eq("status", "active").order("room_name"),
+    supabase.from("rooms").select("id, hotel_id, room_name, category").in("hotel_id", assignedHotelIds).eq("status", "active").order("room_name"),
     supabase.from("master_shifts").select("id, start_time, end_time, status").eq("user_id", user.userId).eq("status", "active").maybeSingle(),
     supabase
       .from("work_logs")
@@ -68,7 +81,7 @@ export default async function CleanerDashboardPage() {
     }
   }
 
-  const hotelById = new Map<string, string>([[hotel.id, hotel.name]]);
+  const hotelById = new Map<string, string>(hotels.map((assignedHotel) => [assignedHotel.id, assignedHotel.name]));
   const serviceById = new Map((services ?? []).map((service) => [service.id, service.name]));
   const logsWithNames = (logs ?? []).map((log) => ({
     ...log,
@@ -81,8 +94,8 @@ export default async function CleanerDashboardPage() {
 
   return (
     <CleanerDashboard
-      user={{ fullName: profile.full_name ?? user.email, email: user.email, hotelId: profile.primary_hotel_id, avatarUrl: profile.avatar_url ?? null }}
-      hotels={[hotel]}
+      user={{ fullName: profile.full_name ?? user.email, email: user.email, hotelId: hotel.id, avatarUrl: profile.avatar_url ?? null }}
+      hotels={hotels}
       services={services ?? []}
       rooms={rooms ?? []}
       shift={shift}

@@ -47,3 +47,18 @@ export async function savePersonalProfile(input: { fullName: string; email: stri
 
   revalidatePath("/", "layout");
 }
+
+export async function saveSoundNotificationsPreference(enabled: boolean) {
+  const user = await getVerifiedChatSessionUser();
+  if (!user) throw new Error("Your session has expired. Sign in again to update your preferences.");
+  if (typeof enabled !== "boolean") throw new Error("Choose whether notification sounds are enabled.");
+
+  const supabase = createPrivilegedServerSupabaseClient();
+  const { error } = await supabase
+    .from("users")
+    .update({ sound_notifications_enabled: enabled })
+    .eq("id", user.userId);
+  if (error) throw new Error(`Unable to update notification sounds: ${error.message}`);
+
+  revalidatePath("/", "layout");
+}

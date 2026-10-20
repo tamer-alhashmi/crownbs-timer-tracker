@@ -64,7 +64,7 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
   if (!["admin", "owner", "manager"].includes(user.role)) throw new Error("Management access required.");
   const supabase = createPrivilegedServerSupabaseClient();
   const briefPromise = getManagementOperationalBrief(user, period);
-  const hotelsQuery = supabase.from("hotels").select("id, name, location, owner_id, manager_id, created_at, is_active").order("name").order("id");
+  const hotelsQuery = supabase.from("hotels").select("id, name, location, owner_id, manager_id, created_at, is_active, latitude, longitude, floors_sections, total_rooms").order("name").order("id");
   const hotels = await fetchAllRows("properties", (from, to) => hotelsQuery.range(from, to));
   const assignedHotelId = user.hotelId ?? null;
   const visibleHotels = user.role === "admin"

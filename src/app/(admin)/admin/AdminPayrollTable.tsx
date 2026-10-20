@@ -138,6 +138,18 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
       cost: total.cost + calculateTaskCost(hours, log.rooms_completed, service, log.cost_override),
     };
   }, { hours: 0, rooms: 0, cost: 0 });
+  const earningsByCleanerAndHotel = new Map<string, { cleanerName: string; hotelName: string; cost: number }>();
+  filteredLogs.forEach((log) => {
+    const service = log.services_config[0] ?? {};
+    const key = `${log.user_id}:${log.hotel_id}`;
+    const existing = earningsByCleanerAndHotel.get(key);
+    const cost = calculateTaskCost(durationHours(log), log.rooms_completed, service, log.cost_override);
+    earningsByCleanerAndHotel.set(key, {
+      cleanerName: log.cleanerName,
+      hotelName: log.hotelName,
+      cost: (existing?.cost ?? 0) + cost,
+    });
+  });
   const exportRows: ExportRow[] = filteredLogs.map((log) => {
     const service = log.services_config[0] ?? {};
     const rate = resolveServiceRate(service);
@@ -335,6 +347,15 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
         </div>
       </div>
     </div>
+    {earningsByCleanerAndHotel.size > 0 && <section aria-label="Earnings by cleaner and property" className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+      <h4 className="text-sm font-semibold text-slate-900">Earnings by cleaner and property</h4>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        {[...earningsByCleanerAndHotel.entries()].map(([key, earning]) => <div key={key} className="flex min-w-0 items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 text-sm">
+          <span className="min-w-0"><span className="block truncate font-medium text-slate-900">{earning.cleanerName}</span><span className="block truncate text-xs text-slate-500">{earning.hotelName}</span></span>
+          <span className="shrink-0 font-semibold tabular-nums text-slate-900">GBP {earning.cost.toFixed(2)}</span>
+        </div>)}
+      </div>
+    </section>}
     <div className="admin-config-scroll mt-4 max-h-[65vh] overflow-auto rounded-lg border border-slate-200 [-webkit-overflow-scrolling:touch]">
       <table className="min-w-[760px] w-full text-left text-sm">
         <thead className="sticky top-0 z-10 bg-white/95 text-slate-600 shadow-sm backdrop-blur"><tr><th className="px-3 py-3">Task date/time</th><th className="px-3 py-3">Cleaner</th><th className="px-3 py-3">Hotel / service</th><th className="px-3 py-3 text-right">Hours</th><th className="px-3 py-3 text-right">Rooms</th><th className="px-3 py-3 text-right">Cost (GBP)</th>{canManageTasks && <th className="px-3 py-3 text-right">Manage</th>}</tr></thead>

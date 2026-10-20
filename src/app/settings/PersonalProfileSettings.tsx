@@ -6,9 +6,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Camera, Check, LoaderCircle, Trash2, UserRound } from "lucide-react";
+import { Camera, Check, LoaderCircle, Trash2, UserRound, Volume2, VolumeX } from "lucide-react";
 import { UserAvatar } from "@/components/shared/UserAvatar";
-import { savePersonalProfile } from "./profileActions";
+import type { UserRole } from "@/lib/roles";
+import { savePersonalProfile, saveSoundNotificationsPreference } from "./profileActions";
+import { useSoundSettings } from "@/components/chat/ChatProviders";
 
 const profileSchema = z.object({
   fullName: z.string().trim().min(1, "Enter your name.").max(120),
@@ -24,16 +26,20 @@ type Props = {
   phoneNumber: string | null;
   avatarUrl: string | null;
   languagePreference: string;
+  role: UserRole;
 };
 
-export default function PersonalProfileSettings({ fullName, email, phoneNumber, avatarUrl, languagePreference }: Props) {
+export default function PersonalProfileSettings({ fullName, email, phoneNumber, avatarUrl, languagePreference, role }: Props) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { soundNotificationsEnabled, setSoundNotificationsEnabled } = useSoundSettings();
   const fileInput = useRef<HTMLInputElement>(null);
+  const profileForm = useRef<HTMLFormElement>(null);
   const [photo, setPhoto] = useState(avatarUrl);
   const [notice, setNotice] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [isSaving, startSaving] = useTransition();
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [savingSoundPreference, setSavingSoundPreference] = useState(false);
   const form = useForm<ProfileValues>({
     resolver: zodResolver(profileSchema),
     defaultValues: {
@@ -45,10 +51,25 @@ export default function PersonalProfileSettings({ fullName, email, phoneNumber, 
   });
   const name = form.watch("fullName");
 
+  const toggleSoundNotifications = async () => {
+    const nextValue = !soundNotificationsEnabled;
+    setSavingSoundPreference(true);
+    setNotice(null);
+    try {
+      await saveSoundNotificationsPreference(nextValue);
+      setSoundNotificationsEnabled(nextValue);
+    } catch (error) {
+      setNotice({ kind: "error", text: error instanceof Error ? error.message : "Unable to update notification sounds." });
+    } finally {
+      setSavingSoundPreference(false);
+    }
+  };
+
   const save = form.handleSubmit((values) => startSaving(async () => {
     try {
       setNotice(null);
       await savePersonalProfile(values);
+      profileForm.current?.dispatchEvent(new Event("app:form-saved", { bubbles: true }));
       setNotice({ kind: "success", text: "Your personal details were saved." });
       router.refresh();
     } catch (error) {
@@ -108,6 +129,7 @@ export default function PersonalProfileSettings({ fullName, email, phoneNumber, 
           <UserAvatar
             name={name}
             avatarUrl={photo}
+            role={role}
             className="h-20 w-20 bg-sky-100 text-2xl font-semibold text-sky-800 ring-1 ring-slate-200"
           />
           <div>
@@ -149,7 +171,7 @@ export default function PersonalProfileSettings({ fullName, email, phoneNumber, 
             <UserRound className="h-4 w-4 text-sky-700" />
             <h2 className="text-lg font-bold text-slate-950">Personal information</h2>
           </div>
-          <form onSubmit={save} noValidate>
+          <form ref={profileForm} onSubmit={save} noValidate>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="text-sm font-medium text-slate-700">
               Full name
@@ -210,6 +232,28 @@ export default function PersonalProfileSettings({ fullName, email, phoneNumber, 
           </div>
           </form>
         </div>
+      </div>
+      <div className="mt-6 flex items-center justify-between gap-4 border-t border-slate-100 pt-5">
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5 rounded-lg bg-sky-50 p-2 text-sky-700">
+            {soundNotificationsEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+          </span>
+          <span>
+            <span className="block text-sm font-semibold text-slate-900">Sound effects</span>
+            <span className="mt-0.5 block text-xs leading-5 text-slate-500">Play subtle sounds for messages and high-priority task alerts.</span>
+          </span>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={soundNotificationsEnabled}
+          aria-label="Enable notification sounds"
+          disabled={savingSoundPreference}
+          onClick={() => void toggleSoundNotifications()}
+          className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition disabled:opacity-50 ${soundNotificationsEnabled ? "bg-sky-700" : "bg-slate-300"}`}
+        >
+          <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${soundNotificationsEnabled ? "translate-x-6" : "translate-x-1"}`} />
+        </button>
       </div>
     </section>
   );

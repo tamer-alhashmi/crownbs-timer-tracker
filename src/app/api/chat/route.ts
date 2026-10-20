@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
     if (!visibleContactIds.length) return NextResponse.json({ count: 0, messages: [] });
     const { data, count, error } = await supabase
       .from("messages")
-      .select("id, sender_id, receiver_id, content, attachment_url, attachment_type, is_read, created_at", {
+      .select("id, sender_id, receiver_id, content, attachment_url, attachment_type, is_read, sent_at, delivered_at, read_at, created_at", {
         count: "exact",
       })
       .eq("receiver_id", actor.id)
@@ -116,7 +116,7 @@ export async function GET(request: NextRequest) {
     }
     const { data, error } = await supabase
       .from("messages")
-      .select("id, sender_id, receiver_id, content, attachment_url, attachment_type, is_read, created_at")
+      .select("id, sender_id, receiver_id, content, attachment_url, attachment_type, is_read, sent_at, delivered_at, read_at, created_at")
       .or(
         `and(sender_id.eq.${actor.id},receiver_id.eq.${contact.id}),and(sender_id.eq.${contact.id},receiver_id.eq.${actor.id})`
       )
@@ -188,7 +188,7 @@ export async function POST(request: NextRequest) {
       attachment_type: attachmentType ?? null,
       is_read: false,
     })
-    .select("id, sender_id, receiver_id, content, attachment_url, attachment_type, is_read, created_at")
+    .select("id, sender_id, receiver_id, content, attachment_url, attachment_type, is_read, sent_at, delivered_at, read_at, created_at")
     .single();
 
   if (error) {
@@ -219,7 +219,11 @@ export async function PATCH(request: NextRequest) {
   }
   const { data, error } = await context.supabase
     .from("messages")
-    .update({ is_read: true })
+    .update({
+      is_read: true,
+      delivered_at: new Date().toISOString(),
+      read_at: new Date().toISOString(),
+    })
     .eq("sender_id", receiverId)
     .eq("receiver_id", context.actor.id)
     .eq("is_read", false)

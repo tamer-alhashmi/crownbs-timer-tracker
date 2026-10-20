@@ -2,6 +2,7 @@
 
 import { ArrowLeft, MessageCircle, Minus, X } from "lucide-react";
 import { useEffect, useId, useRef } from "react";
+import { Capacitor } from "@capacitor/core";
 import type { AppUserSession } from "@/lib/auth";
 import type { ChatContact } from "@/lib/chat/types";
 import { roleLabel } from "@/lib/chat/types";
@@ -10,7 +11,7 @@ import { ContactList } from "./ContactList";
 import { ConversationView } from "./ConversationView";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 
-export function ChatWidget({ user, profile }: { user: AppUserSession; profile: { name: string; avatarUrl: string | null } }) {
+export function ChatWidget({ user, profile }: { user: AppUserSession; profile: { name: string; avatarUrl: string | null; role: AppUserSession["role"] } }) {
   const widgetId = useId().replaceAll(":", "");
   const isChatOpen = useChatStore((state) => state.isChatOpen);
   const activeContact = useChatStore((state) => state.activeContact);
@@ -27,6 +28,13 @@ export function ChatWidget({ user, profile }: { user: AppUserSession; profile: {
   }, [activeContact]);
 
   useEffect(() => {
+    if (Capacitor.isNativePlatform()) {
+      historyDepth.current = 0;
+      previousOpen.current = isChatOpen;
+      previousContactId.current = activeContact?.id ?? null;
+      return;
+    }
+
     const updateChatEntry = (layer: "contacts" | "conversation", replace = false) => {
       const currentState =
         window.history.state && typeof window.history.state === "object"
@@ -60,6 +68,8 @@ export function ChatWidget({ user, profile }: { user: AppUserSession; profile: {
   }, [activeContact, isChatOpen, widgetId]);
 
   useEffect(() => {
+    if (Capacitor.isNativePlatform()) return;
+
     const handlePopState = (event: PopStateEvent) => {
       const state = event.state as Record<string, unknown> | null;
       const isOurEntry = state?.chatWidgetId === widgetId;
@@ -99,7 +109,7 @@ export function ChatWidget({ user, profile }: { user: AppUserSession; profile: {
   }, [closeChat, isChatOpen, openChat, setActiveContact, widgetId]);
 
   const closeWithHistory = () => {
-    if (historyDepth.current > 0) {
+    if (!Capacitor.isNativePlatform() && historyDepth.current > 0) {
       window.history.go(-historyDepth.current);
       return;
     }
@@ -120,6 +130,7 @@ export function ChatWidget({ user, profile }: { user: AppUserSession; profile: {
   return (
     <section
       aria-label="Chat"
+      data-back-button-overlay="true"
       className="chat-panel fixed inset-0 z-[60] flex h-[100dvh] flex-col overflow-hidden bg-white shadow-2xl sm:inset-auto sm:bottom-6 sm:right-6 sm:h-[min(680px,calc(100dvh-3rem))] sm:w-[400px] sm:rounded-3xl sm:border sm:border-slate-200"
     >
       <header className="flex min-h-[76px] shrink-0 items-center justify-between gap-3 bg-[#075e54] px-4 text-white">
@@ -135,7 +146,7 @@ export function ChatWidget({ user, profile }: { user: AppUserSession; profile: {
             </button>
           )}
           {activeContact ? (
-            <UserAvatar name={activeContact.full_name} avatarUrl={activeContact.avatar_url} className="h-11 w-11 bg-white/15 text-base font-semibold text-white ring-1 ring-white/20" />
+            <UserAvatar name={activeContact.full_name} avatarUrl={activeContact.avatar_url} role={activeContact.role} className="h-11 w-11 bg-white/15 text-base font-semibold text-white ring-1 ring-white/20" />
           ) : (
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/15 text-base font-semibold text-white ring-1 ring-white/20">
               <MessageCircle aria-hidden="true" className="h-5 w-5" />
@@ -177,7 +188,7 @@ export function ChatWidget({ user, profile }: { user: AppUserSession; profile: {
         </div>
       </header>
       {activeContact ? (
-        <ConversationView userId={user.userId} userName={profile.name} userAvatarUrl={profile.avatarUrl} contact={activeContact} />
+        <ConversationView userId={user.userId} userRole={user.role} userName={profile.name} userAvatarUrl={profile.avatarUrl} contact={activeContact} />
       ) : (
         <ContactList />
       )}
