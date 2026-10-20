@@ -7,6 +7,7 @@ import { fetchContacts } from "./chatApi";
 import { useChatStore } from "./chatStore";
 import { roleLabel } from "@/lib/chat/types";
 import { UserAvatar } from "@/components/shared/UserAvatar";
+import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
 
 export function ContactList() {
   const [search, setSearch] = useState("");
@@ -57,7 +58,7 @@ export function ContactList() {
                 <span                 className="block truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
                   {contact.full_name}
                 </span>
-                <span className="block truncate text-xs text-slate-600 dark:text-slate-300">{contact.email}</span>
+                <span className="flex items-center gap-2 truncate text-xs text-slate-600 dark:text-slate-300"><span className="truncate">{contact.email}</span><LiveStatusIndicator isClockedIn={contact.is_clocked_in ?? false} showLabel={false} /></span>
               </span>
               <span className="flex shrink-0 flex-col items-end gap-1">
                 {contact.unread_count ? (

@@ -1,78 +1,90 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Crown Time Tracker & Operations Suite
+### Next-Generation Multi-Tenant Workforce Management, Realtime Task Dispatch & Hospitality Operations
 
-## Global chat
+---
 
-The global floating chat and notification bell are mounted from the root layout. Chat API routes enforce contact permissions using the live `users.role` value; all message and private attachment reads/writes go through those routes. Set `SUPABASE_SERVICE_ROLE_KEY` (already used by trusted server operations) and optionally `CHAT_SESSION_SECRET` to a high-entropy secret dedicated to signing chat session proofs. Users must sign in again after deployment to receive the proof cookie. Do not expose either secret to the browser.
+## Executive Overview
+**Crown Operations Suite** is an enterprise-grade SaaS and mobile operations platform built for hospitality, facility management, and multi-property enterprises. It seamlessly bridges executive management, property owners, on-site supervisors, and field teams into one unified, real-time command center.
 
-Apply `supabase/migrations/20261001_chat_system.sql` to create the `public.messages` table and private `chat_attachments` bucket. The migration also enables RLS, adds chat query indexes, and enables Realtime publication for `messages`. Chat attachments are limited to 12 MB and images, PDFs, and Word documents. The API stores attachment object paths in `messages.attachment_url` and authorizes each signed download against its conversation.
+From automated shift logging and room cleaning tracking to granular piece-rate/hourly payroll calculations and isolated team communication, the platform eliminates operational blind spots, ensures accountability, and maximizes labor margins.
 
-## Admin property setup
+---
 
-Apply `supabase/migrations/20261001_property_setup.sql` to ensure properties have generated UUIDs, creation timestamps, owner/manager assignments, locations, and active status. Administrators can manage properties and services from the dashboard's **Property & services** section.
+## Key Business Capabilities & Features
 
-## Payroll task management
+### 1. Multi-Tenant Enterprise Architecture & Five-Tier Role Hierarchy
+The platform enforces strict, role-scoped data isolation across all organizational levels:
+* **Super Admin**: Complete portfolio oversight, system-wide analytics, comprehensive audit logging, and global operational governance.
+* **Property Owner**: Multi-property asset control, customized service catalog configurations, room pricing models, executive financials, and staff assignments.
+* **Property Manager**: Day-to-day property orchestration, shift approvals, emergency managerial overrides, and real-time cleaner attendance tracking.
+* **Housekeeping Admin (HK Admin)**: On-the-ground operational supervision, inspection verification, quality control, and rapid room task dispatching.
+* **Field Cleaners & Staff**: Intuitive, high-speed mobile interface for clocking in/out, picking up tasks, tracking room completions, and reviewing verified earnings.
 
-Apply `supabase/migrations/20261002_payroll_task_management.sql` before deploying payroll task editing. It adds per-work-log cost overrides and audited soft deletion; deleted tasks are excluded from payroll totals while their records remain available for audit. Work-log changes are broadcast through Supabase Realtime to refresh open dashboards.
+---
 
-## Management interventions and service controls
+### 2. Live Task Dispatch & Concurrency Control
+Turn task delegation from a reactive headache into an automated, proactive workflow:
+* **Instant Hierarchical Task Dispatch**: Owners, Managers, and HK Admins can assign tasks down the organizational ladder directly from the **Overview Hero Card**.
+* **Dynamic Property-Aware Context**: The assignment interface dynamically adapts depending on the selected service type—instantly prompting for room numbers, named sections, shift durations, or maintenance photo attachments.
+* **Single Active Task Guard**: Proprietary concurrency locking prevents staff from juggling or leaving simultaneous incomplete tasks. Starting a new task strictly requires completing or formalizing the active one.
+* **Realtime In-App Notification Bell**: Instant alerts dispatch directly to the assignee's mobile and desktop trays with 1-click execution (`Start Task`). Assigners receive instant live progress timestamps when work begins.
 
-Apply `supabase/migrations/20261003_management_interventions.sql` to enable audited shift clock-outs and active-task completion/cancellation, add the management override audit log, and publish shift changes through Supabase Realtime. Manager and Owner service controls use the existing `services_config` role policy and the `settings` feature permissions; management overrides and payroll task edits are scoped to assigned properties.
+---
 
-## Getting Started
+### 3. Comprehensive Property, Named Floors & Room Setup
+Manage complex physical real estate with unmatched granularity:
+* **Automated GPS & Geolocation Pinning**: Onboard new hotels or facilities instantly using one-click GPS location detection and automated reverse-geocoding.
+* **Named Floors & Architectural Sections**: Define custom floor plans (e.g., *Ground Floor*, *Mezzanine*, *Executive Wing*, *Annex B*) rather than generic numeric counters.
+* **Pre-Save Batch Room Configuration**:
+  * Define room numbers, room categories (Standard, Deluxe, Executive Suite, Studio), and occupancy thresholds (Adults / Children capacity).
+  * Configure bed distributions, custom amenity checklists, room operational statuses (Clean, In-Progress, Maintenance Required), and high-resolution photo galleries.
+  * Rapid Room Batch Generator to deploy entire room inventories in seconds.
 
-First, run the development server:
+---
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+### 4. Custom Service Catalogs & Granular Multi-Property Payroll
+Replace manual spreadsheets with automated, audit-proof operational accounting:
+* **Hybrid Billing Modes**: Full flexibility to charge and pay staff via:
+  * **Per-Room / Piece-Rate Billing** (e.g., £8.50 per cleaned room).
+  * **Hourly Shifts** (e.g., £15.00/hour for deep cleaning or night shifts).
+  * **Fixed-Rate Delivery / Maintenance Tasks**.
+* **Many-to-Many Property Assignments**: Assign staff and managers across multiple properties simultaneously. 
+* **Per-Property Payroll Allocation**: Shift hours and completed room allowances are strictly tagged by property ID, delivering transparent earnings breakdowns per facility with zero cross-tenant contamination.
+* **Audited Management Overrides & Soft Deletion**: Management retains complete authority to adjust shift hours or soft-delete erroneous work logs without compromising underlying audit compliance.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 5. Secure, Tenant-Isolated Team Chat & Realtime Audio
+A fully integrated, enterprise-grade communication system embedded directly into the workflow:
+* **Operational Circle Isolation**: Users only see contacts relevant to their physical facilities and managerial tier—eliminating communication leaks between competing properties or unauthorized roles.
+* **Universal Admin Support Channel**: Super Admins maintain global support reachability for cross-portfolio assistance.
+* **Three-Tier Delivery & Read Receipts**: Visual feedback mirroring global messaging standards (Single Check = Sent; Double Gray = Delivered; Double Blue = Read).
+* **Rich Media & Profile Avatars**: Send photo attachments, documents, and inspection images directly within the conversation thread.
+* **Auditory & Haptic Feedback**: Synthesized, customizable sound chimes for incoming messages and urgent task notifications, with quick profile-level toggle controls.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+### 6. Unified Settings Hub
+Consolidated, clean, and centralized settings management:
+* **Profile & Identity**: Update contact credentials, phone numbers, language preferences, and personal avatar photos.
+* **Workforce Directory**: Add, modify, or unlink team members across all 5 operational roles with quick 4-digit PIN generation.
+* **Property & Facility Portfolio**: Manage hotels, named floor tiers, and custom service rates in one unified tabbed view.
 
-To learn more about Next.js, take a look at the following resources:
+---
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 7. Native Mobile Experience (Android & Tablet Ready)
+* **Progressive Native Shell**: Engineered with native hardware bridge support for Android devices.
+* **Native Hardware Back Navigation**: Intelligent back-button interceptor that prioritizes closing open dialogs and chat drawers first, prompts before discarding unsaved form edits, and features a double-tap safe exit—strictly preventing accidental logouts.
+* **Elevated Cleaner Workspace**: High-visibility active task banner pinned directly to the top of the mobile dashboard for immediate operational focus.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+## Enterprise Technology Foundation
+* **Frontend Architecture**: Next.js App Router, Tailwind CSS, Shadcn UI / Radix primitives.
+* **Backend & Scalability**: Supabase Postgres with Row Level Security (RLS), custom RPC guards, and high-frequency WebSocket Realtime engines.
+* **Mobile Runtime**: Capacitor Native Wrapper (`com.crownbs.timetracker`).
+* **Security & Compliance**: Zero-trust multi-tenant isolation, tamper-proof session tokens, and encrypted private asset storage buckets.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-
-## Android app
-
-The Android application uses Capacitor to load the Next.js deployment at `https://crownbs.vercel.app`. It requires network access for Next.js server rendering, Supabase, chat, and live updates. The bundled `capacitor-web` page is only a placeholder; offline application features are not implemented.
-
-Capacitor documents `server.url` for live-reload workflows and does not recommend it for production. This project is configured to load the hosted URL as requested, so review Google Play's minimum-functionality and WebView policies before submitting; the app also depends on that deployment being available.
-
-After changing the web app or Capacitor plugins, synchronize the native project and open it in Android Studio:
-
-```powershell
-npm install
-npx cap sync android
-npx cap open android
-```
-
-In Android Studio, select **Build > Generate Signed Bundle / APK > Android App Bundle**, create or select a release signing key, then finish the wizard. For a previously configured signing setup, the release bundle can also be built from PowerShell:
-
-```powershell
-.\android\gradlew.bat bundleRelease
-```
-
-The generated bundle is `android\app\build\outputs\bundle\release\app-release.aab`. Keep the upload keystore and its passwords private and backed up; Google Play updates must continue to use the same signing identity.
-
-The app ID is `com.crownbs.timetracker`. Before the first Play release, configure the Play Console listing, privacy policy, data safety declarations, and release signing. Photo uploads use Android's system file picker and camera capture; only the camera permission is declared, with no broad media-storage permission.
+---
+**Crown Business Solutions**  
+*Empowering Hospitality & Workforce Operations Worldwide.*

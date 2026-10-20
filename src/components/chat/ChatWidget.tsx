@@ -10,6 +10,10 @@ import { useChatStore } from "./chatStore";
 import { ContactList } from "./ContactList";
 import { ConversationView } from "./ConversationView";
 import { UserAvatar } from "@/components/shared/UserAvatar";
+import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchContacts } from "./chatApi";
+import { createClient } from "@/lib/supabase/client";
 
 export function ChatWidget({ user, profile }: { user: AppUserSession; profile: { name: string; avatarUrl: string | null; role: AppUserSession["role"] } }) {
   const widgetId = useId().replaceAll(":", "");
@@ -18,6 +22,17 @@ export function ChatWidget({ user, profile }: { user: AppUserSession; profile: {
   const closeChat = useChatStore((state) => state.closeChat);
   const openChat = useChatStore((state) => state.openChat);
   const setActiveContact = useChatStore((state) => state.setActiveContact);
+  const queryClient = useQueryClient();
+  const { data: contactsData } = useQuery({
+    queryKey: ["chat", "contacts"],
+    queryFn: fetchContacts,
+    enabled: isChatOpen,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+  });
+  const displayedContact = activeContact
+    ? contactsData?.contacts.find((contact) => contact.id === activeContact.id) ?? activeContact
+    : null;
   const historyDepth = useRef(0);
   const previousOpen = useRef(false);
   const previousContactId = useRef<string | null>(null);
@@ -26,6 +41,20 @@ export function ChatWidget({ user, profile }: { user: AppUserSession; profile: {
   useEffect(() => {
     if (activeContact) lastContactRef.current = activeContact;
   }, [activeContact]);
+
+  useEffect(() => {
+    if (!isChatOpen) return;
+    const supabase = createClient();
+    const channel = supabase
+      .channel("chat-live-presence")
+      .on("postgres_changes", { event: "*", schema: "public", table: "master_shifts" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["chat", "contacts"] });
+      })
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [isChatOpen, queryClient]);
 
   useEffect(() => {
     if (Capacitor.isNativePlatform()) {
@@ -145,8 +174,8 @@ export function ChatWidget({ user, profile }: { user: AppUserSession; profile: {
               <ArrowLeft aria-hidden="true" className="h-5 w-5" />
             </button>
           )}
-          {activeContact ? (
-            <UserAvatar name={activeContact.full_name} avatarUrl={activeContact.avatar_url} role={activeContact.role} className="h-11 w-11 bg-white/15 text-base font-semibold text-white ring-1 ring-white/20" />
+          {displayedContact ? (
+            <UserAvatar name={displayedContact.full_name} avatarUrl={displayedContact.avatar_url} role={displayedContact.role} className="h-11 w-11 bg-white/15 text-base font-semibold text-white ring-1 ring-white/20" />
           ) : (
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/15 text-base font-semibold text-white ring-1 ring-white/20">
               <MessageCircle aria-hidden="true" className="h-5 w-5" />
@@ -154,13 +183,14 @@ export function ChatWidget({ user, profile }: { user: AppUserSession; profile: {
           )}
           <span className="min-w-0">
             <span className="block truncate text-[15px] font-semibold leading-5">
-              {activeContact?.full_name ?? "Team chat"}
+              {displayedContact?.full_name ?? "Team chat"}
             </span>
-            {activeContact ? (
+            {displayedContact ? (
               <span className="mt-1 flex items-center gap-1.5">
                 <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold leading-4 text-emerald-50">
-                  {roleLabel(activeContact.role)}
+                  {roleLabel(displayedContact.role)}
                 </span>
+                <LiveStatusIndicator isClockedIn={displayedContact.is_clocked_in ?? false} showLabel={false} className={displayedContact.is_clocked_in ? "text-emerald-300" : "text-slate-300"} />
                 <span className="truncate text-[11px] text-emerald-50/90">Private conversation</span>
               </span>
             ) : (
@@ -187,8 +217,8 @@ export function ChatWidget({ user, profile }: { user: AppUserSession; profile: {
           </button>
         </div>
       </header>
-      {activeContact ? (
-        <ConversationView userId={user.userId} userRole={user.role} userName={profile.name} userAvatarUrl={profile.avatarUrl} contact={activeContact} />
+      {displayedContact ? (
+        <ConversationView userId={user.userId} userRole={user.role} userName={profile.name} userAvatarUrl={profile.avatarUrl} contact={displayedContact} />
       ) : (
         <ContactList />
       )}
