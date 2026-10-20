@@ -35,6 +35,16 @@ export async function GET(request: NextRequest) {
     const contacts = (data ?? []).filter((contact) =>
       isChatRole(contact.role) && canSeeChatContact(actor, contact.id)
     );
+    const { data: activeShifts, error: shiftsError } = await supabase
+      .from("master_shifts")
+      .select("user_id")
+      .eq("status", "active")
+      .is("end_time", null);
+    if (shiftsError) {
+      console.error("Chat active shift lookup failed:", shiftsError.message);
+      return apiError("Could not load teammate presence.", 500);
+    }
+    const activeUserIds = new Set((activeShifts ?? []).map((shift) => shift.user_id));
     const unreadCounts = await Promise.all(
       contacts.map(async (contact) => {
         const { count, error: countError } = await supabase
@@ -60,6 +70,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       contacts: contacts.map((contact) => ({
         ...contact,
+        is_clocked_in: activeUserIds.has(contact.id),
         unread_count: unreadCountBySender.get(contact.id) ?? 0,
       })),
     });

@@ -21,6 +21,7 @@ import type { ServiceRecord } from "./serviceActions";
 import { useWorkLogRealtimeRefresh } from "@/lib/useWorkLogRealtimeRefresh";
 import type { LucideIcon } from "lucide-react";
 import { DashboardPagination } from "@/components/dashboard/DashboardPagination";
+import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
 
 const DASHBOARD_TABS = [
   { id: "overview", label: "Overview", icon: Gauge },
@@ -300,6 +301,21 @@ export default function ManagementDashboardClient({ data, dispatchData }: Props)
             <Metric label="Cost per cleaned room" value={`GBP ${completedRooms ? (totalLaborCost / completedRooms).toFixed(2) : "0.00"}`} icon={CircleDollarSign} />
             <Metric label="Locked payroll liability*" value={`GBP ${lockedPayrollLiability.toFixed(2)}`} icon={Wallet} />
             <Metric label="Service costs · brief period" value={`GBP ${periodServiceCost.toFixed(2)}`} icon={CircleDollarSign} />
+          </section>
+          <section aria-label="Live staff activity" className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-semibold text-slate-900">Live staff activity</h2>
+              {data.activeShifts.length === 0 ? (
+                <span className="text-sm text-slate-500">No cleaners are currently on shift.</span>
+              ) : (
+                data.activeShifts.map((shift) => (
+                  <span key={shift.id} className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-sm">
+                    <span className="font-medium text-slate-800">{shift.cleanerName}</span>
+                    <LiveStatusIndicator isClockedIn showLabel={false} />
+                  </span>
+                ))
+              )}
+            </div>
           </section>
           <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-950">*Payroll settlement status is not stored in the current data model. This figure is the value of locked payroll records, not a verified unpaid balance.</p>
           <section className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200/70 sm:p-6">

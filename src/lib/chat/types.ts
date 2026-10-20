@@ -9,6 +9,7 @@ export type ChatContact = {
   email: string;
   role: ChatRole;
   avatar_url: string | null;
+  is_clocked_in?: boolean;
   unread_count?: number;
 };
 

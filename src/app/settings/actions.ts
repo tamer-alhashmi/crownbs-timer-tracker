@@ -15,6 +15,7 @@ export type ManagedUser = {
   avatar_url: string | null;
   pin_code: string | null;
   primary_hotel_id: string | null;
+  is_clocked_in?: boolean;
   hotelName: string;
   assignedHotels: { id: string; name: string }[];
 };
@@ -102,8 +103,12 @@ function assertHotelSlotsAvailable(role: ManagedUser["role"], hotelIds: string[]
 
 export async function getSettingsData() {
   const context = await requireSettingsAccess();
-  const { data: users, error } = await context.supabase.from("users").select("id, full_name, email, phone_number, avatar_url, role, pin_code, primary_hotel_id").order("full_name");
+  const [{ data: users, error }, { data: activeShifts, error: shiftsError }] = await Promise.all([
+    context.supabase.from("users").select("id, full_name, email, phone_number, avatar_url, role, pin_code, primary_hotel_id").order("full_name"),
+    context.supabase.from("master_shifts").select("user_id").eq("status", "active").is("end_time", null),
+  ]);
   if (error) throw new Error(error.message);
+  if (shiftsError) throw new Error(shiftsError.message);
   const { data: userHotelAssignments, error: assignmentsError } = await context.supabase
     .from("user_hotel_assignments")
     .select("user_id, hotel_id, is_primary");
@@ -116,6 +121,7 @@ export async function getSettingsData() {
     .order("name");
   if (servicesError) throw new Error(servicesError.message);
   const hotelsById = new Map(context.visibleHotels.map((hotel) => [hotel.id, hotel.name]));
+  const activeUserIds = new Set((activeShifts ?? []).map((shift) => shift.user_id));
   const managerNames = new Map((users ?? []).filter((user) => user.role === "manager").map((user) => [user.id, user.full_name]));
   const visibleUsers = (users ?? []).filter((user) => context.actor.role === "admin" || (roleAllowed(context.actor.role, user.role) && (user.primary_hotel_id !== null && hotelsById.has(user.primary_hotel_id) || context.visibleHotels.some((hotel) => user.role === "owner" ? hotel.owner_id === user.id : user.role === "manager" ? hotel.manager_id === user.id : false) || (userHotelAssignments ?? []).some((assignment) => assignment.user_id === user.id && hotelsById.has(assignment.hotel_id)))));
   return {
@@ -151,7 +157,7 @@ export async function getSettingsData() {
         (user.role === "owner" && hotel.owner_id === user.id) ||
         (user.role === "manager" && hotel.manager_id === user.id)
       ).map((hotel) => ({ id: hotel.id, name: hotel.name }));
-      return { ...user, role: user.role as ManagedUser["role"], hotelName: assignedHotels[0]?.name ?? "Unassigned", assignedHotels };
+      return { ...user, role: user.role as ManagedUser["role"], is_clocked_in: activeUserIds.has(user.id), hotelName: assignedHotels[0]?.name ?? "Unassigned", assignedHotels };
     }),
     permissions: (permissions ?? []).filter((permission) => visibleUsers.some((user) => user.id === permission.user_id)).map((permission) => ({ ...permission, feature_key: permission.feature_key as FeatureKey })),
   };
@@ -176,6 +182,29 @@ function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
+function isEmailConflict(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; message?: unknown };
+  if (candidate.code === "23505") return true;
+  if (typeof candidate.message !== "string") return false;
+  const message = candidate.message.toLowerCase();
+  return message.includes("users_email_unique") ||
+    message.includes("email") && /(unique|duplicate|already exists|already registered)/.test(message) ||
+    /already registered|already exists/.test(message);
+}
+
+async function emailAlreadyInUse(
+  supabase: ReturnType<typeof createPrivilegedServerSupabaseClient>,
+  email: string,
+  excludeUserId?: string
+) {
+  let query = supabase.from("users").select("id, email").ilike("email", email);
+  if (excludeUserId) query = query.neq("id", excludeUserId);
+  const { data, error } = await query.maybeSingle();
+  if (error) throw new Error(`Unable to verify email availability: ${error.message}`);
+  return Boolean(data);
+}
+
 export async function createManagedUser(input: UserInput): Promise<ActionResult> {
   let createdUserId: string | null = null;
   let cleanupClient: ReturnType<typeof createPrivilegedServerSupabaseClient> | null = null;
@@ -185,6 +214,9 @@ export async function createManagedUser(input: UserInput): Promise<ActionResult>
   const values = validateInput(input);
   await assertTargetScope("new", values.role, values.hotelIds, context);
   assertHotelSlotsAvailable(values.role, values.hotelIds, context);
+  if (await emailAlreadyInUse(context.supabase, values.email)) {
+    return { success: false, error: "This email address is already in use. Please enter a different email address." };
+  }
   if (values.role !== "admin" && context.actor.role !== "admin" && !values.hotelIds.length) throw new Error("Staff must be assigned to an active property.");
   const unavailableHotel = values.hotelIds.find((hotelId) => !context.visibleHotels.find((hotel) => hotel.id === hotelId)?.is_active);
   if (unavailableHotel) throw new Error("Staff must be assigned only to active properties.");
@@ -228,6 +260,9 @@ export async function createManagedUser(input: UserInput): Promise<ActionResult>
         console.error("Managed user creation cleanup failed:", profileCleanupError ?? authCleanupError);
       }
     }
+    if (isEmailConflict(error)) {
+      return { success: false, error: "An account with this email already exists." };
+    }
     console.error("Managed user creation failed:", error);
     return { success: false, error: errorMessage(error, "Unable to create user.") };
   }
@@ -249,6 +284,9 @@ export async function updateManagedUser(userId: string, input: UserInput): Promi
   await assertTargetScope(userId, currentRole, currentHotelIds, context);
   await assertTargetScope(userId, values.role, values.hotelIds, context);
   assertHotelSlotsAvailable(values.role, values.hotelIds, context, userId);
+  if (await emailAlreadyInUse(context.supabase, values.email, userId)) {
+    return { success: false, error: "This email address is already in use. Please enter a different email address." };
+  }
   if (context.actor.role !== "admin" && values.hotelIds.some((hotelId) => !context.visibleHotels.find((hotel) => hotel.id === hotelId)?.is_active)) {
     throw new Error("Staff must be assigned only to active properties.");
   }
@@ -309,6 +347,9 @@ export async function updateManagedUser(userId: string, input: UserInput): Promi
   revalidatePath("/settings");
   return { success: true };
   } catch (error) {
+    if (isEmailConflict(error)) {
+      return { success: false, error: "An account with this email already exists." };
+    }
     console.error("Managed user update failed:", error);
     return { success: false, error: errorMessage(error, "Unable to update user.") };
   }
