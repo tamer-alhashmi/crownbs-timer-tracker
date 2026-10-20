@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition, type ReactNode } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { ChevronLeft, ChevronRight, Pencil, Plus, Search, ShieldAlert, Trash2, UserRound, X } from "lucide-react";
 import { UserAvatar } from "@/components/shared/UserAvatar";
@@ -20,19 +20,21 @@ type FormState = {
   phoneNumber: string;
   role: ManagedUser["role"];
   pinCode: string;
-  hotelId: string;
+  hotelIds: string[];
+  primaryHotelId: string;
   password: string;
 };
 type UnlinkTarget = { userId: string; userName: string; hotels: { id: string; name: string }[] };
 const PAGE_SIZE = 10;
-const emptyForm: FormState = { fullName: "", email: "", phoneNumber: "", role: "cleaner", pinCode: "", hotelId: "", password: "" };
+const emptyForm: FormState = { fullName: "", email: "", phoneNumber: "", role: "cleaner", pinCode: "", hotelIds: [], primaryHotelId: "", password: "" };
 const userSchema = z.object({
   fullName: z.string().trim().min(1, "Enter a full name.").max(120),
   email: z.string().trim().email("Enter a valid email address."),
   phoneNumber: z.string().trim().max(32).refine((value) => !value || /^[+()\d\s.-]{5,32}$/.test(value), "Enter a valid phone number or leave it blank."),
   role: z.enum(USER_ROLES),
   pinCode: z.string().refine((value) => !value || /^\d{4}$/.test(value), "PIN must be exactly 4 digits."),
-  hotelId: z.string(),
+  hotelIds: z.array(z.string()),
+  primaryHotelId: z.string(),
   password: z.string().max(128),
 });
 
@@ -47,6 +49,8 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
   const [page, setPage] = useState(1);
   const [isPending, startTransition] = useTransition();
   const form = useForm<FormState>({ resolver: zodResolver(userSchema), defaultValues: emptyForm });
+  const selectedHotelIds = useWatch({ control: form.control, name: "hotelIds" });
+  const primaryHotelId = useWatch({ control: form.control, name: "primaryHotelId" });
   const roles = USER_ROLES.filter((role) =>
     actorRole === "admin" ||
     (actorRole === "owner" && ["manager", "hk_admin", "cleaner"].includes(role)) ||
@@ -62,6 +66,14 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
   const save = form.handleSubmit((values) => startTransition(async () => {
     try {
       setMessage("");
+      if (values.hotelIds.length && !values.hotelIds.includes(values.primaryHotelId)) {
+        setMessage("Choose a primary property from the assigned properties.");
+        return;
+      }
+      if (values.hotelIds.length > 1 && !values.primaryHotelId) {
+        setMessage("Choose one assigned property as the primary property.");
+        return;
+      }
       if (!editingId && !values.password.trim() && !values.pinCode) {
         setMessage("Provide a password or a 4-digit PIN.");
         return;
@@ -91,7 +103,8 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
       phoneNumber: user.phone_number ?? "",
       role: user.role,
       pinCode: user.pin_code ?? "",
-      hotelId: user.assignedHotels[0]?.id ?? user.primary_hotel_id ?? "",
+      hotelIds: user.assignedHotels.map((hotel) => hotel.id),
+      primaryHotelId: user.primary_hotel_id ?? user.assignedHotels[0]?.id ?? "",
       password: "",
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -156,7 +169,50 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
             <Field label="Email" error={form.formState.errors.email?.message}><input {...form.register("email")} type="email" placeholder="Email" autoComplete="email" className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" /></Field>
             <Field label="Phone number" error={form.formState.errors.phoneNumber?.message}><input {...form.register("phoneNumber")} type="tel" placeholder="Phone number" autoComplete="tel" className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" /></Field>
             <Field label="Role" error={form.formState.errors.role?.message}><select {...form.register("role")} className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900">{roles.map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}</select></Field>
-            <Field label="Property assignment" error={form.formState.errors.hotelId?.message}><select {...form.register("hotelId")} className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900"><option value="">{actorRole === "admin" ? "Unassigned hotel" : "Select a hotel"}</option>{hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select></Field>
+            <fieldset className="rounded-xl border border-slate-200 p-3 sm:col-span-2 lg:col-span-3">
+              <legend className="px-1 text-sm font-medium text-slate-700">Property assignments</legend>
+              <p className="mb-2 text-xs text-slate-500">Select every property this person can work at, then choose one primary property.</p>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {hotels.map((hotel) => {
+                  const assigned = selectedHotelIds.includes(hotel.id);
+                  return (
+                    <div key={hotel.id} className={`flex items-center gap-3 rounded-xl border px-3 py-2 ${assigned ? "border-sky-200 bg-sky-50" : "border-slate-200 bg-white"}`}>
+                      <input
+                        id={`assign-${hotel.id}`}
+                        type="checkbox"
+                        checked={assigned}
+                        onChange={(event) => {
+                          const current = form.getValues("hotelIds");
+                          const next = event.target.checked
+                            ? [...current, hotel.id]
+                            : current.filter((id) => id !== hotel.id);
+                          form.setValue("hotelIds", next, { shouldDirty: true, shouldValidate: true });
+                          if (event.target.checked && (!form.getValues("primaryHotelId") || next.length === 1)) {
+                            form.setValue("primaryHotelId", hotel.id, { shouldDirty: true, shouldValidate: true });
+                          } else if (!event.target.checked && form.getValues("primaryHotelId") === hotel.id) {
+                            form.setValue("primaryHotelId", next[0] ?? "", { shouldDirty: true, shouldValidate: true });
+                          }
+                        }}
+                        className="h-4 w-4 rounded border-slate-300 text-sky-700 focus:ring-sky-600"
+                      />
+                      <label htmlFor={`assign-${hotel.id}`} className="min-w-0 flex-1 truncate text-sm text-slate-800">{hotel.name}</label>
+                      {assigned && (
+                        <label className="flex shrink-0 items-center gap-1 text-xs font-medium text-sky-800">
+                          <input
+                            type="radio"
+                            name="primaryHotel"
+                            checked={primaryHotelId === hotel.id}
+                            onChange={() => form.setValue("primaryHotelId", hotel.id, { shouldDirty: true, shouldValidate: true })}
+                            aria-label={`${hotel.name} is primary property`}
+                          />
+                          Primary
+                        </label>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </fieldset>
             <Field label="4-digit PIN" error={form.formState.errors.pinCode?.message}><input {...form.register("pinCode")} inputMode="numeric" maxLength={4} placeholder="PIN" className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" /></Field>
             <Field label="Password" error={form.formState.errors.password?.message}><input {...form.register("password")} type="password" placeholder={editingId ? "New password (optional)" : "Password (optional with PIN)"} autoComplete="new-password" className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 sm:col-span-2 lg:col-span-1" /></Field>
           </div>

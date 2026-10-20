@@ -71,81 +71,46 @@ export async function getChatActor() {
     return { response: apiError("Could not verify your chat scope.", 500) } as const;
   }
   const assignments = allHotelAssignments ?? [];
-  let hkAdminHotelIds: string[] = [];
-  if (profile.role === "hk_admin") {
-    const { data: assignments, error: assignmentsError } = await supabase
-      .from("user_hotel_assignments")
-      .select("hotel_id")
-      .eq("user_id", profile.id);
-    if (assignmentsError) {
-      console.error("Housekeeping hotel assignment lookup failed:", assignmentsError.message);
-      return { response: apiError("Could not verify your chat scope.", 500) } as const;
-    }
-    hkAdminHotelIds = (assignments ?? []).map((assignment) => assignment.hotel_id);
+  const actorHotelIds = new Set(
+    assignments.filter((assignment) => assignment.user_id === profile.id).map((assignment) => assignment.hotel_id)
+  );
+  if (profile.primary_hotel_id) actorHotelIds.add(profile.primary_hotel_id);
+  if (profile.role === "owner" || profile.role === "manager") {
+    (hotels ?? []).filter((hotel) =>
+      hotel.is_active && (profile.role === "owner" ? hotel.owner_id === profile.id : hotel.manager_id === profile.id)
+    ).forEach((hotel) => actorHotelIds.add(hotel.id));
   }
-  const hotelsForActor = profile.role === "owner"
-    ? (hotels ?? []).filter((hotel) => hotel.is_active && hotel.owner_id === profile.id)
-    : profile.role === "manager"
-      ? (hotels ?? []).filter((hotel) => hotel.is_active && hotel.manager_id === profile.id)
-      : profile.role === "hk_admin"
-        ? (hotels ?? []).filter((hotel) => hotel.is_active && (hotel.id === profile.primary_hotel_id || hkAdminHotelIds.includes(hotel.id)))
-        : profile.role === "cleaner"
-          ? (hotels ?? []).filter((hotel) => hotel.is_active && hotel.id === profile.primary_hotel_id)
-          : [];
-  const hotelIds = new Set(hotelsForActor.map((hotel) => hotel.id));
+
   const visibleIds = new Set<string>();
   if (profile.role === "admin") {
     (users ?? []).forEach((candidate) => visibleIds.add(candidate.id));
-  } else if (profile.role === "owner") {
-    hotelsForActor.forEach((hotel) => {
-      if (hotel.manager_id) visibleIds.add(hotel.manager_id);
-    });
-    (users ?? []).filter((candidate) =>
-      (candidate.role === "hk_admin" || candidate.role === "cleaner") &&
-      (
-        (candidate.primary_hotel_id !== null && hotelIds.has(candidate.primary_hotel_id)) ||
-        (candidate.role === "hk_admin" && assignments.some((assignment) =>
-          assignment.user_id === candidate.id && hotelIds.has(assignment.hotel_id)
-        ))
-      )
-    ).forEach((candidate) => visibleIds.add(candidate.id));
-  } else if (profile.role === "manager") {
-    hotelsForActor.forEach((hotel) => {
+  } else {
+    const hotelIds = actorHotelIds;
+    (users ?? []).filter((candidate) => candidate.role === "admin").forEach((candidate) => visibleIds.add(candidate.id));
+    (hotels ?? []).filter((hotel) => hotel.is_active && hotelIds.has(hotel.id)).forEach((hotel) => {
       if (hotel.owner_id) visibleIds.add(hotel.owner_id);
       if (hotel.manager_id) visibleIds.add(hotel.manager_id);
     });
-    (users ?? []).filter((candidate) =>
-      (candidate.role === "manager" || candidate.role === "hk_admin" || candidate.role === "cleaner") &&
-      (
-        (candidate.primary_hotel_id !== null && hotelIds.has(candidate.primary_hotel_id)) ||
-        (candidate.role === "hk_admin" && assignments.some((assignment) =>
-          assignment.user_id === candidate.id && hotelIds.has(assignment.hotel_id)
-        ))
-      )
-    ).forEach((candidate) => visibleIds.add(candidate.id));
-  } else if (profile.role === "hk_admin") {
-    hotelsForActor.forEach((hotel) => {
-      if (hotel.owner_id) visibleIds.add(hotel.owner_id);
-      if (hotel.manager_id) visibleIds.add(hotel.manager_id);
+    (users ?? []).filter((candidate) => {
+      if (candidate.id === profile.id || !isChatRole(candidate.role)) return false;
+      const candidateHotelIds = new Set(
+        assignments.filter((assignment) => assignment.user_id === candidate.id).map((assignment) => assignment.hotel_id)
+      );
+      if (candidate.primary_hotel_id) candidateHotelIds.add(candidate.primary_hotel_id);
+      return [...candidateHotelIds].some((hotelId) => hotelIds.has(hotelId));
+    }).forEach((candidate) => visibleIds.add(candidate.id));
+
+    const { data: existingThreads, error: threadsError } = await supabase
+      .from("messages")
+      .select("sender_id, receiver_id")
+      .or(`sender_id.eq.${profile.id},receiver_id.eq.${profile.id}`);
+    if (threadsError) {
+      console.error("Chat thread visibility lookup failed:", threadsError.message);
+      return { response: apiError("Could not verify your chat contacts.", 500) } as const;
+    }
+    (existingThreads ?? []).forEach((message) => {
+      visibleIds.add(message.sender_id === profile.id ? message.receiver_id : message.sender_id);
     });
-    (users ?? []).filter((candidate) =>
-      candidate.role === "cleaner" &&
-      candidate.primary_hotel_id !== null &&
-      hotelIds.has(candidate.primary_hotel_id)
-    ).forEach((candidate) => visibleIds.add(candidate.id));
-  } else if (profile.role === "cleaner") {
-    hotelsForActor.forEach((hotel) => {
-      if (hotel.manager_id) visibleIds.add(hotel.manager_id);
-    });
-    (users ?? []).filter((candidate) =>
-      candidate.role === "hk_admin" &&
-      (
-        (candidate.primary_hotel_id !== null && hotelIds.has(candidate.primary_hotel_id)) ||
-        assignments.some((assignment) =>
-          assignment.user_id === candidate.id && hotelIds.has(assignment.hotel_id)
-        )
-      )
-    ).forEach((candidate) => visibleIds.add(candidate.id));
   }
   visibleIds.delete(profile.id);
 
