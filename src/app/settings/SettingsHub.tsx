@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Building2, Gauge, ShieldCheck, UserRound } from "lucide-react";
 import type { UserRole } from "@/lib/roles";
 
@@ -32,6 +32,10 @@ export default function SettingsHub({ role, utility, overview, profile, users, p
   const [activeTab, setActiveTab] = useState<Tab>(() =>
     ["owner", "manager"].includes(role) ? "overview" : "profile"
   );
+  useEffect(() => {
+    const requestedTab = new URLSearchParams(window.location.search).get("tab");
+    if (requestedTab && visibleTabs.some((tab) => tab.id === requestedTab)) setActiveTab(requestedTab as Tab);
+  }, [role]);
   const content: Record<Tab, ReactNode> = { overview, profile, users, properties };
 
   return (

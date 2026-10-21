@@ -6,6 +6,7 @@ import { SignOutButton } from "./SignOutButton";
 import { NotificationBell } from "@/components/chat/NotificationBell";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 import { isUserRole } from "@/lib/roles";
+import { HelpCenterButton } from "@/components/help/HelpCenterDrawer";
 
 type Props = { name: string; email: string; role: string; settingsHref: string; avatarUrl?: string | null };
 
@@ -49,6 +50,7 @@ export function UserProfileMenu({ name, email, role, settingsHref, avatarUrl }: 
 
   return <div ref={containerRef} className="relative z-50 flex items-center gap-2 overflow-visible">
     <NotificationBell />
+    {avatarRole && <HelpCenterButton role={avatarRole} />}
     <button type="button" onClick={toggleMenu} aria-expanded={open} aria-haspopup="menu" className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50">
       <UserAvatar name={name} avatarUrl={avatarUrl} role={avatarRole} className="h-8 w-8 bg-sky-100 text-sm text-sky-800" />
       <span className="hidden max-w-32 truncate sm:block">{name}</span>
