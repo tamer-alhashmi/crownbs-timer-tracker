@@ -6,9 +6,10 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { ClipboardCheck, Clock3, Plus, X } from "lucide-react";
-import { dispatchTask } from "./taskActions";
+import { dispatchTask, type getTaskDispatchData } from "./taskActions";
 import type { UserRole } from "@/lib/roles";
 import { useWorkLogRealtimeRefresh } from "@/lib/useWorkLogRealtimeRefresh";
+import { TaskManagementDialog } from "./TaskManagementDialog";
 
 type Service = {
   id: string;
@@ -25,6 +26,7 @@ type Props = {
   users: { id: string; full_name: string; role: UserRole; assignedHotels: { id: string; name: string }[] }[];
   services: Service[];
   rooms: { id: string; hotel_id: string; room_name: string; category: string; floor_section: string | null }[];
+  tasks: Awaited<ReturnType<typeof getTaskDispatchData>>["tasks"];
   stats: { pending: number; active: number; completedToday: number };
 };
 
@@ -72,9 +74,10 @@ const priorities = [
   { value: "urgent", label: "Urgent / Critical", classes: "border-red-200 bg-red-50 text-red-800" },
 ] as const;
 
-export function TaskDispatchClient({ role, hotels, users, services, rooms, stats }: Props) {
+export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks, stats }: Props) {
   useWorkLogRealtimeRefresh();
   const [isOpen, setIsOpen] = useState(false);
+  const [taskListStatus, setTaskListStatus] = useState<"assigned" | "active" | "completed" | null>(null);
   const [notice, setNotice] = useState("");
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoError, setPhotoError] = useState("");
@@ -106,6 +109,15 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, stats
   const hourly = selectedService?.unit === "hourly" || /shift|deep clean/i.test(selectedService?.name ?? "");
   const maintenance = selectedService?.unit === "fixed" || /maintenance|repair/i.test(selectedService?.name ?? "");
   const errors = form.formState.errors;
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("dispatch") === "1") {
+      setIsOpen(true);
+      url.searchParams.delete("dispatch");
+      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    }
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -195,9 +207,9 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, stats
           <p className="mt-1 text-sm text-slate-600">Assign hotel work directly to the right person. New tasks stay pending until started.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Stat label="Pending" value={stats.pending} tone="amber" />
-          <Stat label="Active" value={stats.active} tone="blue" />
-          <Stat label="Completed today" value={stats.completedToday} tone="emerald" />
+          <Stat label="Pending" value={stats.pending} tone="amber" onClick={() => setTaskListStatus("assigned")} />
+          <Stat label="Active" value={stats.active} tone="blue" onClick={() => setTaskListStatus("active")} />
+          <Stat label="Completed today" value={stats.completedToday} tone="emerald" onClick={() => setTaskListStatus("completed")} />
           <button type="button" onClick={() => { setNotice(""); setIsOpen(true); }} disabled={!hotels.length} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50">
             <Plus className="h-4 w-4" /> Assign Task
           </button>
@@ -282,6 +294,13 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, stats
           </section>
         </div>
       )}
+      {taskListStatus && <TaskManagementDialog
+        status={taskListStatus}
+        tasks={tasks.filter((task) => task.status === taskListStatus)}
+        users={users}
+        rooms={rooms}
+        onClose={() => setTaskListStatus(null)}
+      />}
     </section>
   );
 }
@@ -290,7 +309,7 @@ function Field({ label, error, children }: { label: string; error?: string; chil
   return <label className="block text-sm font-medium text-slate-700">{label}{children}<span className="sr-only">{error}</span>{error && <span role="alert" className="mt-1 block text-xs text-rose-700">{error}</span>}</label>;
 }
 
-function Stat({ label, value, tone }: { label: string; value: number; tone: "amber" | "blue" | "emerald" }) {
+function Stat({ label, value, tone, onClick }: { label: string; value: number; tone: "amber" | "blue" | "emerald"; onClick: () => void }) {
   const colors = { amber: "bg-amber-50 text-amber-900 ring-amber-200", blue: "bg-blue-50 text-blue-900 ring-blue-200", emerald: "bg-emerald-50 text-emerald-900 ring-emerald-200" };
-  return <div className={`min-w-24 rounded-xl px-3 py-2 text-center ring-1 ${colors[tone]}`}><p className="text-lg font-bold leading-5">{value}</p><p className="mt-1 whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide">{label}</p></div>;
+  return <button type="button" onClick={onClick} aria-label={`Open ${label} tasks`} className={`min-w-24 cursor-pointer rounded-xl px-3 py-2 text-center ring-1 transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-700 ${colors[tone]}`}><p className="text-lg font-bold leading-5">{value}</p><p className="mt-1 whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide">{label}</p></button>;
 }

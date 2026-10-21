@@ -8,6 +8,7 @@ import { Activity, Building2, CheckCheck, ClipboardList, Gauge, Images, Settings
 import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
 import { NotificationBell } from "@/components/chat/NotificationBell";
 import { ActiveAssignedTaskCard } from "@/components/dashboard/ActiveAssignedTaskCard";
+import { HelpCenterButton } from "@/components/help/HelpCenterDrawer";
 import { TaskDispatchClient } from "@/app/settings/TaskDispatchClient";
 import type { getTaskDispatchData } from "@/app/settings/taskActions";
 import { useWorkLogRealtimeRefresh } from "@/lib/useWorkLogRealtimeRefresh";
@@ -75,6 +76,11 @@ export default function HKAdminDashboardClient({
   const [reason, setReason] = useState("");
 
   useEffect(() => {
+    const requestedTab = new URLSearchParams(window.location.search).get("tab");
+    if (requestedTab && TABS.some((tab) => tab.id === requestedTab)) setActiveTab(requestedTab as DashboardTab);
+  }, []);
+
+  useEffect(() => {
     const initial = window.setTimeout(() => setNow(Date.now()), 0);
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => {
@@ -125,6 +131,7 @@ export default function HKAdminDashboardClient({
           </div>
           <div className="flex items-center gap-2">
             <NotificationBell />
+            <HelpCenterButton role="hk_admin" />
             <Link href="/settings" className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
               <Settings className="h-4 w-4" /> <span className="hidden sm:inline">Profile & Settings</span>
             </Link>
