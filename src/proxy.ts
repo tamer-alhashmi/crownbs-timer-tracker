@@ -3,6 +3,14 @@ import { NextRequest, NextResponse } from "next/server";
 const protectedRoutes = ["/admin", "/dashboard", "/manager", "/owner", "/hk-admin", "/settings"];
 const supportedRoles = ["admin", "owner", "manager", "hk_admin", "cleaner"];
 
+function dashboardForRole(role: string) {
+	if (role === "cleaner") return "/dashboard";
+	if (role === "manager") return "/manager";
+	if (role === "owner") return "/owner";
+	if (role === "hk_admin") return "/hk-admin";
+	return "/admin";
+}
+
 export function proxy(request: NextRequest) {
 	const pathname = request.nextUrl.pathname;
 	const isProtectedRoute = protectedRoutes.some(
@@ -24,23 +32,23 @@ export function proxy(request: NextRequest) {
 	}
 
 	if (pathname.startsWith("/dashboard") && role !== "cleaner") {
-		return NextResponse.redirect(new URL("/admin", request.url));
+		return NextResponse.redirect(new URL(dashboardForRole(role), request.url));
 	}
 
 	if (pathname.startsWith("/admin") && !["admin", "owner", "manager"].includes(role)) {
-		return NextResponse.redirect(new URL("/dashboard", request.url));
+		return NextResponse.redirect(new URL(dashboardForRole(role), request.url));
 	}
 
 	if (pathname.startsWith("/manager") && !["admin", "manager"].includes(role)) {
-		return NextResponse.redirect(new URL("/admin", request.url));
+		return NextResponse.redirect(new URL(dashboardForRole(role), request.url));
 	}
 
 	if (pathname.startsWith("/owner") && !["admin", "owner"].includes(role)) {
-		return NextResponse.redirect(new URL("/admin", request.url));
+		return NextResponse.redirect(new URL(dashboardForRole(role), request.url));
 	}
 
 	if (pathname.startsWith("/hk-admin") && role !== "hk_admin") {
-		return NextResponse.redirect(new URL("/settings", request.url));
+		return NextResponse.redirect(new URL(dashboardForRole(role), request.url));
 	}
 
 	if (pathname.startsWith("/settings") && !supportedRoles.includes(role)) {

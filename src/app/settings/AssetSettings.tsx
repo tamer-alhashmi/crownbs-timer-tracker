@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useTransition, type ReactNode } from "react";
+import { useEffect, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Building2, ChevronDown, Pencil, Plus, Trash2 } from "lucide-react";
+import { Building2, ChevronDown, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import {
   archiveOwnedProperty,
   archiveServiceConfiguration,
@@ -14,6 +14,14 @@ import {
   updateOwnedProperty,
   updateServiceConfiguration,
 } from "./actions";
+import {
+  archivePropertyRoom,
+  createPropertyRoom,
+  createPropertyRoomBatch,
+  listPropertyRooms,
+  updatePropertyRoom,
+  type ManagedRoom,
+} from "./roomActions";
 
 type Service = {
   id: string;
@@ -83,7 +91,7 @@ export function PropertySettings({ properties, managers }: { properties: Propert
     const input = { name: values.name, location: values.location, roomCount: Number(values.roomCount), floorCount: Number(values.floorCount), managerId: values.managerId || null };
     const result = editing ? await updateOwnedProperty(editing.id, input) : await createOwnedProperty(input);
     if (!result.success) {
-      setMessage(result.error);
+      setMessage(result.error ?? "Unable to save this room.");
       return;
     }
     setMessage(editing ? "Property details saved." : "Property created.");
@@ -132,11 +140,274 @@ export function PropertySettings({ properties, managers }: { properties: Propert
               <div className="flex items-start gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-sky-50 text-sky-800"><Building2 className="h-5 w-5" /></span><div><h3 className="font-bold text-slate-950">{property.name}{!property.isActive && <span className="ml-2 rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-500">Archived</span>}</h3><p className="mt-1 text-sm text-slate-600">{property.location}</p><p className="mt-1 text-xs text-slate-500">{property.roomCount} rooms · {property.floorCount} floors/sections · {property.managerName ?? "No manager assigned"}</p></div></div>
               <div className="flex gap-2"><button type="button" onClick={() => beginEdit(property)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-semibold"><Pencil className="h-4 w-4" /> Edit</button>{property.isActive && <button type="button" onClick={() => archive(property)} disabled={isPending} className="min-h-10 rounded-lg border border-amber-200 px-3 text-sm font-semibold text-amber-800">Archive</button>}</div>
             </div>
+            <PropertyRoomManager property={property} />
             <PropertyServiceCatalog property={property} />
           </li>
         )) : <li className="rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-10 text-center text-sm text-slate-500">No properties have been created yet. Add a property to configure its services and rates.</li>}
       </ul>
     </section>
+  );
+}
+
+type RoomEditorValues = {
+  roomName: string;
+  floorSection: string;
+  category: string;
+  maxCapacity: number;
+  adultsCapacity: number;
+  childrenCapacity: number;
+  bedroomCount: number;
+  bedConfiguration: string;
+  amenities: string[];
+  housekeepingStatus: ManagedRoom["housekeeping_status"];
+  availabilityStatus: ManagedRoom["availability_status"];
+};
+
+const emptyRoom: RoomEditorValues = {
+  roomName: "",
+  floorSection: "",
+  category: "Standard",
+  maxCapacity: 2,
+  adultsCapacity: 2,
+  childrenCapacity: 0,
+  bedroomCount: 1,
+  bedConfiguration: "",
+  amenities: [],
+  housekeepingStatus: "clean",
+  availabilityStatus: "vacant",
+};
+
+function PropertyRoomManager({ property }: { property: Property }) {
+  const [open, setOpen] = useState(false);
+  const [rooms, setRooms] = useState<ManagedRoom[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [editing, setEditing] = useState<ManagedRoom | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [message, setMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState(false);
+  const [floorFilter, setFloorFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [batchStart, setBatchStart] = useState("101");
+  const [batchEnd, setBatchEnd] = useState("115");
+  const [batchFloor, setBatchFloor] = useState("");
+  const [batchPrefix, setBatchPrefix] = useState("");
+  const [isPending, startTransition] = useTransition();
+  const router = useRouter();
+
+  const refreshRooms = async () => {
+    setLoading(true);
+    try {
+      const result = await listPropertyRooms(property.id);
+      if (result.success) setRooms(result.rooms);
+      else {
+        setMessage(result.error ?? "Unable to load rooms.");
+        setErrorMessage(true);
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to load rooms.");
+      setErrorMessage(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => {
+    if (open) void refreshRooms();
+  }, [open, property.id]);
+
+  const startEdit = (room: ManagedRoom) => {
+    setEditing(room);
+    setShowForm(true);
+    setMessage("");
+  };
+  const startCreate = () => {
+    setEditing(null);
+    setShowForm(true);
+    setMessage("");
+  };
+  const saveRoom = (values: RoomEditorValues) => startTransition(async () => {
+    setMessage("");
+    try {
+      const result = editing
+        ? await updatePropertyRoom(editing.id, property.id, values)
+        : await createPropertyRoom(property.id, values);
+      if (!result.success) {
+        setMessage(result.error ?? "Unable to save this room.");
+        setErrorMessage(true);
+        return;
+      }
+      setMessage(editing ? "Room details updated." : "Room created.");
+      setErrorMessage(false);
+      setShowForm(false);
+      setEditing(null);
+      await refreshRooms();
+      router.refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save this room.");
+      setErrorMessage(true);
+    }
+  });
+  const archive = (room: ManagedRoom) => {
+    if (!window.confirm(`Archive ${room.room_name}? This preserves work history and room evidence.`)) return;
+    startTransition(async () => {
+      try {
+        const result = await archivePropertyRoom(room.id, property.id);
+        setMessage(result.success ? `${result.roomName ?? "Room"} archived.` : result.error ?? "Unable to archive this room.");
+        setErrorMessage(!result.success);
+        if (result.success) {
+          await refreshRooms();
+          router.refresh();
+        }
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Unable to archive this room.");
+        setErrorMessage(true);
+      }
+    });
+  };
+  const addBatch = () => startTransition(async () => {
+    try {
+      const result = await createPropertyRoomBatch(property.id, {
+        ...emptyRoom,
+        floorSection: batchFloor,
+        prefix: batchPrefix,
+        start: Number(batchStart),
+        end: Number(batchEnd),
+        padding: Math.max(batchStart.length, batchEnd.length),
+      });
+      if (!result.success) {
+        setMessage(result.error ?? "Unable to create the room range.");
+        setErrorMessage(true);
+        return;
+      }
+      setMessage(`${result.count} rooms added.`);
+      setErrorMessage(false);
+      await refreshRooms();
+      router.refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to create the room range.");
+      setErrorMessage(true);
+    }
+  });
+  const uploadPhoto = (room: ManagedRoom, file: File) => startTransition(async () => {
+    try {
+      const formData = new FormData();
+      formData.set("hotelId", property.id);
+      formData.set("roomId", room.id);
+      formData.set("file", file);
+      const response = await fetch("/api/admin/rooms/photo", { method: "POST", body: formData });
+      const result = await response.json() as { error?: string };
+      setMessage(response.ok ? `Photo added to ${room.room_name}.` : result.error ?? "Unable to upload photo.");
+      setErrorMessage(!response.ok);
+      if (response.ok) await refreshRooms();
+    } catch (error) {
+      setMessage(error instanceof Error ? `Unable to upload photo: ${error.message}` : "Unable to upload photo.");
+      setErrorMessage(true);
+    }
+  });
+
+  const activeRooms = rooms.filter((room) => room.status === "active");
+  const floors = [...new Set(rooms.map((room) => room.floor_section).filter((floor): floor is string => Boolean(floor)))].sort();
+  const categories = [...new Set(rooms.map((room) => room.category).filter(Boolean))].sort();
+  const filteredRooms = rooms.filter((room) =>
+    (floorFilter === "all" || (room.floor_section ?? "") === floorFilter) &&
+    (statusFilter === "all" || room.housekeeping_status === statusFilter || room.availability_status === statusFilter || room.status === statusFilter) &&
+    (categoryFilter === "all" || room.category === categoryFilter)
+  );
+
+  return (
+    <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)} className="border-t border-slate-100">
+      <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-5 py-3 text-sm font-bold text-slate-800">
+        <span>Manage Rooms / Units <span className="ml-1 rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">{activeRooms.length} active</span></span>
+        <ChevronDown className="h-4 w-4" />
+      </summary>
+      <div className="space-y-4 border-t border-slate-100 bg-slate-50/70 p-4 sm:p-5">
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={startCreate} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-slate-950 px-3 text-sm font-semibold text-white"><Plus className="h-4 w-4" /> Add room / unit</button>
+          <button type="button" onClick={() => void refreshRooms()} disabled={loading} className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700">{loading ? "Refreshing…" : "Refresh rooms"}</button>
+        </div>
+        {showForm && <RoomEditor key={editing?.id ?? "new-room"} initial={editing ? {
+          roomName: editing.room_name,
+          floorSection: editing.floor_section ?? "",
+          category: editing.category,
+          maxCapacity: editing.max_capacity,
+          adultsCapacity: editing.adults_capacity,
+          childrenCapacity: editing.children_capacity,
+          bedroomCount: editing.bedroom_count,
+          bedConfiguration: editing.bed_configuration,
+          amenities: editing.room_amenities,
+          housekeepingStatus: editing.housekeeping_status,
+          availabilityStatus: editing.availability_status,
+        } : emptyRoom} isPending={isPending} onSave={saveRoom} onCancel={() => { setShowForm(false); setEditing(null); }} />}
+        <section className="rounded-xl border border-slate-200 bg-white p-4">
+          <h4 className="font-bold text-slate-900">Batch room generator</h4>
+          <p className="mt-1 text-xs text-slate-500">Create up to 100 rooms at once. The batch is saved atomically, so name conflicts add no rooms.</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <label className="text-xs font-semibold text-slate-600">Room numbers from<input value={batchStart} onChange={(event) => setBatchStart(event.target.value)} type="number" min="0" className={`${fieldClass} mt-1`} /></label>
+            <label className="text-xs font-semibold text-slate-600">To<input value={batchEnd} onChange={(event) => setBatchEnd(event.target.value)} type="number" min="0" className={`${fieldClass} mt-1`} /></label>
+            <label className="text-xs font-semibold text-slate-600">Name prefix<input value={batchPrefix} onChange={(event) => setBatchPrefix(event.target.value)} placeholder="e.g. Room " className={`${fieldClass} mt-1`} /></label>
+            <label className="text-xs font-semibold text-slate-600">Floor / section<input value={batchFloor} onChange={(event) => setBatchFloor(event.target.value)} placeholder="e.g. Floor 1" className={`${fieldClass} mt-1`} /></label>
+            <button type="button" onClick={addBatch} disabled={isPending} className="mt-auto min-h-11 rounded-xl bg-emerald-700 px-3 text-sm font-semibold text-white disabled:opacity-50">Generate rooms</button>
+          </div>
+        </section>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <label className="text-xs font-semibold text-slate-600">Floor / section<select value={floorFilter} onChange={(event) => setFloorFilter(event.target.value)} className={`${fieldClass} mt-1`}><option value="all">All floors</option>{floors.map((floor) => <option key={floor} value={floor}>{floor}</option>)}</select></label>
+          <label className="text-xs font-semibold text-slate-600">Status<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className={`${fieldClass} mt-1`}><option value="all">All statuses</option><optgroup label="Housekeeping">{["dirty", "in_progress", "inspect_ready", "clean"].map((status) => <option key={status} value={status}>{status.replace("_", " ")}</option>)}</optgroup><optgroup label="Availability">{["vacant", "occupied", "maintenance", "out_of_order"].map((status) => <option key={status} value={status}>{status.replace("_", " ")}</option>)}</optgroup><option value="inactive">Archived</option></select></label>
+          <label className="text-xs font-semibold text-slate-600">Category<select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className={`${fieldClass} mt-1`}><option value="all">All categories</option>{categories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
+        </div>
+        {message && <p role={errorMessage ? "alert" : "status"} className={`rounded-lg px-3 py-2 text-sm ${errorMessage ? "bg-rose-50 text-rose-800" : "bg-emerald-50 text-emerald-800"}`}>{message}</p>}
+        {loading ? <p className="text-sm text-slate-500">Loading rooms…</p> : filteredRooms.length ? <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white">
+          {filteredRooms.map((room) => <li key={room.id} className="space-y-3 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0"><p className="font-bold text-slate-900">{room.room_name} <span className="font-normal text-slate-500">· {room.category || "Uncategorized"}</span></p><p className="mt-1 text-xs text-slate-600">{room.floor_section || "No floor assigned"} · {room.max_capacity} capacity ({room.adults_capacity} adults, {room.children_capacity} children) · {room.bedroom_count} bedrooms{room.bed_configuration ? ` · ${room.bed_configuration}` : ""}</p><p className="mt-1 text-xs text-slate-600">Housekeeping: {room.housekeeping_status.replace("_", " ")} · Availability: {room.availability_status.replace("_", " ")}{room.status !== "active" ? " · Archived" : ""}</p>{room.room_amenities.length > 0 && <p className="mt-1 text-xs text-slate-500">Amenities: {room.room_amenities.join(", ")}</p>}</div>
+              <div className="flex shrink-0 gap-2">{room.status === "active" && <button type="button" onClick={() => startEdit(room)} className="min-h-9 rounded-lg border border-slate-200 px-3 text-xs font-semibold">Edit</button>}{room.status === "active" && <button type="button" onClick={() => archive(room)} disabled={isPending} className="min-h-9 rounded-lg border border-amber-200 px-3 text-xs font-semibold text-amber-800">Archive</button>}</div>
+            </div>
+            {room.room_photos.length > 0 && <div className="flex flex-wrap gap-2">{room.room_photos.map((photo) => photo.url ? <a key={photo.path} href={photo.url} target="_blank" rel="noreferrer" className="text-xs font-semibold text-sky-700 underline">View room photo</a> : <span key={photo.path} className="text-xs text-slate-500">Photo unavailable</span>)}</div>}
+            {room.status === "active" && <label className="inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700"><Upload className="h-3.5 w-3.5" /> Add photo<input className="sr-only" type="file" accept="image/jpeg,image/png,image/webp,image/avif" disabled={isPending} onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadPhoto(room, file); event.currentTarget.value = ""; }} /></label>}
+          </li>)}
+        </ul> : <p className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm text-slate-500">{rooms.length ? "No rooms match the selected filters." : "No rooms configured for this property yet."}</p>}
+      </div>
+    </details>
+  );
+}
+
+function RoomEditor({ initial, isPending, onSave, onCancel }: {
+  initial: RoomEditorValues;
+  isPending: boolean;
+  onSave: (values: RoomEditorValues) => void;
+  onCancel: () => void;
+}) {
+  const [values, setValues] = useState(initial);
+  const [amenities, setAmenities] = useState(initial.amenities.join(", "));
+  const [error, setError] = useState("");
+  const set = <K extends keyof RoomEditorValues>(key: K, value: RoomEditorValues[K]) => setValues((current) => ({ ...current, [key]: value }));
+  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!values.roomName.trim()) {
+      setError("Enter a room name.");
+      return;
+    }
+    setError("");
+    onSave({ ...values, amenities: amenities.split(",").map((item) => item.trim()).filter(Boolean) });
+  };
+  return (
+    <form onSubmit={submit} className="rounded-xl border border-sky-200 bg-white p-4">
+      <h4 className="font-bold text-slate-900">{initial.roomName ? "Edit room / unit" : "Add room / unit"}</h4>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <label className="text-xs font-semibold text-slate-600">Room name / number<input required maxLength={120} value={values.roomName} onChange={(event) => set("roomName", event.target.value)} className={`${fieldClass} mt-1`} /></label>
+        <label className="text-xs font-semibold text-slate-600">Floor / section<input maxLength={120} value={values.floorSection} onChange={(event) => set("floorSection", event.target.value)} className={`${fieldClass} mt-1`} placeholder="e.g. Floor 2 - Suites" /></label>
+        <label className="text-xs font-semibold text-slate-600">Category<input maxLength={120} value={values.category} onChange={(event) => set("category", event.target.value)} className={`${fieldClass} mt-1`} placeholder="Standard, Suite, Hall…" /></label>
+        <label className="text-xs font-semibold text-slate-600">Max capacity<input type="number" min="0" max="1000" value={values.maxCapacity} onChange={(event) => set("maxCapacity", Number(event.target.value))} className={`${fieldClass} mt-1`} /></label>
+        <label className="text-xs font-semibold text-slate-600">Adults<input type="number" min="0" max="1000" value={values.adultsCapacity} onChange={(event) => set("adultsCapacity", Number(event.target.value))} className={`${fieldClass} mt-1`} /></label>
+        <label className="text-xs font-semibold text-slate-600">Children<input type="number" min="0" max="1000" value={values.childrenCapacity} onChange={(event) => set("childrenCapacity", Number(event.target.value))} className={`${fieldClass} mt-1`} /></label>
+        <label className="text-xs font-semibold text-slate-600">Bedrooms<input type="number" min="0" max="1000" value={values.bedroomCount} onChange={(event) => set("bedroomCount", Number(event.target.value))} className={`${fieldClass} mt-1`} /></label>
+        <label className="text-xs font-semibold text-slate-600">Bed configuration<input maxLength={240} value={values.bedConfiguration} onChange={(event) => set("bedConfiguration", event.target.value)} className={`${fieldClass} mt-1`} placeholder="e.g. 1 king, 2 twins" /></label>
+        <label className="text-xs font-semibold text-slate-600">Housekeeping status<select value={values.housekeepingStatus} onChange={(event) => set("housekeepingStatus", event.target.value as RoomEditorValues["housekeepingStatus"])} className={`${fieldClass} mt-1`}>{[["dirty", "Dirty"], ["in_progress", "In Progress"], ["inspect_ready", "Inspect / Ready"], ["clean", "Clean"]].map(([status, label]) => <option key={status} value={status}>{label}</option>)}</select></label>
+        <label className="text-xs font-semibold text-slate-600">Availability<select value={values.availabilityStatus} onChange={(event) => set("availabilityStatus", event.target.value as RoomEditorValues["availabilityStatus"])} className={`${fieldClass} mt-1`}>{[["vacant", "Vacant"], ["occupied", "Occupied"], ["maintenance", "Maintenance"], ["out_of_order", "Out of order"]].map(([status, label]) => <option key={status} value={status}>{label}</option>)}</select></label>
+        <label className="text-xs font-semibold text-slate-600 sm:col-span-2">Amenities (comma separated)<input value={amenities} onChange={(event) => setAmenities(event.target.value)} className={`${fieldClass} mt-1`} placeholder="Wi-Fi, minibar, balcony" /></label>
+      </div>
+      {error && <p role="alert" className="mt-3 text-sm text-rose-700">{error}</p>}
+      <div className="mt-4 flex gap-2"><button type="submit" disabled={isPending} className="min-h-10 rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white disabled:opacity-50">{isPending ? "Saving…" : "Save room"}</button><button type="button" onClick={onCancel} className="min-h-10 rounded-lg border border-slate-200 px-4 text-sm font-semibold">Cancel</button></div>
+    </form>
   );
 }
 

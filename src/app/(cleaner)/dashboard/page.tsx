@@ -47,7 +47,7 @@ export default async function CleanerDashboardPage() {
     : servicesQuery.or(`hotel_id.eq.${hotel.id},owner_id.is.null`);
   const [{ data: services }, { data: rooms }, { data: shift }, { data: logs }, brief] = await Promise.all([
     servicesQuery.order("name"),
-    supabase.from("rooms").select("id, hotel_id, room_name, category").in("hotel_id", assignedHotelIds).eq("status", "active").order("room_name"),
+    supabase.from("rooms").select("id, hotel_id, room_name, category, floor_section").in("hotel_id", assignedHotelIds).eq("status", "active").order("floor_section").order("room_name"),
     supabase.from("master_shifts").select("id, start_time, end_time, status").eq("user_id", user.userId).eq("status", "active").maybeSingle(),
     supabase
       .from("work_logs")

@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Bell, MessageCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { fetchTaskNotifications, fetchUnread } from "./chatApi";
+import { fetchTaskNotifications, fetchUnread, type TaskNotice } from "./chatApi";
 import { useChatStore } from "./chatStore";
 import { roleLabel } from "@/lib/chat/types";
 import { UserAvatar } from "@/components/shared/UserAvatar";
@@ -15,8 +15,10 @@ import { playChatSound } from "./chatSound";
 export function NotificationBell() {
   const containerRef = useRef<HTMLDivElement>(null);
   const seenTaskIds = useRef<Set<string> | null>(null);
+  const taskToastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [taskToast, setTaskToast] = useState<TaskNotice | null>(null);
   const [taskError, setTaskError] = useState("");
   const [activeTaskWarning, setActiveTaskWarning] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
@@ -64,12 +66,18 @@ export function NotificationBell() {
       seenTaskIds.current = ids;
       return;
     }
-    const newlyAssignedUrgent = taskQuery.data.incoming.find(
-      (task) => !seenTaskIds.current?.has(task.id) && (task.priority === "high" || task.priority === "urgent")
-    );
+    const newlyAssigned = taskQuery.data.incoming.find((task) => !seenTaskIds.current?.has(task.id));
     seenTaskIds.current = ids;
-    if (newlyAssignedUrgent && soundNotificationsEnabled) playChatSound("alert");
+    if (!newlyAssigned) return;
+    setTaskToast(newlyAssigned);
+    if (taskToastTimeout.current) clearTimeout(taskToastTimeout.current);
+    taskToastTimeout.current = setTimeout(() => setTaskToast(null), 6000);
+    if (soundNotificationsEnabled) playChatSound("alert");
   }, [soundNotificationsEnabled, taskQuery.data]);
+
+  useEffect(() => () => {
+    if (taskToastTimeout.current) clearTimeout(taskToastTimeout.current);
+  }, []);
 
   const startTask = async (taskId: string) => {
     setTaskError("");
@@ -93,6 +101,15 @@ export function NotificationBell() {
 
   return (
     <div ref={containerRef} className="relative">
+      {taskToast && (
+        <div role="status" aria-live="polite" className="fixed right-4 top-20 z-[80] w-[min(22rem,calc(100vw-2rem))] rounded-2xl border border-emerald-200 bg-white p-3 shadow-xl shadow-slate-900/15">
+          <button type="button" onClick={() => { setSelectedTaskId(taskToast.id); setIsOpen(true); setTaskToast(null); }} className="w-full text-left">
+            <span className="block text-xs font-bold uppercase tracking-wide text-emerald-700">New task assigned</span>
+            <span className="mt-1 block truncate text-sm font-semibold text-slate-900">{taskToast.service_name_snapshot ?? "Assigned task"}</span>
+            <span className="mt-0.5 block truncate text-xs text-slate-600">{taskToast.notes || taskToast.dispatch_metadata?.issueDescription || "Open notifications to review."}</span>
+          </button>
+        </div>
+      )}
       <button
         type="button"
         aria-label={`Notifications${unreadCount ? `, ${unreadCount} pending notifications` : ""}`}

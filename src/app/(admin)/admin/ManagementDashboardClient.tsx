@@ -22,6 +22,7 @@ import { useWorkLogRealtimeRefresh } from "@/lib/useWorkLogRealtimeRefresh";
 import type { LucideIcon } from "lucide-react";
 import { DashboardPagination } from "@/components/dashboard/DashboardPagination";
 import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
+import { ActiveAssignedTaskCard } from "@/components/dashboard/ActiveAssignedTaskCard";
 
 const DASHBOARD_TABS = [
   { id: "overview", label: "Overview", icon: Gauge },
@@ -53,10 +54,10 @@ function useDashboardTab() {
   return useSyncExternalStore(subscribeDashboardTab, readDashboardTab, () => "overview");
 }
 
-type Log = { id: string; user_id: string; hotel_id: string; service_id: string | null; cleanerName: string; hotelName: string; start_time: string; end_time: string | null; task_date: string; status: string; rooms_completed: number; room_number: string | null; room_numbers: string[]; service_name_snapshot: string | null; service_description_snapshot: string | null; notes: string | null; cost_override?: number | string | null; owner_id: string | null; owner_name: string | null; manager_id: string | null; manager_name: string | null; responsibility_recorded_at: string | null; manager_approved: boolean; owner_approved: boolean; manager_rejected: boolean; owner_rejected: boolean; is_locked: boolean; rejection_notes?: string | null; services_config?: { name: string; default_rate: number; unit?: string }[] };
-type Room = { id: string; hotel_id: string; room_name: string; category: string; status?: string };
+type Log = { id: string; user_id: string; hotel_id: string; service_id: string | null; cleanerName: string; hotelName: string; start_time: string; end_time: string | null; task_date: string; status: string; rooms_completed: number; room_number: string | null; room_numbers: string[]; roomDetails?: { name: string; floor: string }[]; service_name_snapshot: string | null; service_description_snapshot: string | null; notes: string | null; cost_override?: number | string | null; owner_id: string | null; owner_name: string | null; manager_id: string | null; manager_name: string | null; responsibility_recorded_at: string | null; manager_approved: boolean; owner_approved: boolean; manager_rejected: boolean; owner_rejected: boolean; is_locked: boolean; rejection_notes?: string | null; services_config?: { name: string; default_rate: number; unit?: string }[] };
+type Room = { id: string; hotel_id: string; room_name: string; floor_section?: string | null; category: string; status?: string };
 type DispatchData = Awaited<ReturnType<typeof getTaskDispatchData>>;
-type Props = { data: { userRole: string; userName: string; userEmail: string; userAvatarUrl: string | null; canManagePayrollTasks: boolean; canManageActiveOperations: boolean; hotels: PropertyRecord[]; services: ServiceRecord[]; cleaners: { id: string; name: string; primary_hotel_id: string | null }[]; rooms: Room[]; workLogs: Log[]; payroll: PayrollLog[]; activeShifts: { id: string; user_id: string; start_time: string; cleanerName: string; task: Log | null }[]; activeTasks: Log[]; overrideAudit: OverrideAuditRecord[]; brief: ManagementBrief }; dispatchData?: DispatchData };
+type Props = { data: { userRole: string; currentUserId: string; userName: string; userEmail: string; userAvatarUrl: string | null; canManagePayrollTasks: boolean; canManageActiveOperations: boolean; hotels: PropertyRecord[]; services: ServiceRecord[]; cleaners: { id: string; name: string; primary_hotel_id: string | null }[]; rooms: Room[]; workLogs: Log[]; payroll: PayrollLog[]; activeShifts: { id: string; user_id: string; start_time: string; cleanerName: string; task: Log | null }[]; activeTasks: Log[]; overrideAudit: OverrideAuditRecord[]; brief: ManagementBrief }; dispatchData?: DispatchData };
 type AuditDetail = { label: string; value: string };
 type OverrideAuditRecord = { id: string; entity_type: "task" | "shift"; action: string; actor_name: string; target_label: string; override_reason: string; previous_details: AuditDetail[]; new_details: AuditDetail[]; created_at: string };
 type Draft = { hotelId: string; serviceId: string; roomId: string; roomsCompleted: string; roomNumber: string; notes: string; startTime: string; endTime: string };
@@ -290,6 +291,18 @@ export default function ManagementDashboardClient({ data, dispatchData }: Props)
       <main className="mx-auto min-w-0 max-w-[1600px] space-y-4 p-4 sm:p-6 lg:p-8">
         {message && <p className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm" role="status">{message}</p>}
         <section id="panel-overview" role="tabpanel" aria-labelledby="tab-overview" hidden={activeTab !== "overview"} className="space-y-5">
+          {data.userRole === "manager" && (() => {
+            const task = data.activeTasks.find((item) => item.user_id === data.currentUserId && item.status === "active" && !item.end_time);
+            return task ? <ActiveAssignedTaskCard task={{
+              id: task.id,
+              name: task.service_name_snapshot ?? task.services_config?.[0]?.name ?? "Active task",
+              hotelName: task.hotelName,
+              roomLabel: task.roomDetails?.length
+                ? task.roomDetails.map((room) => `${room.name} (${room.floor})`).join(", ")
+                : task.room_numbers.join(", ") || task.room_number || "",
+              startTime: task.start_time,
+            }} /> : null;
+          })()}
           {dispatchData && <TaskDispatchClient role={data.userRole as "owner" | "manager"} {...dispatchData} />}
           <DashboardHeading title="Executive overview" description="Portfolio performance, approvals, and operating costs at a glance." />
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

@@ -17,7 +17,7 @@ The platform enforces strict, role-scoped data isolation across all organization
 * **Super Admin**: Complete portfolio oversight, system-wide analytics, comprehensive audit logging, and global operational governance.
 * **Property Owner**: Multi-property asset control, customized service catalog configurations, room pricing models, executive financials, and staff assignments.
 * **Property Manager**: Day-to-day property orchestration, shift approvals, emergency managerial overrides, and real-time cleaner attendance tracking.
-* **Housekeeping Admin (HK Admin)**: On-the-ground operational supervision, inspection verification, quality control, and rapid room task dispatching.
+* **Housekeeping Admin (HK Admin)**: A dedicated, property-scoped operations dashboard for room readiness, live cleaner shifts, floor inspections, task interventions, photo evidence review, and non-financial work history.
 * **Field Cleaners & Staff**: Intuitive, high-speed mobile interface for clocking in/out, picking up tasks, tracking room completions, and reviewing verified earnings.
 
 ---
@@ -39,6 +39,10 @@ Manage complex physical real estate with unmatched granularity:
   * Define room numbers, room categories (Standard, Deluxe, Executive Suite, Studio), and occupancy thresholds (Adults / Children capacity).
   * Configure bed distributions, custom amenity checklists, room operational statuses (Clean, In-Progress, Maintenance Required), and high-resolution photo galleries.
   * Rapid Room Batch Generator to deploy entire room inventories in seconds.
+* **Room Lifecycle Management**: Property settings support room creation, edits, floor/category/status filters, atomic range generation, photo uploads, and safe archival that retains work history. Active task and cleaner selectors resolve current room names and floor labels.
+* **Overlay Scroll Containment**: Open dialogs lock background scrolling while keeping modal content scrollable on touch and desktop.
+
+Apply `supabase/migrations/20261022_room_availability_status.sql` after the existing room and housekeeping migrations to enable separate room-availability states.
 
 ---
 
