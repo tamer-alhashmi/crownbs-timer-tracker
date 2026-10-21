@@ -24,13 +24,13 @@ const tabs: { id: Tab; label: string; icon: typeof UserRound }[] = [
 
 export default function SettingsHub({ role, utility, overview, profile, users, properties }: Props) {
   const visibleTabs = tabs.filter(({ id }) =>
-    (id === "overview" && ["owner", "manager", "hk_admin"].includes(role)) ||
+    (id === "overview" && ["owner", "manager"].includes(role)) ||
     id === "profile" ||
     (id === "users" && ["admin", "owner", "manager"].includes(role)) ||
     (id === "properties" && ["admin", "owner"].includes(role))
   );
   const [activeTab, setActiveTab] = useState<Tab>(() =>
-    ["owner", "manager", "hk_admin"].includes(role) ? "overview" : "profile"
+    ["owner", "manager"].includes(role) ? "overview" : "profile"
   );
   const content: Record<Tab, ReactNode> = { overview, profile, users, properties };
 

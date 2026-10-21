@@ -64,7 +64,7 @@ export async function getTaskDispatchData() {
     supabase.from("users").select("id, full_name, role, primary_hotel_id").in("role", ["manager", "hk_admin", "cleaner"]).order("full_name"),
     supabase.from("user_hotel_assignments").select("user_id, hotel_id"),
     supabase.from("services_config").select("id, hotel_id, name, description, unit, is_active, owner_id").eq("is_active", true),
-    supabase.from("rooms").select("id, hotel_id, room_name, category").in("hotel_id", activeHotelIds).eq("status", "active").order("room_name"),
+    supabase.from("rooms").select("id, hotel_id, room_name, category, floor_section").in("hotel_id", activeHotelIds).eq("status", "active").order("floor_section").order("room_name"),
     Promise.all([
       supabase.from("work_logs").select("id", { count: "exact", head: true }).in("hotel_id", activeHotelIds).eq("status", "assigned").is("deleted_at", null).is("cancelled_at", null),
       supabase.from("work_logs").select("id", { count: "exact", head: true }).in("hotel_id", activeHotelIds).eq("status", "active").is("end_time", null).is("deleted_at", null).is("cancelled_at", null),
@@ -283,6 +283,57 @@ export async function dispatchTask(input: DispatchInput): Promise<TaskResult> {
   } catch (error) {
     return failure(error, "Task assignment failed:");
   }
+}
+
+export async function endOwnManagementTask(taskId: string) {
+  const { actor, supabase } = await getVerifiedActor();
+  if (!["manager", "hk_admin"].includes(actor.role)) throw new Error("Only managers and housekeeping administrators can end their own assigned tasks here.");
+  if (typeof taskId !== "string" || !taskId) throw new Error("An active task is required.");
+
+  const { data: task, error: taskError } = await supabase.from("work_logs")
+    .select("id, hotel_id, user_id, status, end_time, is_locked")
+    .eq("id", taskId)
+    .eq("user_id", actor.id)
+    .eq("status", "active")
+    .is("end_time", null)
+    .is("deleted_at", null)
+    .is("cancelled_at", null)
+    .maybeSingle();
+  if (taskError) throw new Error(`Unable to verify your active task: ${taskError.message}`);
+  if (!task) throw new Error("This active task is no longer assigned to you.");
+  if (task.is_locked) throw new Error("Locked tasks cannot be ended.");
+
+  const { data: hotel, error: hotelError } = await supabase.from("hotels")
+    .select("id, manager_id")
+    .eq("id", task.hotel_id)
+    .maybeSingle();
+  if (hotelError) throw new Error(`Unable to verify task property: ${hotelError.message}`);
+  if (!hotel) throw new Error("The task property could not be found.");
+  if (actor.role === "manager" && hotel.manager_id !== actor.id) {
+    throw new Error("This task is outside your management scope.");
+  }
+  if (actor.role === "hk_admin") {
+    const { data: assignment, error: assignmentError } = await supabase.from("user_hotel_assignments")
+      .select("hotel_id")
+      .eq("user_id", actor.id)
+      .eq("hotel_id", hotel.id)
+      .maybeSingle();
+    if (assignmentError) throw new Error(`Unable to verify your property assignment: ${assignmentError.message}`);
+    if (actor.primary_hotel_id !== hotel.id && !assignment) throw new Error("This task is outside your assigned properties.");
+  }
+
+  const now = new Date().toISOString();
+  const { data: updated, error: updateError } = await supabase.from("work_logs")
+    .update({ status: "completed", end_time: now, updated_at: now })
+    .eq("id", task.id)
+    .eq("user_id", actor.id)
+    .eq("status", "active")
+    .is("end_time", null)
+    .select("id")
+    .maybeSingle();
+  if (updateError) throw new Error(`Unable to end your active task: ${updateError.message}`);
+  if (!updated) throw new Error("This active task was already ended.");
+  for (const path of ["/manager", "/hk-admin", "/admin"]) revalidatePath(path);
 }
 
 export async function startAssignedTask(taskId: string): Promise<TaskResult> {

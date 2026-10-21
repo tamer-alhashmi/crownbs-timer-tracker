@@ -77,7 +77,7 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
   const hotelFilter = user.role === "admin" ? null : hotelIds;
   const cleanersQuery = supabase.from("users").select("id, full_name, email, role, primary_hotel_id").eq("role", "cleaner").order("full_name").order("id");
   const assigneesQuery = supabase.from("users").select("id, full_name, email, role").in("role", ["owner", "manager"]).order("full_name").order("id");
-  const logsQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, shift_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, cost_override, deleted_at, cancelled_at, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, hotels(name), users!work_logs_user_id_fkey(full_name, email), services_config(name, description, default_rate, unit)").is("deleted_at", null).is("cancelled_at", null).order("start_time", { ascending: false }).order("id");
+  const logsQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, shift_id, start_time, end_time, task_date, status, rooms_completed, room_ids, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, cost_override, deleted_at, cancelled_at, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, hotels(name), users!work_logs_user_id_fkey(full_name, email), services_config(name, description, default_rate, unit)").is("deleted_at", null).is("cancelled_at", null).order("start_time", { ascending: false }).order("id");
   const payrollQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, shift_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, room_ids, service_name_snapshot, service_description_snapshot, notes, cost_override, deleted_at, cancelled_at, travel_time_included, manager_approved, owner_approved, manager_approved_at, owner_approved_at, manager_rejected, owner_rejected, manager_rejected_at, owner_rejected_at, rejection_notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, import_key, is_locked, created_at, updated_at, hotels(name, location), users!work_logs_user_id_fkey(full_name, email), services_config(name, description, default_rate, unit)").eq("is_locked", true).eq("status", "completed").is("deleted_at", null).is("cancelled_at", null).order("start_time", { ascending: false }).order("id");
   const shiftsQuery = supabase.from("master_shifts").select("id, user_id, start_time, end_time, status").eq("status", "active").is("end_time", null).order("start_time").order("id");
   if (hotelFilter) {
@@ -86,7 +86,7 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
     payrollQuery.in("hotel_id", scopedHotelIds);
   }
   const servicesQuery = supabase.from("services_config").select("id, name, description, unit, default_rate, is_active, owner_id, created_at").order("name").order("id");
-  const roomsQuery = supabase.from("rooms").select("id, hotel_id, room_name, category, status").in("hotel_id", hotelIds.length ? hotelIds : ["00000000-0000-0000-0000-000000000000"]).eq("status", "active").order("room_name").order("id");
+  const roomsQuery = supabase.from("rooms").select("id, hotel_id, room_name, floor_section, category, status").in("hotel_id", hotelIds.length ? hotelIds : ["00000000-0000-0000-0000-000000000000"]).eq("status", "active").order("room_name").order("id");
   const overrideAuditQuery = supabase.from("operations_override_audit").select("id, entity_type, entity_id, action, actor_id, override_reason, previous_values, new_values, created_at").order("created_at", { ascending: false }).order("id");
   let taskScopeQuery = supabase.from("work_logs").select("id, hotel_id, user_id, shift_id");
   if (hotelFilter) {
@@ -223,9 +223,14 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
     };
   });
   const cleanersById = new Map(cleaners.map((cleaner) => [cleaner.id, cleaner.full_name || cleaner.email]));
+  const roomsById = new Map(rooms.map((room) => [room.id, room]));
   const workLogsWithNames = workLogs.map((log) => ({
     ...log,
     room_numbers: Array.isArray(log.room_numbers) ? log.room_numbers : [],
+    roomDetails: (Array.isArray(log.room_ids) ? log.room_ids : []).flatMap((roomId) => {
+      const room = roomsById.get(roomId);
+      return room ? [{ name: room.room_name, floor: room.floor_section ?? "Unassigned section" }] : [];
+    }),
     cleanerName: cleanersById.get(log.user_id) ?? "Unknown cleaner",
     hotelName: hotelsById.get(log.hotel_id) ?? "Unknown hotel",
   }));
@@ -269,6 +274,7 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
     payroll: payrollWithNames,
     activeShifts: visibleActiveShifts,
     activeTasks: activeTasks,
+    currentUserId: user.userId,
     overrideAudit: overrideAuditWithActorNames,
     userRole: user.role,
     canViewServices: user.role === "admin" || servicePermission === null || servicePermission.can_view === true,

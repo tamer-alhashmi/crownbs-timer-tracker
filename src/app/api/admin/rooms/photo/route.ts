@@ -18,14 +18,14 @@ const MIME_EXTENSIONS: Record<string, string> = {
 export async function POST(request: NextRequest) {
   if (!hasSameOrigin(request)) return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
   const session = await getVerifiedChatSessionUser();
-  if (!session || session.role !== "admin") return NextResponse.json({ error: "Administrator access required." }, { status: 403 });
+  if (!session || !["admin", "owner", "manager"].includes(session.role)) return NextResponse.json({ error: "Property management access required." }, { status: 403 });
 
   const supabase = createPrivilegedServerSupabaseClient();
   const { data: profile, error: profileError } = await supabase.from("users")
     .select("role")
     .eq("id", session.userId)
     .maybeSingle();
-  if (profileError || profile?.role !== "admin") return NextResponse.json({ error: "Administrator access could not be verified." }, { status: 403 });
+  if (profileError || profile?.role !== session.role) return NextResponse.json({ error: "Property management access could not be verified." }, { status: 403 });
 
   let formData: FormData;
   try {
@@ -34,12 +34,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid room photo upload." }, { status: 400 });
   }
   const hotelId = formData.get("hotelId");
+  const roomId = formData.get("roomId");
   const roomName = formData.get("roomName");
   const category = formData.get("category");
   const file = formData.get("file");
-  if (typeof hotelId !== "string" || typeof roomName !== "string" || typeof category !== "string"
-    || !(file instanceof File)) {
+  if (typeof hotelId !== "string" || !(file instanceof File)
+    || (typeof roomId !== "string" && (typeof roomName !== "string" || typeof category !== "string"))) {
     return NextResponse.json({ error: "Choose a room and photo to upload." }, { status: 400 });
+  }
+  const { data: hotel, error: hotelError } = await supabase.from("hotels")
+    .select("id, owner_id, manager_id")
+    .eq("id", hotelId)
+    .maybeSingle();
+  if (hotelError) return NextResponse.json({ error: `Unable to verify property access: ${hotelError.message}` }, { status: 500 });
+  if (!hotel || (profile?.role === "owner" && hotel.owner_id !== session.userId) || (profile?.role === "manager" && hotel.manager_id !== session.userId)) {
+    return NextResponse.json({ error: "That property is outside your management scope." }, { status: 403 });
   }
   const extension = MIME_EXTENSIONS[file.type];
   if (!extension) return NextResponse.json({ error: "Use a JPEG, PNG, WebP, or AVIF image." }, { status: 415 });
@@ -47,12 +56,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Room photos must be non-empty and 5 MB or smaller." }, { status: 413 });
   }
 
-  const { data: room, error: roomError } = await supabase.from("rooms")
+  let roomQuery = supabase.from("rooms")
     .select("id, room_photos")
-    .eq("hotel_id", hotelId)
-    .eq("room_name", roomName.trim())
-    .eq("category", category)
-    .maybeSingle();
+    .eq("hotel_id", hotelId);
+  roomQuery = typeof roomId === "string"
+    ? roomQuery.eq("id", roomId)
+    : roomQuery.eq("room_name", (roomName as string).trim()).eq("category", category as string);
+  const { data: room, error: roomError } = await roomQuery.maybeSingle();
   if (roomError || !room) {
     return NextResponse.json({ error: roomError?.message ?? "Save the room configuration before uploading its photo." }, { status: 404 });
   }

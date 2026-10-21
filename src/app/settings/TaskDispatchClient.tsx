@@ -8,6 +8,7 @@ import { z } from "zod";
 import { ClipboardCheck, Clock3, Plus, X } from "lucide-react";
 import { dispatchTask } from "./taskActions";
 import type { UserRole } from "@/lib/roles";
+import { useWorkLogRealtimeRefresh } from "@/lib/useWorkLogRealtimeRefresh";
 
 type Service = {
   id: string;
@@ -23,7 +24,7 @@ type Props = {
   hotels: { id: string; name: string; ownerId?: string | null }[];
   users: { id: string; full_name: string; role: UserRole; assignedHotels: { id: string; name: string }[] }[];
   services: Service[];
-  rooms: { id: string; hotel_id: string; room_name: string; category: string }[];
+  rooms: { id: string; hotel_id: string; room_name: string; category: string; floor_section: string | null }[];
   stats: { pending: number; active: number; completedToday: number };
 };
 
@@ -72,6 +73,7 @@ const priorities = [
 ] as const;
 
 export function TaskDispatchClient({ role, hotels, users, services, rooms, stats }: Props) {
+  useWorkLogRealtimeRefresh();
   const [isOpen, setIsOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [photo, setPhoto] = useState<File | null>(null);
@@ -232,7 +234,7 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, stats
                     <div>
                       <p className="mb-2 text-sm font-medium text-slate-700">Rooms</p>
                       <div className="max-h-32 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2">
-                        {propertyRooms.length ? propertyRooms.map((room) => <label key={room.id} className="flex min-h-9 items-center gap-2 px-2 text-sm text-slate-700"><input type="checkbox" value={room.id} {...form.register("roomIds")} />{room.room_name}{room.category ? ` · ${room.category}` : ""}</label>) : <p className="px-2 py-2 text-sm text-slate-500">No rooms are configured for this property.</p>}
+                        {propertyRooms.length ? propertyRooms.map((room) => <label key={room.id} className="flex min-h-9 items-center gap-2 px-2 text-sm text-slate-700"><input type="checkbox" value={room.id} {...form.register("roomIds")} /><span>{room.room_name}{room.category ? ` · ${room.category}` : ""}{room.floor_section ? <span className="ml-1 text-xs text-slate-500">({room.floor_section})</span> : ""}</span></label>) : <p className="px-2 py-2 text-sm text-slate-500">No rooms are configured for this property.</p>}
                       </div>
                       {errors.roomIds?.message && <p role="alert" className="mt-1 text-xs text-rose-700">{errors.roomIds.message}</p>}
                     </div>

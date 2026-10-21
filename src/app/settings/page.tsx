@@ -69,12 +69,11 @@ export default async function SettingsPage() {
   }
 
   if (user.role === "hk_admin") {
-    const dispatchData = await getTaskDispatchData();
     return (
       <SettingsHub
         role={user.role}
         utility={utility}
-        overview={<TaskDispatchClient role={user.role} {...dispatchData} />}
+        overview={null}
         profile={<PersonalProfileSettings fullName={name} email={profile?.email ?? user.email} phoneNumber={profile?.phone_number ?? null} avatarUrl={profile?.avatar_url ?? null} languagePreference={profile?.language_preference ?? "en"} role={user.role} />}
         users={null}
         properties={null}
