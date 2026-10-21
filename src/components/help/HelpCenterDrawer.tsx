@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { ArrowRight, HelpCircle, Search, X } from "lucide-react";
 import type { UserRole } from "@/lib/roles";
@@ -36,8 +37,8 @@ export function HelpCenterButton({ role }: { role: UserRole }) {
     <button type="button" onClick={() => setOpen(true)} aria-label="Open help and feature guide" className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600">
       <HelpCircle className="h-5 w-5" />
     </button>
-    {open && <div className="fixed inset-0 z-[110] flex justify-end bg-slate-950/45 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false); }}>
-      <section role="dialog" aria-modal="true" aria-labelledby="help-center-title" className="flex h-full w-full max-w-xl flex-col overflow-y-auto overscroll-contain bg-white shadow-2xl [touch-action:pan-y]">
+    {open && typeof document !== "undefined" && createPortal(<div className="fixed inset-0 z-[99] bg-black/40 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false); }}>
+      <section role="dialog" aria-modal="true" aria-labelledby="help-center-title" className="fixed inset-y-0 right-0 z-[100] flex h-full max-h-screen w-full max-w-xl flex-col overflow-y-auto overscroll-contain bg-white shadow-2xl [touch-action:pan-y]">
         <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 p-5 backdrop-blur">
           <div className="flex items-start justify-between gap-4">
             <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-700">Operations guide</p><h2 id="help-center-title" className="mt-1 text-xl font-bold text-slate-950">Help & onboarding</h2><p className="mt-1 text-sm text-slate-600">Guides for facilities, branches, units, stations, services, and field operations.</p></div>
@@ -64,6 +65,6 @@ export function HelpCenterButton({ role }: { role: UserRole }) {
           {!visibleGuides.length && <p className="rounded-xl bg-slate-50 p-5 text-center text-sm text-slate-600">No guides match your search.</p>}
         </div>
       </section>
-    </div>}
+    </div>, document.body)}
   </>;
 }
