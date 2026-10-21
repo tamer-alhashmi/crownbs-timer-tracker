@@ -4,12 +4,13 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Activity, Building2, CheckCheck, ClipboardList, Gauge, Images, Settings, UsersRound } from "lucide-react";
+import { Activity, Building2, CheckCheck, ClipboardList, Gauge, Images, Loader2, Settings, UsersRound } from "lucide-react";
 import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
 import { NotificationBell } from "@/components/chat/NotificationBell";
 import { ActiveAssignedTaskCard } from "@/components/dashboard/ActiveAssignedTaskCard";
 import { HelpCenterButton } from "@/components/help/HelpCenterDrawer";
 import { TaskDispatchClient } from "@/app/settings/TaskDispatchClient";
+import { showActionToast } from "@/components/ui/ActionToast";
 import type { getTaskDispatchData } from "@/app/settings/taskActions";
 import { useWorkLogRealtimeRefresh } from "@/lib/useWorkLogRealtimeRefresh";
 import {
@@ -99,9 +100,12 @@ export default function HKAdminDashboardClient({
       setFeedback(null);
       await updateHKRoomStatus(roomId, status, notes);
       setFeedback({ text: "Room status and inspection notes saved.", error: false });
+      showActionToast("success", "Room status and inspection notes saved.");
       router.refresh();
     } catch (error) {
-      setFeedback({ text: error instanceof Error ? error.message : "Unable to update this room.", error: true });
+      const message = error instanceof Error ? error.message : "Unable to update this room.";
+      setFeedback({ text: message, error: true });
+      showActionToast("error", message);
     }
   });
 
@@ -112,11 +116,14 @@ export default function HKAdminDashboardClient({
       try {
         await interveneHKActiveTask(intervention.taskId, intervention.action, reason);
         setFeedback({ text: `${intervention.label} recorded in the audit log.`, error: false });
+        showActionToast("success", `${intervention.label} recorded in the audit log.`);
         setIntervention(null);
         setReason("");
         router.refresh();
       } catch (error) {
-        setFeedback({ text: error instanceof Error ? error.message : "Unable to intervene on this task.", error: true });
+        const message = error instanceof Error ? error.message : "Unable to intervene on this task.";
+        setFeedback({ text: message, error: true });
+        showActionToast("error", message);
       }
     });
   };
@@ -298,8 +305,8 @@ function RoomStatusCard({
       <textarea value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={2000} rows={2} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-slate-900" placeholder="Add inspection notes" />
     </label>
     <div className="mt-2 flex gap-2">
-      <button type="button" disabled={isPending} onClick={() => onSave(room.id, NEXT_STATUS[room.housekeepingStatus], notes)} className="min-h-9 flex-1 rounded-lg bg-slate-900 px-2 text-xs font-semibold text-white disabled:opacity-50">Mark {STATUS_LABELS[NEXT_STATUS[room.housekeepingStatus]]}</button>
-      {notes !== room.inspectionNotes && <button type="button" disabled={isPending} onClick={() => onSave(room.id, room.housekeepingStatus, notes)} className="min-h-9 rounded-lg border border-slate-200 px-2 text-xs font-semibold disabled:opacity-50">Save notes</button>}
+      <button type="button" disabled={isPending} onClick={() => onSave(room.id, NEXT_STATUS[room.housekeepingStatus], notes)} className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-2 text-xs font-semibold text-white disabled:opacity-50">{isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Mark {STATUS_LABELS[NEXT_STATUS[room.housekeepingStatus]]}</button>
+      {notes !== room.inspectionNotes && <button type="button" disabled={isPending} onClick={() => onSave(room.id, room.housekeepingStatus, notes)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-2 text-xs font-semibold disabled:opacity-50">{isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Save notes</button>}
     </div>
   </article>;
 }

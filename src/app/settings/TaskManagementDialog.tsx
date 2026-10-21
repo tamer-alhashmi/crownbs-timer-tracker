@@ -2,9 +2,10 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { MessageCircle, Pencil, RotateCcw, UserRound, X } from "lucide-react";
+import { Loader2, MessageCircle, Pencil, RotateCcw, UserRound, X } from "lucide-react";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 import { useChatStore } from "@/components/chat/chatStore";
+import { showActionToast } from "@/components/ui/ActionToast";
 import type { ChatContact } from "@/lib/chat/types";
 import type { UserRole } from "@/lib/roles";
 import {
@@ -87,11 +88,14 @@ export function TaskManagementDialog({ status, tasks, users, rooms, onClose }: P
     try {
       await operation();
       setNotice(success);
+      showActionToast("success", success);
       setReasonTaskId(null);
       setEditingTask(null);
       router.refresh();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Unable to update this task.");
+      const message = error instanceof Error ? error.message : "Unable to update this task.";
+      setNotice(message);
+      showActionToast("error", message);
     }
   });
 
@@ -158,14 +162,14 @@ export function TaskManagementDialog({ status, tasks, users, rooms, onClose }: P
             <label className="block text-xs font-semibold text-slate-700">Zone / instructions<input value={floorSection} onChange={(event) => setFloorSection(event.target.value)} maxLength={120} className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 px-3 text-sm" /></label>
             <label className="block text-xs font-semibold text-slate-700">Task instructions<textarea value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={2000} rows={3} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
             <fieldset><legend className="text-xs font-semibold text-slate-700">Rooms / units</legend><div className="mt-1 max-h-32 overflow-y-auto overscroll-contain rounded-lg border border-slate-200 bg-white p-2">{eligibleRooms.map((room) => <label key={room.id} className="flex items-center gap-2 px-2 py-1.5 text-sm"><input type="checkbox" checked={roomIds.includes(room.id)} onChange={(event) => setRoomIds((current) => event.target.checked ? [...current, room.id] : current.filter((id) => id !== room.id))} />{room.room_name}{room.floor_section ? ` · ${room.floor_section}` : ""}</label>)}</div></fieldset>
-            <div className="flex gap-2"><button type="button" disabled={isPending || !assigneeId} onClick={() => perform(() => updatePendingDispatchTask(task.id, { assignedTo: assigneeId, notes, roomIds, floorSection }), "Pending task updated.")} className="min-h-9 rounded-lg bg-sky-700 px-3 text-xs font-semibold text-white disabled:opacity-50">Save changes</button><button type="button" onClick={() => setEditingTask(null)} className="min-h-9 rounded-lg border border-slate-200 px-3 text-xs font-semibold">Close</button></div>
+            <div className="flex gap-2"><button type="button" disabled={isPending || !assigneeId} onClick={() => perform(() => updatePendingDispatchTask(task.id, { assignedTo: assigneeId, notes, roomIds, floorSection }), "Pending task updated.")} className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-sky-700 px-3 text-xs font-semibold text-white disabled:opacity-50">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Saving…" : "Save changes"}</button><button type="button" onClick={() => setEditingTask(null)} className="min-h-9 rounded-lg border border-slate-200 px-3 text-xs font-semibold">Close</button></div>
           </div>}
           {reasonTaskId === task.id && <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
             <label className="block text-xs font-semibold text-slate-700">{reasonAction === "complete" ? "End-task audit reason" : "Cancellation reason"}<textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={1000} minLength={5} rows={2} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" placeholder="Enter at least 5 characters" /></label>
             <div className="mt-2 flex gap-2"><button type="button" disabled={isPending || reason.trim().length < 5} onClick={() => perform(
               () => reasonAction === "complete" ? completeDispatchTask(task.id, reason) : cancelDispatchTask(task.id, reason),
               reasonAction === "complete" ? "Task completed and audited." : "Task cancelled and audited."
-            )} className="min-h-9 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white disabled:opacity-50">{reasonAction === "complete" ? "Confirm end task" : "Confirm cancellation"}</button><button type="button" onClick={() => setReasonTaskId(null)} className="min-h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold">Keep task</button></div>
+            )} className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white disabled:opacity-50">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Saving…" : reasonAction === "complete" ? "Confirm end task" : "Confirm cancellation"}</button><button type="button" onClick={() => setReasonTaskId(null)} className="min-h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold">Keep task</button></div>
           </div>}
         </article>)}
       </div>

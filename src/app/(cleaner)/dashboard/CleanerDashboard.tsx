@@ -12,6 +12,7 @@ import { ServiceCard } from "@/components/dashboard/ServiceCard";
 import type { BriefTask, CleanerBrief } from "@/lib/operationalBrief";
 import { calculateTaskCost, resolveBillingUnit, resolveServiceRate } from "@/lib/servicePricing";
 import { useWorkLogRealtimeRefresh } from "@/lib/useWorkLogRealtimeRefresh";
+import { showActionToast } from "@/components/ui/ActionToast";
 import { RoomMediaCapture } from "./RoomMediaCapture";
 import { getWorkLogRoomMedia, type RoomMediaGalleryItem, type RoomMediaItem } from "./roomMediaActions";
 
@@ -106,9 +107,12 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
       setMessage("");
       await operation();
       setMessage(success);
+      showActionToast("success", success);
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to update the operation.");
+      const message = error instanceof Error ? error.message : "Unable to update the operation.";
+      setMessage(message);
+      showActionToast("error", message);
     }
   });
 
@@ -127,9 +131,12 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
           await updateTask(editingId, payload);
           setPersistedEditingRoomIds(payload.roomIds);
           setMessage("Changes saved. You can now add evidence to the selected rooms.");
+          showActionToast("success", "Work log changes saved.");
           router.refresh();
         } catch (error) {
-          setMessage(error instanceof Error ? error.message : "Unable to save task changes.");
+          const message = error instanceof Error ? error.message : "Unable to save task changes.";
+          setMessage(message);
+          showActionToast("error", message);
         }
       });
       return;
@@ -153,7 +160,6 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
     setNotes(log.notes ?? "");
     setEditingMedia([]);
     setEditingMediaLoading(true);
-    window.scrollTo({ top: 0, behavior: "smooth" });
     try {
       setEditingMedia(await getWorkLogRoomMedia(log.id));
     } catch (error) {

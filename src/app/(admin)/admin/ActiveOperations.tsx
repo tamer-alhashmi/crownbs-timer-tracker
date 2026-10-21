@@ -5,6 +5,7 @@ import { Clock3, LoaderCircle, ShieldAlert } from "lucide-react";
 import { overrideActiveOperation, type ManagementOverrideInput } from "./actions";
 import { DashboardPagination } from "@/components/dashboard/DashboardPagination";
 import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
+import { showActionToast } from "@/components/ui/ActionToast";
 
 type ActiveTask = {
   id: string;
@@ -97,8 +98,11 @@ export function ActiveOperations({ shifts, tasks, canManage }: { shifts: ActiveS
         });
         setDraft(null);
         setFeedback({ text: `${draft.label} recorded and audited.`, error: false });
+        showActionToast("success", `${draft.label} recorded and audited.`);
       } catch (error) {
-        setFeedback({ text: error instanceof Error ? error.message : "Unable to update the active operation.", error: true });
+        const message = error instanceof Error ? error.message : "Unable to update the active operation.";
+        setFeedback({ text: message, error: true });
+        showActionToast("error", message);
       }
     });
   };

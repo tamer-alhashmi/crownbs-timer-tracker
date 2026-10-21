@@ -5,11 +5,12 @@ import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
-import { ClipboardCheck, Clock3, Plus, X } from "lucide-react";
+import { ClipboardCheck, Loader2, Plus, X } from "lucide-react";
 import { dispatchTask, type getTaskDispatchData } from "./taskActions";
 import type { UserRole } from "@/lib/roles";
 import { useWorkLogRealtimeRefresh } from "@/lib/useWorkLogRealtimeRefresh";
 import { TaskManagementDialog } from "./TaskManagementDialog";
+import { showActionToast } from "@/components/ui/ActionToast";
 
 type Service = {
   id: string;
@@ -138,6 +139,7 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
     setNotice("");
     if (photoError) {
       setNotice(photoError);
+      showActionToast("error", photoError);
       return;
     }
     let photoPath: string | null = null;
@@ -149,6 +151,7 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
       const result = await response.json() as { path?: string; error?: string };
       if (!response.ok || !result.path) {
         setNotice(result.error ?? "The task photo could not be uploaded.");
+        showActionToast("error", result.error ?? "The task photo could not be uploaded.");
         return;
       }
       photoPath = result.path;
@@ -185,16 +188,21 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
         }
       }
       setNotice(result.error);
+      showActionToast("error", result.error);
       return;
     }
     setNotice("Task assigned. The assignee has been notified.");
+    const assigneeName = assignees.find((user) => user.id === values.assignedTo)?.full_name ?? "team member";
+    showActionToast("success", `${selectedService?.name ?? "Task"} assigned to ${assigneeName}.`);
     form.reset({ ...defaultValues, hotelId: hotels.length === 1 ? hotels[0].id : "" });
     setPhoto(null);
     setPhotoError("");
     setIsOpen(false);
     router.refresh();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Unable to assign this task.");
+      const message = error instanceof Error ? error.message : "Unable to assign this task.";
+      setNotice(message);
+      showActionToast("error", message);
     }
   }));
 
@@ -288,7 +296,7 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
               {notice && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{notice}</p>}
               <div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:justify-end">
                 <button type="button" onClick={() => setIsOpen(false)} className="min-h-11 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700">Cancel</button>
-                <button type="submit" disabled={isPending} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 text-sm font-bold text-white hover:bg-emerald-800 disabled:opacity-50">{isPending ? <><Clock3 className="h-4 w-4 animate-pulse" /> Assigning…</> : <><ClipboardCheck className="h-4 w-4" /> Assign task</>}</button>
+                <button type="submit" disabled={isPending} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 text-sm font-bold text-white hover:bg-emerald-800 disabled:opacity-50">{isPending ? <><Loader2 className="h-4 w-4 animate-spin" /> Assigning…</> : <><ClipboardCheck className="h-4 w-4" /> Assign task</>}</button>
               </div>
             </form>
           </section>

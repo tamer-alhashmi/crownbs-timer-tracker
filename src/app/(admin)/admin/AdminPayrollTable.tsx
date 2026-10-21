@@ -2,7 +2,7 @@
 
 import { useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Download, FileSpreadsheet, FileText, Pencil, Trash2, X } from "lucide-react";
+import { ChevronDown, Download, FileSpreadsheet, FileText, Loader2, Pencil, Trash2, X } from "lucide-react";
 import { strToU8, zipSync } from "fflate";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -10,6 +10,7 @@ import { calculateTaskCost, resolveBillingUnit, resolveServiceRate } from "@/lib
 import type { ServiceRecord } from "./serviceActions";
 import { deletePayrollTask, updatePayrollTask } from "./actions";
 import { DashboardPagination } from "@/components/dashboard/DashboardPagination";
+import { showActionToast } from "@/components/ui/ActionToast";
 
 type PayrollService = { name?: string | null; description?: string | null; default_rate?: number | string | null; unit?: string | null };
 const EXPORT_COLUMNS = [
@@ -240,9 +241,12 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
         });
         setEditingTask(null);
         setTaskMessage({ text: "Payroll task updated.", error: false });
+        showActionToast("success", "Payroll task updated.");
         router.refresh();
       } catch (error) {
-        setTaskMessage({ text: error instanceof Error ? error.message : "Unable to update task.", error: true });
+        const message = error instanceof Error ? error.message : "Unable to update task.";
+        setTaskMessage({ text: message, error: true });
+        showActionToast("error", message);
       }
     });
   };
@@ -254,9 +258,12 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
         await deletePayrollTask(deletingTask.id);
         setDeletingTask(null);
         setTaskMessage({ text: "Task removed from payroll. Its audit history is retained.", error: false });
+        showActionToast("success", "Task removed from payroll. Its audit history is retained.");
         router.refresh();
       } catch (error) {
-        setTaskMessage({ text: error instanceof Error ? error.message : "Unable to remove task.", error: true });
+        const message = error instanceof Error ? error.message : "Unable to remove task.";
+        setTaskMessage({ text: message, error: true });
+        showActionToast("error", message);
       }
     });
   };
@@ -394,11 +401,11 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
           <p className="text-xs text-slate-500">This amount applies to this task only. It does not change the service catalog price.</p>
         </div>
         {taskMessage?.error && <p role="alert" className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800">{taskMessage.text}</p>}
-        <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={() => setEditingTask(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Cancel</button><button type="submit" disabled={isTaskPending} className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isTaskPending ? "Saving…" : "Save task"}</button></div>
+        <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={() => setEditingTask(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Cancel</button><button type="submit" disabled={isTaskPending} className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isTaskPending && <Loader2 className="h-4 w-4 animate-spin" />}{isTaskPending ? "Saving…" : "Save task"}</button></div>
       </form>
     </div>}
     {deletingTask && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4" role="alertdialog" aria-modal="true" aria-labelledby="payroll-task-delete-title">
-      <section className="w-full max-w-md rounded-2xl bg-white p-5 text-slate-900 shadow-2xl"><h2 id="payroll-task-delete-title" className="text-lg font-bold">Remove this payroll task?</h2><p className="mt-2 text-sm leading-6 text-slate-600">This will exclude {deletingTask.cleanerName}&apos;s task at {deletingTask.hotelName} from payroll totals and reports. The record is retained as deleted in the audit history.</p>{taskMessage?.error && <p role="alert" className="mt-3 text-sm text-rose-700">{taskMessage.text}</p>}<div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setDeletingTask(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Cancel</button><button type="button" onClick={confirmDeleteTask} disabled={isTaskPending} className="rounded-lg bg-rose-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isTaskPending ? "Removing…" : "Remove task"}</button></div></section>
+      <section className="w-full max-w-md rounded-2xl bg-white p-5 text-slate-900 shadow-2xl"><h2 id="payroll-task-delete-title" className="text-lg font-bold">Remove this payroll task?</h2><p className="mt-2 text-sm leading-6 text-slate-600">This will exclude {deletingTask.cleanerName}&apos;s task at {deletingTask.hotelName} from payroll totals and reports. The record is retained as deleted in the audit history.</p>{taskMessage?.error && <p role="alert" className="mt-3 text-sm text-rose-700">{taskMessage.text}</p>}<div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setDeletingTask(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Cancel</button><button type="button" onClick={confirmDeleteTask} disabled={isTaskPending} className="inline-flex items-center gap-2 rounded-lg bg-rose-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isTaskPending && <Loader2 className="h-4 w-4 animate-spin" />}{isTaskPending ? "Removing…" : "Remove task"}</button></div></section>
     </div>}
   </section>;
 }

@@ -23,6 +23,8 @@ import type { LucideIcon } from "lucide-react";
 import { DashboardPagination } from "@/components/dashboard/DashboardPagination";
 import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
 import { ActiveAssignedTaskCard } from "@/components/dashboard/ActiveAssignedTaskCard";
+import { showActionToast } from "@/components/ui/ActionToast";
+import type { UserRole } from "@/lib/roles";
 
 const DASHBOARD_TABS = [
   { id: "overview", label: "Overview", icon: Gauge },
@@ -181,8 +183,8 @@ export default function ManagementDashboardClient({ data, dispatchData }: Props)
     window.dispatchEvent(new Event(DASHBOARD_TAB_CHANGE));
   };
   const run = (operation: () => Promise<unknown>, success = "Saved.") => startTransition(async () => {
-    try { setMessage(""); await operation(); setEditing(null); setDraft(null); setMessage(success); router.refresh(); }
-    catch (error) { setMessage(error instanceof Error ? error.message : "Operation failed."); }
+    try { setMessage(""); await operation(); setEditing(null); setDraft(null); setMessage(success); showActionToast("success", success); router.refresh(); }
+    catch (error) { const text = error instanceof Error ? error.message : "Operation failed."; setMessage(text); showActionToast("error", text); }
   });
 
   const approveWorkLog = async (logId: string, role: "manager" | "owner") => {
@@ -247,11 +249,13 @@ export default function ManagementDashboardClient({ data, dispatchData }: Props)
       try {
         await approveWorkLog(logId, role);
         setApprovalFeedback({ logId, kind: "success", text: success });
+        showActionToast("success", success);
         router.refresh();
       } catch (error) {
         const text = error instanceof Error ? error.message : "Unable to save approval.";
         setApprovalFeedback({ logId, kind: "error", text });
         setMessage(text);
+        showActionToast("error", text);
       }
     });
   };
@@ -305,7 +309,7 @@ export default function ManagementDashboardClient({ data, dispatchData }: Props)
               startTime: task.start_time,
             }} /> : null;
           })()}
-          {dispatchData && <TaskDispatchClient role={data.userRole as "owner" | "manager"} {...dispatchData} />}
+          {dispatchData && <TaskDispatchClient role={data.userRole as UserRole} {...dispatchData} />}
           <DashboardHeading title="Executive overview" description="Portfolio performance, approvals, and operating costs at a glance." />
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <Metric label="Properties" value={data.hotels.length} icon={Hotel} />

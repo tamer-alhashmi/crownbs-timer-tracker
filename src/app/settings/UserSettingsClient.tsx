@@ -1,15 +1,17 @@
 "use client";
 
 import { useMemo, useState, useTransition, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
-import { ChevronLeft, ChevronRight, Pencil, Plus, Search, ShieldAlert, Trash2, UserRound, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Pencil, Plus, Search, ShieldAlert, Trash2, UserRound, X } from "lucide-react";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 import { assignManagedUserToHotel, createManagedUser, deleteManagedUser, unassignManagedUserFromHotel, updateManagedUser, type ManagedUser } from "./actions";
 import { ROLE_LABELS, USER_ROLES } from "@/lib/roles";
 import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
 import { useWorkLogRealtimeRefresh } from "@/lib/useWorkLogRealtimeRefresh";
+import { showActionToast } from "@/components/ui/ActionToast";
 
 type Props = {
   actorRole: string;
@@ -42,6 +44,7 @@ const userSchema = z.object({
 
 export default function UserSettingsClient({ actorRole, hotels, users }: Props) {
   useWorkLogRealtimeRefresh();
+  const router = useRouter();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [assigningId, setAssigningId] = useState<string | null>(null);
@@ -101,9 +104,12 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
       form.reset(emptyForm);
       setEditingId(null);
       setMessage(wasEditing ? "User updated." : "User created.");
-      window.location.reload();
+      showActionToast("success", wasEditing ? "User record updated." : "User account created.");
+      router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to save user.");
+      const message = error instanceof Error ? error.message : "Unable to save user.";
+      setMessage(message);
+      showActionToast("error", message);
     }
   }));
 
@@ -119,7 +125,6 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
       primaryHotelId: user.primary_hotel_id ?? user.assignedHotels[0]?.id ?? "",
       password: "",
     });
-    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const remove = (user: ManagedUser) => {
@@ -128,9 +133,12 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
       try {
         await deleteManagedUser(user.id);
         setMessage("User deleted.");
-        window.location.reload();
+        showActionToast("success", `${user.full_name} deleted.`);
+        router.refresh();
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Unable to delete user.");
+        const message = error instanceof Error ? error.message : "Unable to delete user.";
+        setMessage(message);
+        showActionToast("error", message);
       }
     });
   };
@@ -139,12 +147,17 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
     try {
       if (!assignmentHotelId) throw new Error("Select a hotel first.");
       await assignManagedUserToHotel(userId, assignmentHotelId);
+      const user = users.find((item) => item.id === userId);
+      const hotel = hotels.find((item) => item.id === assignmentHotelId);
       setMessage("Hotel assignment updated.");
+      showActionToast("success", `${hotel?.name ?? "Property"} assigned to ${user?.full_name ?? "user"}.`);
       setAssigningId(null);
       setAssignmentHotelId("");
-      window.location.reload();
+      router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to assign hotel.");
+      const message = error instanceof Error ? error.message : "Unable to assign hotel.";
+      setMessage(message);
+      showActionToast("error", message);
     }
   });
 
@@ -158,9 +171,12 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
         await unassignManagedUserFromHotel(target.userId, hotel.id);
         setUnlinkTarget(null);
         setMessage(`${hotel.name} was unlinked from ${target.userName}.`);
-        window.location.reload();
+        showActionToast("success", `${hotel.name} unlinked from ${target.userName}.`);
+        router.refresh();
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Unable to remove hotel assignment.");
+        const message = error instanceof Error ? error.message : "Unable to remove hotel assignment.";
+        setMessage(message);
+        showActionToast("error", message);
       }
     });
   };
@@ -229,7 +245,7 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
             <Field label="Password" error={form.formState.errors.password?.message}><input {...form.register("password")} type="password" placeholder={editingId ? "New password (optional)" : "Password (optional with PIN)"} autoComplete="new-password" className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 sm:col-span-2 lg:col-span-1" /></Field>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            <button type="submit" disabled={isPending} className="min-h-11 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{isPending ? "Saving..." : editingId ? "Save changes" : "Create user"}</button>
+            <button type="submit" disabled={isPending} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{isPending ? <><Loader2 className="h-4 w-4 animate-spin" />Saving...</> : editingId ? "Save changes" : "Create user"}</button>
             {editingId && <button type="button" onClick={() => { setEditingId(null); form.reset(emptyForm); }} className="inline-flex min-h-11 items-center gap-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700"><X className="h-4 w-4" /> Cancel edit</button>}
           </div>
         </form>

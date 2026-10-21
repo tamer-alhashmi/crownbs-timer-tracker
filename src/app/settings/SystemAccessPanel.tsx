@@ -5,6 +5,7 @@ import { Check, ChevronDown, LoaderCircle, ShieldCheck } from "lucide-react";
 import { updateUserFeaturePermissions, type ManagedUser } from "./actions";
 import { FEATURE_KEYS, type FeatureKey, type FeaturePermission } from "./permissionConfig";
 import { ROLE_LABELS } from "@/lib/roles";
+import { showActionToast } from "@/components/ui/ActionToast";
 
 type Props = { users: ManagedUser[]; permissions: FeaturePermission[] };
 type Access = Pick<FeaturePermission, "can_view" | "can_create" | "can_edit" | "can_delete">;
@@ -79,8 +80,11 @@ export default function SystemAccessPanel({ users, permissions }: Props) {
         setNotice(null);
         await updateUserFeaturePermissions(selectedUserId, permissionRows.map(({ featureKey, ...access }) => ({ feature_key: featureKey, ...access })));
         setNotice({ kind: "success", text: `Permissions saved for ${selectedUser?.full_name ?? "the selected user"}.` });
+        showActionToast("success", `Permissions saved for ${selectedUser?.full_name ?? "the selected user"}.`);
       } catch (error) {
-        setNotice({ kind: "error", text: error instanceof Error ? error.message : "Unable to save feature permissions." });
+        const message = error instanceof Error ? error.message : "Unable to save feature permissions.";
+        setNotice({ kind: "error", text: message });
+        showActionToast("error", message);
       }
     });
   };
