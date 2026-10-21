@@ -1356,8 +1356,8 @@ body {
 }
 html {
   min-height: 100%;
+  background-color: #0f172a;
   padding-top: env(safe-area-inset-top, 0px);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 .chat-panel {
   padding-top: env(safe-area-inset-top, 0px);
@@ -1564,7 +1564,7 @@ html {
 .chat-launcher {
   position: fixed;
   right: 1.5rem;
-  bottom: 1.5rem;
+  bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
   z-index: 50;
   display: flex;
   width: 4rem;

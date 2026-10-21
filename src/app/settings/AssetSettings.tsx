@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Building2, ChevronDown, Pencil, Plus, Trash2, Upload } from "lucide-react";
+import { Building2, ChevronDown, Loader2, Pencil, Plus, Trash2, Upload } from "lucide-react";
+import { showActionToast } from "@/components/ui/ActionToast";
 import {
   archiveOwnedProperty,
   archiveServiceConfiguration,
@@ -89,22 +90,39 @@ export function PropertySettings({ properties, managers }: { properties: Propert
   const saveProperty = form.handleSubmit((values) => startTransition(async () => {
     setMessage("");
     const input = { name: values.name, location: values.location, roomCount: Number(values.roomCount), floorCount: Number(values.floorCount), managerId: values.managerId || null };
-    const result = editing ? await updateOwnedProperty(editing.id, input) : await createOwnedProperty(input);
-    if (!result.success) {
-      setMessage(result.error ?? "Unable to save this room.");
-      return;
+    try {
+      const result = editing ? await updateOwnedProperty(editing.id, input) : await createOwnedProperty(input);
+      if (!result.success) {
+        setMessage(result.error ?? "Unable to save this property.");
+        showActionToast("error", result.error ?? "Unable to save this property.");
+        return;
+      }
+      setMessage(editing ? "Property details saved." : "Property created.");
+      showActionToast("success", editing ? "Property details updated." : "Property created.");
+      setAdding(false);
+      setEditing(null);
+      router.refresh();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to save this property.";
+      setMessage(message);
+      showActionToast("error", message);
     }
-    setMessage(editing ? "Property details saved." : "Property created.");
-    setAdding(false);
-    setEditing(null);
-    router.refresh();
   }));
   const archive = (property: Property) => {
     if (!window.confirm(`Archive ${property.name}? Staff and work history will be retained.`)) return;
     startTransition(async () => {
-      const result = await archiveOwnedProperty(property.id);
-      setMessage(result.success ? `${property.name} archived.` : result.error);
-      if (result.success) router.refresh();
+      try {
+        const result = await archiveOwnedProperty(property.id);
+        setMessage(result.success ? `${property.name} archived.` : result.error);
+        if (result.success) {
+          showActionToast("success", `${property.name} archived.`);
+          router.refresh();
+        } else showActionToast("error", result.error);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : `Unable to archive ${property.name}.`;
+        setMessage(message);
+        showActionToast("error", message);
+      }
     });
   };
 
@@ -126,7 +144,7 @@ export function PropertySettings({ properties, managers }: { properties: Propert
           </div>
           {message && <p role="alert" className="mt-3 text-sm text-rose-700">{message}</p>}
           <div className="mt-4 flex gap-2">
-            <button type="submit" disabled={isPending} className="min-h-11 rounded-xl bg-emerald-700 px-4 text-sm font-semibold text-white disabled:opacity-50">{isPending ? "Saving…" : editing ? "Save property" : "Create property"}</button>
+            <button type="submit" disabled={isPending} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-700 px-4 text-sm font-semibold text-white disabled:opacity-50">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Saving…" : editing ? "Save property" : "Create property"}</button>
             <button type="button" onClick={() => { setAdding(false); setEditing(null); setMessage(""); }} className="min-h-11 rounded-xl border border-slate-200 px-4 text-sm font-semibold">Cancel</button>
           </div>
         </form>
@@ -234,17 +252,21 @@ function PropertyRoomManager({ property }: { property: Property }) {
       if (!result.success) {
         setMessage(result.error ?? "Unable to save this room.");
         setErrorMessage(true);
+        showActionToast("error", result.error ?? "Unable to save this room.");
         return;
       }
       setMessage(editing ? "Room details updated." : "Room created.");
+      showActionToast("success", editing ? "Room details updated." : "Room created.");
       setErrorMessage(false);
       setShowForm(false);
       setEditing(null);
       await refreshRooms();
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to save this room.");
+      const message = error instanceof Error ? error.message : "Unable to save this room.";
+      setMessage(message);
       setErrorMessage(true);
+      showActionToast("error", message);
     }
   });
   const archive = (room: ManagedRoom) => {
@@ -255,12 +277,15 @@ function PropertyRoomManager({ property }: { property: Property }) {
         setMessage(result.success ? `${result.roomName ?? "Room"} archived.` : result.error ?? "Unable to archive this room.");
         setErrorMessage(!result.success);
         if (result.success) {
+          showActionToast("success", `${result.roomName ?? "Room"} archived.`);
           await refreshRooms();
           router.refresh();
-        }
+        } else showActionToast("error", result.error ?? "Unable to archive this room.");
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Unable to archive this room.");
+        const message = error instanceof Error ? error.message : "Unable to archive this room.";
+        setMessage(message);
         setErrorMessage(true);
+        showActionToast("error", message);
       }
     });
   };
@@ -277,15 +302,19 @@ function PropertyRoomManager({ property }: { property: Property }) {
       if (!result.success) {
         setMessage(result.error ?? "Unable to create the room range.");
         setErrorMessage(true);
+        showActionToast("error", result.error ?? "Unable to create the room range.");
         return;
       }
       setMessage(`${result.count} rooms added.`);
+      showActionToast("success", `${result.count} rooms added.`);
       setErrorMessage(false);
       await refreshRooms();
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to create the room range.");
+      const message = error instanceof Error ? error.message : "Unable to create the room range.";
+      setMessage(message);
       setErrorMessage(true);
+      showActionToast("error", message);
     }
   });
   const uploadPhoto = (room: ManagedRoom, file: File) => startTransition(async () => {
@@ -298,10 +327,13 @@ function PropertyRoomManager({ property }: { property: Property }) {
       const result = await response.json() as { error?: string };
       setMessage(response.ok ? `Photo added to ${room.room_name}.` : result.error ?? "Unable to upload photo.");
       setErrorMessage(!response.ok);
+      showActionToast(response.ok ? "success" : "error", response.ok ? `Photo added to ${room.room_name}.` : result.error ?? "Unable to upload photo.");
       if (response.ok) await refreshRooms();
     } catch (error) {
-      setMessage(error instanceof Error ? `Unable to upload photo: ${error.message}` : "Unable to upload photo.");
+      const message = error instanceof Error ? `Unable to upload photo: ${error.message}` : "Unable to upload photo.";
+      setMessage(message);
       setErrorMessage(true);
+      showActionToast("error", message);
     }
   });
 
@@ -346,7 +378,7 @@ function PropertyRoomManager({ property }: { property: Property }) {
             <label className="text-xs font-semibold text-slate-600">To<input value={batchEnd} onChange={(event) => setBatchEnd(event.target.value)} type="number" min="0" className={`${fieldClass} mt-1`} /></label>
             <label className="text-xs font-semibold text-slate-600">Name prefix<input value={batchPrefix} onChange={(event) => setBatchPrefix(event.target.value)} placeholder="e.g. Room " className={`${fieldClass} mt-1`} /></label>
             <label className="text-xs font-semibold text-slate-600">Floor / section<input value={batchFloor} onChange={(event) => setBatchFloor(event.target.value)} placeholder="e.g. Floor 1" className={`${fieldClass} mt-1`} /></label>
-            <button type="button" onClick={addBatch} disabled={isPending} className="mt-auto min-h-11 rounded-xl bg-emerald-700 px-3 text-sm font-semibold text-white disabled:opacity-50">Generate rooms</button>
+            <button type="button" onClick={addBatch} disabled={isPending} className="mt-auto inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-3 text-sm font-semibold text-white disabled:opacity-50">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Generating…" : "Generate rooms"}</button>
           </div>
         </section>
         <div className="grid gap-3 sm:grid-cols-3">
@@ -406,7 +438,7 @@ function RoomEditor({ initial, isPending, onSave, onCancel }: {
         <label className="text-xs font-semibold text-slate-600 sm:col-span-2">Amenities (comma separated)<input value={amenities} onChange={(event) => setAmenities(event.target.value)} className={`${fieldClass} mt-1`} placeholder="Wi-Fi, minibar, balcony" /></label>
       </div>
       {error && <p role="alert" className="mt-3 text-sm text-rose-700">{error}</p>}
-      <div className="mt-4 flex gap-2"><button type="submit" disabled={isPending} className="min-h-10 rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white disabled:opacity-50">{isPending ? "Saving…" : "Save room"}</button><button type="button" onClick={onCancel} className="min-h-10 rounded-lg border border-slate-200 px-4 text-sm font-semibold">Cancel</button></div>
+      <div className="mt-4 flex gap-2"><button type="submit" disabled={isPending} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white disabled:opacity-50">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Saving…" : "Save room"}</button><button type="button" onClick={onCancel} className="min-h-10 rounded-lg border border-slate-200 px-4 text-sm font-semibold">Cancel</button></div>
     </form>
   );
 }
@@ -441,40 +473,69 @@ function PropertyServiceCatalog({ property }: { property: Property }) {
   const save = form.handleSubmit((values) => startTransition(async () => {
     setMessage("");
     setMessageError(false);
-    const result = await (editing
-      ? updateServiceConfiguration(editing.id, { hotelId: property.id, ...values, defaultRate: Number(values.rate) })
-      : createServiceConfiguration({ hotelId: property.id, ...values, defaultRate: Number(values.rate) }));
-    if (!result.success) {
-      setMessage(result.error);
+    try {
+      const result = await (editing
+        ? updateServiceConfiguration(editing.id, { hotelId: property.id, ...values, defaultRate: Number(values.rate) })
+        : createServiceConfiguration({ hotelId: property.id, ...values, defaultRate: Number(values.rate) }));
+      if (!result.success) {
+        setMessage(result.error);
+        setMessageError(true);
+        showActionToast("error", result.error);
+        return;
+      }
+      setMessage(editing ? "Service updated." : "Service added.");
+      showActionToast("success", editing ? "Service updated." : "Service added.");
+      setEditing(null);
+      setShowForm(false);
+      form.reset({ name: "", description: "", unit: "per_room", rate: "0", isActive: true });
+      router.refresh();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to save this service.";
+      setMessage(message);
       setMessageError(true);
-      return;
+      showActionToast("error", message);
     }
-    setMessage(editing ? "Service updated." : "Service added.");
-    setEditing(null);
-    setShowForm(false);
-    form.reset({ name: "", description: "", unit: "per_room", rate: "0", isActive: true });
-    router.refresh();
   }));
   const toggleActive = (service: Service) => startTransition(async () => {
-    const result = await updateServiceConfiguration(service.id, {
-      hotelId: property.id,
-      name: service.name,
-      description: service.description,
-      unit: service.unit,
-      defaultRate: Number(service.default_rate),
-      isActive: !service.is_active,
-    });
-    setMessage(result.success ? `${service.name} ${service.is_active ? "deactivated" : "activated"}.` : result.error);
-    setMessageError(!result.success);
-    if (result.success) router.refresh();
+    try {
+      const result = await updateServiceConfiguration(service.id, {
+        hotelId: property.id,
+        name: service.name,
+        description: service.description,
+        unit: service.unit,
+        defaultRate: Number(service.default_rate),
+        isActive: !service.is_active,
+      });
+      setMessage(result.success ? `${service.name} ${service.is_active ? "deactivated" : "activated"}.` : result.error);
+      setMessageError(!result.success);
+      if (result.success) {
+        showActionToast("success", `${service.name} ${service.is_active ? "deactivated" : "activated"}.`);
+        router.refresh();
+      } else showActionToast("error", result.error);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to update this service.";
+      setMessage(message);
+      setMessageError(true);
+      showActionToast("error", message);
+    }
   });
   const remove = (service: Service) => {
     if (!window.confirm(`Delete ${service.name}? It will be deactivated so existing work history is preserved.`)) return;
     startTransition(async () => {
-      const result = await archiveServiceConfiguration(service.id, property.id);
-      setMessage(result.success ? `${service.name} deleted from active services.` : result.error);
-      setMessageError(!result.success);
-      if (result.success) router.refresh();
+      try {
+        const result = await archiveServiceConfiguration(service.id, property.id);
+        setMessage(result.success ? `${service.name} deleted from active services.` : result.error);
+        setMessageError(!result.success);
+        if (result.success) {
+          showActionToast("success", `${service.name} deleted from active services.`);
+          router.refresh();
+        } else showActionToast("error", result.error);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to archive this service.";
+        setMessage(message);
+        setMessageError(true);
+        showActionToast("error", message);
+      }
     });
   };
 
@@ -500,7 +561,7 @@ function PropertyServiceCatalog({ property }: { property: Property }) {
               <Input label="Description"><input {...form.register("description")} className={fieldClass} placeholder="Optional task details" /></Input>
             </div>
             <label className="mt-3 inline-flex min-h-9 items-center gap-2 text-sm font-medium text-slate-700"><input type="checkbox" {...form.register("isActive")} />Active service</label>
-            <div className="mt-3 flex gap-2"><button type="submit" disabled={isPending} className="min-h-10 rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white">{isPending ? "Saving…" : editing ? "Save service" : "Add service"}</button><button type="button" onClick={() => { setEditing(null); setShowForm(false); setMessage(""); setMessageError(false); }} className="min-h-10 rounded-lg border border-slate-200 px-4 text-sm font-semibold">Cancel</button></div>
+            <div className="mt-3 flex gap-2"><button type="submit" disabled={isPending} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Saving…" : editing ? "Save service" : "Add service"}</button><button type="button" onClick={() => { setEditing(null); setShowForm(false); setMessage(""); setMessageError(false); }} className="min-h-10 rounded-lg border border-slate-200 px-4 text-sm font-semibold">Cancel</button></div>
           </form>
         )}
         {message && <p role={messageError ? "alert" : "status"} className={`text-sm ${messageError ? "text-rose-700" : "text-slate-600"}`}>{message}</p>}

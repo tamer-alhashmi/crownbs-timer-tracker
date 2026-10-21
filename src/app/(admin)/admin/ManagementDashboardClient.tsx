@@ -1,15 +1,15 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore, useTransition } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Activity, CalendarDays, Check, CircleDollarSign, ClipboardList, Gauge, History, Hotel, Pencil, UsersRound, X, BookOpen, Wallet } from "lucide-react";
+import { Activity, CalendarDays, Check, CircleDollarSign, ClipboardList, Gauge, History, Hotel, Pencil, UsersRound, X, BookOpen, Wallet, Columns3, Filter, Search } from "lucide-react";
 import { OperationalBrief } from "@/components/dashboard/OperationalBrief";
 import { ServiceCard } from "@/components/dashboard/ServiceCard";
 import { SystemManual } from "@/components/dashboard/SystemManual";
 import { UserProfileMenu } from "@/components/layout/UserProfileMenu";
 import type { BriefTask, ManagementBrief } from "@/lib/operationalBrief";
 import { calculateTaskCost, resolveBillingUnit, resolveServiceRate, type ServicePricing } from "@/lib/servicePricing";
-import { approveWorkLog as approveWorkLogAction, rejectWorkLog, updateWorkLog } from "./actions";
+import { approveWorkLog as approveWorkLogAction, finalizeWorkLogWithoutClockOut, rejectWorkLog, updateWorkLog } from "./actions";
 import { importRoomsFromGoogleSheet } from "./roomImportActions";
 import { FullEditPanel } from "./FullEditPanel";
 import { AdminPayrollTable, type PayrollLog } from "./AdminPayrollTable";
@@ -23,6 +23,8 @@ import type { LucideIcon } from "lucide-react";
 import { DashboardPagination } from "@/components/dashboard/DashboardPagination";
 import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
 import { ActiveAssignedTaskCard } from "@/components/dashboard/ActiveAssignedTaskCard";
+import { showActionToast } from "@/components/ui/ActionToast";
+import type { UserRole } from "@/lib/roles";
 
 const DASHBOARD_TABS = [
   { id: "overview", label: "Overview", icon: Gauge },
@@ -54,13 +56,13 @@ function useDashboardTab() {
   return useSyncExternalStore(subscribeDashboardTab, readDashboardTab, () => "overview");
 }
 
-type Log = { id: string; user_id: string; hotel_id: string; service_id: string | null; cleanerName: string; hotelName: string; start_time: string; end_time: string | null; task_date: string; status: string; rooms_completed: number; room_number: string | null; room_numbers: string[]; roomDetails?: { name: string; floor: string }[]; service_name_snapshot: string | null; service_description_snapshot: string | null; notes: string | null; cost_override?: number | string | null; owner_id: string | null; owner_name: string | null; manager_id: string | null; manager_name: string | null; responsibility_recorded_at: string | null; manager_approved: boolean; owner_approved: boolean; manager_rejected: boolean; owner_rejected: boolean; is_locked: boolean; rejection_notes?: string | null; services_config?: { name: string; default_rate: number; unit?: string }[] };
+type Log = { id: string; user_id: string; hotel_id: string; service_id: string | null; cleanerName: string; hotelName: string; assigneeRole: string; start_time: string; end_time: string | null; task_date: string; status: string; cancelled_at?: string | null; rooms_completed: number; room_number: string | null; room_numbers: string[]; roomDetails?: { name: string; floor: string }[]; service_name_snapshot: string | null; service_description_snapshot: string | null; notes: string | null; cost_override?: number | string | null; owner_id: string | null; owner_name: string | null; manager_id: string | null; manager_name: string | null; responsibility_recorded_at: string | null; manager_approved: boolean; owner_approved: boolean; manager_rejected: boolean; owner_rejected: boolean; is_locked: boolean; rejection_notes?: string | null; services_config?: { name: string; default_rate: number; unit?: string }[] };
 type Room = { id: string; hotel_id: string; room_name: string; floor_section?: string | null; category: string; status?: string };
 type DispatchData = Awaited<ReturnType<typeof getTaskDispatchData>>;
-type Props = { data: { userRole: string; currentUserId: string; userName: string; userEmail: string; userAvatarUrl: string | null; canManagePayrollTasks: boolean; canManageActiveOperations: boolean; hotels: PropertyRecord[]; services: ServiceRecord[]; cleaners: { id: string; name: string; primary_hotel_id: string | null }[]; rooms: Room[]; workLogs: Log[]; payroll: PayrollLog[]; activeShifts: { id: string; user_id: string; start_time: string; cleanerName: string; task: Log | null }[]; activeTasks: Log[]; overrideAudit: OverrideAuditRecord[]; brief: ManagementBrief }; dispatchData?: DispatchData };
+type Props = { data: { userRole: string; currentUserId: string; userName: string; userEmail: string; userAvatarUrl: string | null; canManagePayrollTasks: boolean; canManageActiveOperations: boolean; hotels: PropertyRecord[]; services: ServiceRecord[]; cleaners: { id: string; name: string; primary_hotel_id: string | null }[]; rooms: Room[]; workLogs: Log[]; auditLogs: Log[]; payroll: PayrollLog[]; activeShifts: { id: string; user_id: string; start_time: string; cleanerName: string; task: Log | null }[]; activeTasks: Log[]; overrideAudit: OverrideAuditRecord[]; brief: ManagementBrief }; dispatchData?: DispatchData };
 type AuditDetail = { label: string; value: string };
 type OverrideAuditRecord = { id: string; entity_type: "task" | "shift"; action: string; actor_name: string; target_label: string; override_reason: string; previous_details: AuditDetail[]; new_details: AuditDetail[]; created_at: string };
-type Draft = { hotelId: string; serviceId: string; roomId: string; roomsCompleted: string; roomNumber: string; notes: string; startTime: string; endTime: string };
+type Draft = { hotelId: string; serviceId: string; roomId: string; roomsCompleted: string; roomNumber: string; notes: string; startTime: string; endTime: string; status: "assigned" | "active" | "completed" };
 type WorkLogSortColumn = "date" | "cleaner" | "hotel" | "service" | "status";
 type ApprovalFeedback = { logId: string; kind: "pending" | "success" | "error"; text: string };
 
@@ -91,7 +93,7 @@ function toBriefTask(log: Log): BriefTask {
   const serviceName = log.service_name_snapshot ?? service?.name ?? "Service";
   const rate = resolveServiceRate({ name: serviceName, default_rate: service?.default_rate });
   const unit = resolveBillingUnit(service?.unit, serviceName);
-  return { id: log.id, cleaner: log.cleanerName, hotel: log.hotelName, service: serviceName, serviceDescription: log.service_description_snapshot ?? serviceName, taskDate: log.task_date, status: log.status, startTime: log.start_time, endTime: log.end_time, ownerId: log.owner_id, ownerName: log.owner_name ?? "Unassigned owner", managerId: log.manager_id, managerName: log.manager_name ?? "Unassigned manager", responsibilityRecordedAt: log.responsibility_recorded_at ?? log.start_time, room: log.room_numbers.join(", ") || log.room_number || "", rooms: log.rooms_completed, hours, rate, cost: calculateTaskCost(hours, log.rooms_completed, { name: serviceName, unit, default_rate: rate }, log.cost_override), notes: log.notes ?? "", managerApproved: log.manager_approved, ownerApproved: log.owner_approved, managerRejected: log.manager_rejected, ownerRejected: log.owner_rejected, isLocked: log.is_locked, rejectionNotes: log.rejection_notes ?? "" };
+  return { id: log.id, cleaner: log.cleanerName, hotel: log.hotelName, service: serviceName, serviceDescription: log.service_description_snapshot ?? serviceName, taskDate: log.task_date,   status: log.cancelled_at ? "cancelled" : log.status, startTime: log.start_time, endTime: log.end_time, ownerId: log.owner_id, ownerName: log.owner_name ?? "Unassigned owner", managerId: log.manager_id, managerName: log.manager_name ?? "Unassigned manager", responsibilityRecordedAt: log.responsibility_recorded_at ?? log.start_time, room: log.room_numbers.join(", ") || log.room_number || "", rooms: log.rooms_completed, hours, rate, cost: calculateTaskCost(hours, log.rooms_completed, { name: serviceName, unit, default_rate: rate }, log.cost_override), notes: log.notes ?? "", managerApproved: log.manager_approved, ownerApproved: log.owner_approved, managerRejected: log.manager_rejected, ownerRejected: log.owner_rejected, isLocked: log.is_locked, rejectionNotes: log.rejection_notes ?? "" };
 }
 
 export default function ManagementDashboardClient({ data, dispatchData }: Props) {
@@ -101,6 +103,7 @@ export default function ManagementDashboardClient({ data, dispatchData }: Props)
   const [isPending, startTransition] = useTransition();
   const [editing, setEditing] = useState<Log | null>(null);
   const [selectedTask, setSelectedTask] = useState<BriefTask | null>(null);
+  const [selectedTaskFromAudit, setSelectedTaskFromAudit] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [optimisticPayrollLogs, setOptimisticPayrollLogs] = useState<PayrollLog[]>([]);
   const [message, setMessage] = useState("");
@@ -180,8 +183,8 @@ export default function ManagementDashboardClient({ data, dispatchData }: Props)
     window.dispatchEvent(new Event(DASHBOARD_TAB_CHANGE));
   };
   const run = (operation: () => Promise<unknown>, success = "Saved.") => startTransition(async () => {
-    try { setMessage(""); await operation(); setEditing(null); setDraft(null); setMessage(success); router.refresh(); }
-    catch (error) { setMessage(error instanceof Error ? error.message : "Operation failed."); }
+    try { setMessage(""); await operation(); setEditing(null); setDraft(null); setMessage(success); showActionToast("success", success); router.refresh(); }
+    catch (error) { const text = error instanceof Error ? error.message : "Operation failed."; setMessage(text); showActionToast("error", text); }
   });
 
   const approveWorkLog = async (logId: string, role: "manager" | "owner") => {
@@ -246,11 +249,13 @@ export default function ManagementDashboardClient({ data, dispatchData }: Props)
       try {
         await approveWorkLog(logId, role);
         setApprovalFeedback({ logId, kind: "success", text: success });
+        showActionToast("success", success);
         router.refresh();
       } catch (error) {
         const text = error instanceof Error ? error.message : "Unable to save approval.";
         setApprovalFeedback({ logId, kind: "error", text });
         setMessage(text);
+        showActionToast("error", text);
       }
     });
   };
@@ -266,6 +271,7 @@ export default function ManagementDashboardClient({ data, dispatchData }: Props)
       notes: log.notes ?? "",
       startTime: inputTime(log.start_time),
       endTime: inputTime(log.end_time),
+      status: log.status === "completed" ? "completed" : log.status === "active" ? "active" : "assigned",
     });
   };
 
@@ -273,7 +279,7 @@ export default function ManagementDashboardClient({ data, dispatchData }: Props)
     if (!editing || !draft) return;
     if (!draft.startTime || !draft.endTime) { setMessage("Start and end time are required."); return; }
     if (durationHours(draft.startTime, draft.endTime) <= 0) { setMessage("End time must be after start time."); return; }
-    run(() => updateWorkLog(editing.id, { hotelId: draft.hotelId, serviceId: draft.serviceId, startTime: draft.startTime, endTime: draft.endTime, roomsCompleted: Number(draft.roomsCompleted), roomNumber: draft.roomNumber, notes: draft.notes }), "Work log updated across all dashboards.");
+    run(() => updateWorkLog(editing.id, { hotelId: draft.hotelId, serviceId: draft.serviceId, startTime: draft.startTime, endTime: draft.endTime, roomsCompleted: Number(draft.roomsCompleted), roomNumber: draft.roomNumber, notes: draft.notes, ...(data.userRole === "admin" ? { status: draft.status } : {}) }), "Work log updated across all dashboards.");
   };
 
   const syncRooms = () => run(async () => { const result = await importRoomsFromGoogleSheet(); return result; }, "Rooms synced.");
@@ -303,7 +309,7 @@ export default function ManagementDashboardClient({ data, dispatchData }: Props)
               startTime: task.start_time,
             }} /> : null;
           })()}
-          {dispatchData && <TaskDispatchClient role={data.userRole as "owner" | "manager"} {...dispatchData} />}
+          {dispatchData && <TaskDispatchClient role={data.userRole as UserRole} {...dispatchData} />}
           <DashboardHeading title="Executive overview" description="Portfolio performance, approvals, and operating costs at a glance." />
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <Metric label="Properties" value={data.hotels.length} icon={Hotel} />
@@ -376,7 +382,7 @@ export default function ManagementDashboardClient({ data, dispatchData }: Props)
       <div className="admin-config-scroll max-h-[65vh] overflow-auto rounded-lg border border-slate-200 [-webkit-overflow-scrolling:touch]">
         <table className="min-w-[760px] w-full text-left text-sm">
           <thead className="sticky top-0 z-10 bg-white/95 text-slate-600 shadow-sm backdrop-blur"><tr><th className="px-3 py-3">Cleaner</th><th className="px-3 py-3">Hotel / service</th><th className="px-3 py-3 text-right">Shift</th><th className="px-3 py-3">Approvals</th><th className="px-3 py-3">Actions</th></tr></thead>
-          <tbody className="divide-y divide-slate-100">{visibleWorkLogs.map((log) => <WorkLogRow key={log.id} log={log} canManager={canManager} canOwner={canOwner} isPending={isPending} rejectionNotes={rejectionNotes} setRejectionNotes={setRejectionNotes} feedback={approvalFeedback?.logId === log.id ? approvalFeedback : null} onEdit={() => setSelectedTask(toBriefTask(log))} onApprove={(role) => submitApproval(log.id, role)} onReject={(role) => run(() => rejectWorkLog(log.id, role, rejectionNotes), `${role === "manager" ? "Manager" : "Owner"} rejection saved.`)} />)}{filteredWorkLogs.length === 0 && <tr><td colSpan={5} className="px-3 py-8 text-center text-slate-500">No work logs match this date range.</td></tr>}</tbody>
+          <tbody className="divide-y divide-slate-100">{visibleWorkLogs.map((log) => <WorkLogRow key={log.id} log={log} canManager={canManager} canOwner={canOwner} canBypassClockOut={data.userRole === "admin" || data.userRole === "owner" || log.assigneeRole !== "cleaner"} isPending={isPending} rejectionNotes={rejectionNotes} setRejectionNotes={setRejectionNotes} feedback={approvalFeedback?.logId === log.id ? approvalFeedback : null} onEdit={() => { setSelectedTaskFromAudit(false); setSelectedTask(toBriefTask(log)); }} onFinalize={() => run(() => finalizeWorkLogWithoutClockOut(log.id), "Task finalized and submitted for management approval.")} onApprove={(role) => submitApproval(log.id, role)} onReject={(role) => run(() => rejectWorkLog(log.id, role, rejectionNotes), `${role === "manager" ? "Manager" : "Owner"} rejection saved.`)} />)}{filteredWorkLogs.length === 0 && <tr><td colSpan={5} className="px-3 py-8 text-center text-slate-500">No work logs match this date range.</td></tr>}</tbody>
           <tfoot><tr className="font-semibold text-slate-900"><td className="px-3 py-3">Filtered totals ({filteredWorkLogs.length})</td><td className="px-3 py-3 text-right tabular-nums">{filteredWorkLogTotals.rooms} rooms</td><td className="px-3 py-3 text-right tabular-nums">{filteredWorkLogTotals.hours.toFixed(2)} hrs</td><td className="px-3 py-3" colSpan={2}>All matching rows</td></tr></tfoot>
         </table>
         </div>
@@ -417,7 +423,7 @@ export default function ManagementDashboardClient({ data, dispatchData }: Props)
         <section id="panel-audit" role="tabpanel" aria-labelledby="tab-audit" hidden={activeTab !== "audit"} className="space-y-5">
           <DashboardHeading title="Audit & compliance" description="Historical responsibility snapshots for work logs in your role-scoped property set." />
           <div className="space-y-5">
-            <SnapshotTransparency logs={data.workLogs} />
+            <SnapshotTransparency logs={data.auditLogs} onOpen={(log) => { setSelectedTaskFromAudit(true); setSelectedTask(toBriefTask(log)); }} />
             <OverrideAuditTable entries={data.overrideAudit} />
           </div>
         </section>
@@ -427,8 +433,8 @@ export default function ManagementDashboardClient({ data, dispatchData }: Props)
           <SystemManual role={data.userRole} />
         </section>
 
-    {selectedTask && <ServiceCard task={selectedTask} onClose={() => setSelectedTask(null)} onEdit={() => { const log = data.workLogs.find((item) => item.id === selectedTask.id); if (log) { setSelectedTask(null); beginEdit(log); } }} />}
-    {editing && draft && <FullEditPanel draft={draft} setDraft={setDraft} services={data.services} hotels={data.hotels} rooms={data.rooms} saving={isPending} onCancel={() => { setEditing(null); setDraft(null); }} onSave={saveEdit}/>} 
+    {selectedTask && <ServiceCard task={selectedTask} onClose={() => setSelectedTask(null)} editLabel={selectedTaskFromAudit ? "Edit Record" : "Edit"} onEdit={selectedTaskFromAudit && data.userRole !== "admin" ? undefined : () => { const logs = selectedTaskFromAudit ? data.auditLogs : data.workLogs; const log = logs.find((item) => item.id === selectedTask.id); if (log) { setSelectedTask(null); beginEdit(log); } }} />}
+    {editing && draft && <FullEditPanel draft={draft} setDraft={setDraft} services={data.services} hotels={data.hotels} rooms={data.rooms} saving={isPending} canEditStatus={data.userRole === "admin"} statusDisabled={Boolean(editing.cancelled_at)} onCancel={() => { setEditing(null); setDraft(null); }} onSave={saveEdit}/>}
       </main>
   </div>;
 }
@@ -461,7 +467,7 @@ function WorkLogFilters({ hotels, cleaners, services, needsActionOnly, setNeedsA
   return <section className="mb-4 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200" aria-label="Work log filters"><div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Work log filters</p><p className="mt-0.5 text-xs text-slate-500">Filter by column or sort the current results.</p></div><button type="button" aria-pressed={needsActionOnly} onClick={() => setNeedsActionOnly(!needsActionOnly)} className={`min-h-11 rounded-lg px-3 py-2 text-sm font-semibold ${needsActionOnly ? "bg-amber-700 text-white" : "border border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100"}`}>Needs Action / Pending Approval</button></div><div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4"><label className="text-xs font-semibold text-slate-500">Cleaner<select value={cleaner} onChange={(event) => setCleaner(event.target.value)} className={selectClass}><option value="">All cleaners</option>{cleaners.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="text-xs font-semibold text-slate-500">Hotel<select value={hotel} onChange={(event) => setHotel(event.target.value)} className={selectClass}><option value="">All hotels</option>{hotels.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="text-xs font-semibold text-slate-500">Service<select value={service} onChange={(event) => setService(event.target.value)} className={selectClass}><option value="">All services</option>{services.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="text-xs font-semibold text-slate-500">Approval status<select value={status} onChange={(event) => setStatus(event.target.value)} className={selectClass}><option value="">All statuses</option>{statuses.map((value) => <option key={value}>{value}</option>)}</select></label><label className="text-xs font-semibold text-slate-500">From task date<input type="date" value={fromDate} max={toDate || undefined} onChange={(event) => setFromDate(event.target.value)} className={selectClass} /></label><label className="text-xs font-semibold text-slate-500">To task date<input type="date" value={toDate} min={fromDate || undefined} onChange={(event) => setToDate(event.target.value)} className={selectClass} /></label><label className="text-xs font-semibold text-slate-500">Sort column<select value={sortColumn} onChange={(event) => setSortColumn(event.target.value as WorkLogSortColumn)} className={selectClass}><option value="date">Task date</option><option value="cleaner">Cleaner (A-Z)</option><option value="hotel">Hotel (A-Z)</option><option value="service">Service (A-Z)</option><option value="status">Approval status</option></select></label><button type="button" onClick={() => setSortAscending(!sortAscending)} className="min-h-11 self-end rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">{sortAscending ? "Ascending A-Z" : "Descending Z-A"}</button></div><div className="mt-3 flex justify-end"><button type="button" onClick={() => { setFromDate(""); setToDate(""); }} className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Clear dates</button></div></section>;
 }
 
-function WorkLogRow({ log, canManager, canOwner, isPending, rejectionNotes, setRejectionNotes, feedback, onEdit, onApprove, onReject }: { log: Log; canManager: boolean; canOwner: boolean; isPending: boolean; rejectionNotes: string; setRejectionNotes: (value: string) => void; feedback: ApprovalFeedback | null; onEdit: () => void; onApprove: (role: "manager" | "owner") => void; onReject: (role: "manager" | "owner") => void }) {
+function WorkLogRow({ log, canManager, canOwner, canBypassClockOut, isPending, rejectionNotes, setRejectionNotes, feedback, onEdit, onFinalize, onApprove, onReject }: { log: Log; canManager: boolean; canOwner: boolean; canBypassClockOut: boolean; isPending: boolean; rejectionNotes: string; setRejectionNotes: (value: string) => void; feedback: ApprovalFeedback | null; onEdit: () => void; onFinalize: () => void; onApprove: (role: "manager" | "owner") => void; onReject: (role: "manager" | "owner") => void }) {
   const hours = log.end_time ? durationHours(log.start_time, log.end_time) : 0;
   return <tr className="align-top">
     <td className="px-3 py-4 font-medium text-slate-900">{log.cleanerName}</td>
@@ -475,7 +481,7 @@ function WorkLogRow({ log, canManager, canOwner, isPending, rejectionNotes, setR
     <td className="px-3 py-4">
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" onClick={onEdit} className="flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 text-slate-700" title="Open full work-log details"><Pencil className="h-4 w-4" /></button>
-        {!log.is_locked && (log.status !== "completed" ? <span className="rounded-lg bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">Clock out required</span> : <>
+        {!log.is_locked && (log.status !== "completed" ? <><span className="rounded-lg bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">Clock out required</span>{canBypassClockOut && log.status === "active" && <button type="button" disabled={isPending} onClick={onFinalize} className="min-h-11 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-semibold text-sky-900 hover:bg-sky-100 disabled:cursor-wait disabled:opacity-60">Finalize / Bypass Clock-Out</button>}</> : <>
           {canManager && (log.manager_approved ? <ApprovalComplete label="Manager approved" /> : <ApprovalButtons label="Approve (Manager)" onApprove={() => onApprove("manager")} onReject={() => onReject("manager")} isPending={isPending} />)}
           {canOwner && (log.owner_approved ? <ApprovalComplete label="Owner approved" /> : <ApprovalButtons label="Approve (Owner)" onApprove={() => onApprove("owner")} onReject={() => onReject("owner")} isPending={isPending} />)}
         </>)}
@@ -539,21 +545,265 @@ function Metric({ label, value, icon: Icon }: { label: string; value: number | s
     <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-sm font-medium text-slate-500">{label}</p><p className="mt-2 truncate text-2xl font-semibold tabular-nums text-slate-950">{value}</p></div><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600"><Icon className="h-4 w-4" /></span></div>
   </article>;
 }
-function SnapshotTransparency({ logs }: { logs: Log[] }) {
+type AuditColumnId = "date" | "workerFacility" | "owner" | "manager" | "snapshot" | "service" | "status" | "hours" | "value" | "approvals" | "room";
+type AuditFilter = { selected?: string[]; from?: string; to?: string; min?: string; max?: string };
+type AuditColumn = { id: AuditColumnId; label: string };
+
+const AUDIT_COLUMNS: AuditColumn[] = [
+  { id: "date", label: "Task date/time" },
+  { id: "workerFacility", label: "Worker/Facility" },
+  { id: "owner", label: "Responsible Owner" },
+  { id: "manager", label: "Responsible Manager" },
+  { id: "snapshot", label: "Snapshot recorded" },
+  { id: "service", label: "Service/Task Name" },
+  { id: "status", label: "Lifecycle Status" },
+  { id: "hours", label: "Hours/Duration" },
+  { id: "value", label: "Financial Value (GBP)" },
+  { id: "approvals", label: "Approvals (Manager/Owner)" },
+  { id: "room", label: "Room/Zone reference" },
+];
+const DEFAULT_AUDIT_COLUMNS: AuditColumnId[] = ["date", "workerFacility", "owner", "manager", "snapshot"];
+const AUDIT_COLUMNS_STORAGE_KEY = "management-audit-visible-columns";
+const AUDIT_COLUMNS_CHANGE_EVENT = "management-audit-columns-change";
+
+function subscribeAuditColumns(callback: () => void) {
+  window.addEventListener("storage", callback);
+  window.addEventListener(AUDIT_COLUMNS_CHANGE_EVENT, callback);
+  return () => {
+    window.removeEventListener("storage", callback);
+    window.removeEventListener(AUDIT_COLUMNS_CHANGE_EVENT, callback);
+  };
+}
+
+function getAuditColumnsSnapshot() {
+  try {
+    return window.localStorage.getItem(AUDIT_COLUMNS_STORAGE_KEY) ?? "";
+  } catch {
+    return "__storage_unavailable__";
+  }
+}
+
+function getAuditColumnsServerSnapshot() {
+  return "";
+}
+
+function lifecycleStatus(log: Log) {
+  if (log.cancelled_at || log.status === "cancelled") return "Cancelled";
+  if (log.status === "active") return "Active";
+  if (log.status === "completed") return "Completed";
+  return "Pending";
+}
+
+function approvalSummary(log: Log) {
+  const manager = log.manager_approved ? "Approved" : log.manager_rejected ? "Rejected" : "Pending";
+  const owner = log.owner_approved ? "Approved" : log.owner_rejected ? "Rejected" : "Pending";
+  return `Manager: ${manager} · Owner: ${owner}`;
+}
+
+function logRoomReference(log: Log) {
+  const rooms = log.roomDetails?.map((room) => `${room.name}${room.floor ? ` · ${room.floor}` : ""}`) ?? [];
+  return rooms.join(", ") || log.room_numbers.join(", ") || log.room_number || "No room or zone";
+}
+
+function AuditMultiSelect({ label, values, selected, onChange }: { label: string; values: string[]; selected: string[]; onChange: (values: string[]) => void }) {
+  const [search, setSearch] = useState("");
+  const visibleValues = values.filter((value) => value.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
+  return <fieldset className="mt-3">
+    <legend className="text-xs font-semibold text-slate-700">{label}</legend>
+    <label className="mt-2 flex items-center gap-2 rounded-md border border-slate-200 px-2">
+      <Search className="h-3.5 w-3.5 text-slate-400" />
+      <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Search ${label.toLowerCase()}`} className="min-h-9 w-full border-0 bg-transparent text-xs text-slate-800 outline-none" />
+    </label>
+    <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+      {visibleValues.map((value) => <label key={value} className="flex items-start gap-2 rounded px-1 py-1 text-xs text-slate-700 hover:bg-slate-50">
+        <input type="checkbox" checked={selected.includes(value)} onChange={(event) => onChange(event.target.checked ? [...selected, value] : selected.filter((item) => item !== value))} className="mt-0.5" />
+        <span className="break-words">{value || "Unavailable"}</span>
+      </label>)}
+      {!visibleValues.length && <p className="py-2 text-xs text-slate-500">No matching values.</p>}
+    </div>
+  </fieldset>;
+}
+
+function AuditFilterPopover({ label, active, onSelectAll, onClear, children }: { label: string; active: boolean; onSelectAll: () => void; onClear: () => void; children: ReactNode }) {
+  return <details className="relative inline-block align-middle">
+    <summary aria-label={`Filter ${label}`} title={`Filter ${label}`} className={`flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-md hover:bg-slate-100 ${active ? "text-sky-700" : "text-slate-500"}`}>
+      <Filter className="h-4 w-4" />
+    </summary>
+    <div className="absolute right-0 z-30 mt-1 w-72 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-xl">
+      <p className="text-xs font-semibold text-slate-800">Filter: {label}</p>
+      <div className="mt-2 flex gap-2 border-b border-slate-100 pb-2">
+        <button type="button" onClick={onSelectAll} className="text-xs font-semibold text-sky-700 hover:underline">Select All</button>
+        <button type="button" onClick={onClear} className="text-xs font-semibold text-slate-600 hover:underline">Clear Filter</button>
+      </div>
+      {children}
+    </div>
+  </details>;
+}
+
+function SnapshotTransparency({ logs, onOpen }: { logs: Log[]; onOpen: (log: Log) => void }) {
   const [page, setPage] = useState(1);
-  const pageCount = Math.max(1, Math.ceil(logs.length / RECORDS_PER_PAGE));
+  const [preferencesMessage, setPreferencesMessage] = useState("");
+  const [filters, setFilters] = useState<Record<string, AuditFilter>>({});
+  const storedColumns = useSyncExternalStore(subscribeAuditColumns, getAuditColumnsSnapshot, getAuditColumnsServerSnapshot);
+  const storedPreference = useMemo(() => {
+    if (!storedColumns) return { columns: DEFAULT_AUDIT_COLUMNS, message: "" };
+    if (storedColumns === "__storage_unavailable__") return { columns: DEFAULT_AUDIT_COLUMNS, message: "Column preferences are unavailable in this browser." };
+    try {
+      const parsed: unknown = JSON.parse(storedColumns);
+      if (!Array.isArray(parsed) || !parsed.every((id): id is AuditColumnId => typeof id === "string" && AUDIT_COLUMNS.some((column) => column.id === id))) {
+        return { columns: DEFAULT_AUDIT_COLUMNS, message: "Saved column preferences have an invalid format." };
+      }
+      return { columns: parsed.length ? parsed : DEFAULT_AUDIT_COLUMNS, message: "" };
+    } catch (error) {
+      return { columns: DEFAULT_AUDIT_COLUMNS, message: error instanceof Error ? error.message : "Unable to load saved column preferences." };
+    }
+  }, [storedColumns]);
+  const visibleColumnIds = storedPreference.columns;
+
+  const uniqueValues = (getValue: (log: Log) => string) => [...new Set(logs.map(getValue))].sort((left, right) => left.localeCompare(right, "en", { numeric: true }));
+  const selectedFor = (key: string) => filters[key]?.selected ?? [];
+  const updateFilter = (key: string, update: AuditFilter | null) => {
+    setFilters((current) => {
+      const next = { ...current };
+      if (update) next[key] = { ...current[key], ...update };
+      else delete next[key];
+      return next;
+    });
+    setPage(1);
+  };
+  const matchesSelected = (key: string, value: string) => {
+    const selected = selectedFor(key);
+    return selected.length === 0 || selected.includes(value);
+  };
+  const hasFilter = (key: string) => {
+    const filter = filters[key];
+    return Boolean(filter && ((filter.selected?.length ?? 0) > 0 || filter.from || filter.to || filter.min || filter.max));
+  };
+  const allValues = (key: string) => {
+    switch (key) {
+      case "worker": return uniqueValues((log) => log.cleanerName);
+      case "facility": return uniqueValues((log) => log.hotelName);
+      case "owner": return uniqueValues((log) => log.owner_name ?? "Unassigned owner");
+      case "manager": return uniqueValues((log) => log.manager_name ?? "Unassigned manager");
+      case "snapshot": return uniqueValues((log) => log.responsibility_recorded_at?.slice(0, 10) ?? "");
+      case "service": return uniqueValues((log) => log.service_name_snapshot ?? log.services_config?.[0]?.name ?? "Service");
+      case "status": return uniqueValues(lifecycleStatus);
+      case "approvals": return uniqueValues(approvalSummary);
+      case "room": return uniqueValues(logRoomReference);
+      default: return [];
+    }
+  };
+  const numericMatches = (key: string, value: number) => {
+    const filter = filters[key];
+    return (!filter?.min || value >= Number(filter.min)) && (!filter?.max || value <= Number(filter.max));
+  };
+  const filteredLogs = logs.filter((log) => {
+    const workerAndFacilityMatch = matchesSelected("worker", log.cleanerName) && matchesSelected("facility", log.hotelName);
+    const date = log.task_date.slice(0, 10);
+    const snapshotDate = log.responsibility_recorded_at?.slice(0, 10) ?? "";
+    const service = log.service_name_snapshot ?? log.services_config?.[0]?.name ?? "Service";
+    const hours = log.end_time ? durationHours(log.start_time, log.end_time) : 0;
+    return workerAndFacilityMatch
+      && matchesSelected("owner", log.owner_name ?? "Unassigned owner")
+      && matchesSelected("manager", log.manager_name ?? "Unassigned manager")
+      && matchesSelected("service", service)
+      && matchesSelected("status", lifecycleStatus(log))
+      && matchesSelected("approvals", approvalSummary(log))
+      && matchesSelected("room", logRoomReference(log))
+      && (!filters.date?.from || date >= filters.date.from)
+      && (!filters.date?.to || date <= filters.date.to)
+      && (!filters.snapshot?.from || snapshotDate >= filters.snapshot.from)
+      && (!filters.snapshot?.to || snapshotDate <= filters.snapshot.to)
+      && numericMatches("hours", hours)
+      && numericMatches("value", getLogLaborCost(log));
+  }).sort((left, right) => right.start_time.localeCompare(left.start_time));
+  const pageCount = Math.max(1, Math.ceil(filteredLogs.length / RECORDS_PER_PAGE));
   const currentPage = Math.min(page, pageCount);
-  const visibleLogs = logs.slice((currentPage - 1) * RECORDS_PER_PAGE, currentPage * RECORDS_PER_PAGE);
+  const visibleLogs = filteredLogs.slice((currentPage - 1) * RECORDS_PER_PAGE, currentPage * RECORDS_PER_PAGE);
+  const visibleColumns = AUDIT_COLUMNS.filter((column) => visibleColumnIds.includes(column.id));
+  const setSelected = (key: string, values: string[]) => updateFilter(key, { selected: values });
+  const setRange = (key: string, field: "from" | "to" | "min" | "max", value: string) => updateFilter(key, { [field]: value });
+  const renderFilter = (column: AuditColumn) => {
+    const clear = () => {
+      updateFilter(column.id === "workerFacility" ? "worker" : column.id, null);
+      if (column.id === "workerFacility") updateFilter("facility", null);
+    };
+    const selectAll = () => {
+      if (column.id === "workerFacility") {
+        setSelected("worker", allValues("worker"));
+        setSelected("facility", allValues("facility"));
+      } else if (column.id === "date" || column.id === "snapshot" || column.id === "hours" || column.id === "value") {
+        updateFilter(column.id, {});
+      } else {
+        setSelected(column.id, allValues(column.id));
+      }
+    };
+    const active = column.id === "workerFacility" ? hasFilter("worker") || hasFilter("facility") : hasFilter(column.id);
+    return <AuditFilterPopover key={column.id} label={column.label} active={active} onSelectAll={selectAll} onClear={clear}>
+      {column.id === "workerFacility" ? <>
+        <AuditMultiSelect label="Worker" values={allValues("worker")} selected={selectedFor("worker")} onChange={(values) => setSelected("worker", values)} />
+        <AuditMultiSelect label="Facility" values={allValues("facility")} selected={selectedFor("facility")} onChange={(values) => setSelected("facility", values)} />
+      </> : ["owner", "manager", "service", "status", "approvals", "room"].includes(column.id) ? <AuditMultiSelect label={column.label} values={allValues(column.id)} selected={selectedFor(column.id)} onChange={(values) => setSelected(column.id, values)} />
+        : column.id === "date" || column.id === "snapshot" ? <div className="mt-3 grid grid-cols-2 gap-2">
+          <label className="text-xs text-slate-600">From<input type="date" value={filters[column.id]?.from ?? ""} onChange={(event) => setRange(column.id, "from", event.target.value)} className="mt-1 w-full rounded border border-slate-200 p-1.5 text-xs" /></label>
+          <label className="text-xs text-slate-600">To<input type="date" value={filters[column.id]?.to ?? ""} onChange={(event) => setRange(column.id, "to", event.target.value)} className="mt-1 w-full rounded border border-slate-200 p-1.5 text-xs" /></label>
+        </div> : <div className="mt-3 grid grid-cols-2 gap-2">
+          <label className="text-xs text-slate-600">Min<input type="number" min="0" step="any" value={filters[column.id]?.min ?? ""} onChange={(event) => setRange(column.id, "min", event.target.value)} className="mt-1 w-full rounded border border-slate-200 p-1.5 text-xs" /></label>
+          <label className="text-xs text-slate-600">Max<input type="number" min="0" step="any" value={filters[column.id]?.max ?? ""} onChange={(event) => setRange(column.id, "max", event.target.value)} className="mt-1 w-full rounded border border-slate-200 p-1.5 text-xs" /></label>
+        </div>}
+    </AuditFilterPopover>;
+  };
+  const toggleColumn = (id: AuditColumnId, checked: boolean) => {
+    const next = checked
+      ? AUDIT_COLUMNS.filter((column) => visibleColumnIds.includes(column.id) || column.id === id).map((column) => column.id)
+      : visibleColumnIds.filter((columnId) => columnId !== id);
+    if (!next.length) return;
+    try {
+      window.localStorage.setItem(AUDIT_COLUMNS_STORAGE_KEY, JSON.stringify(next));
+      setPreferencesMessage("");
+      window.dispatchEvent(new Event(AUDIT_COLUMNS_CHANGE_EVENT));
+    } catch (error) {
+      setPreferencesMessage(error instanceof Error ? error.message : "Unable to save column preferences.");
+    }
+  };
+
   return <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-200/50 sm:p-5">
-    <div className="mb-4"><h3 className="text-base font-semibold text-slate-950">Responsibility history</h3><p className="mt-1 text-sm text-slate-500">Owner and manager assignments preserved when each task was recorded.</p></div>
+    <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+      <div><h3 className="text-base font-semibold text-slate-950">Responsibility history</h3><p className="mt-1 text-sm text-slate-500">Historical task, responsibility, approval, and financial details.</p></div>
+      <details className="relative">
+        <summary className="flex min-h-10 cursor-pointer list-none items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"><Columns3 className="h-4 w-4" />Columns</summary>
+        <div className="absolute right-0 z-30 mt-1 w-64 rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
+          <p className="mb-2 text-xs font-semibold text-slate-700">Visible columns</p>
+          <div className="max-h-72 space-y-1 overflow-y-auto">{AUDIT_COLUMNS.map((column) => <label key={column.id} className="flex items-center gap-2 rounded px-1 py-1.5 text-xs text-slate-700 hover:bg-slate-50"><input type="checkbox" checked={visibleColumnIds.includes(column.id)} onChange={(event) => toggleColumn(column.id, event.target.checked)} />{column.label}</label>)}</div>
+        </div>
+      </details>
+    </div>
+    {(preferencesMessage || storedPreference.message) && <p role="status" className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">{preferencesMessage || storedPreference.message}</p>}
     <div className="admin-config-scroll max-h-[65vh] overflow-auto rounded-lg border border-slate-200 [-webkit-overflow-scrolling:touch]">
-      <table className="min-w-[760px] w-full text-left text-sm">
-        <thead className="sticky top-0 z-10 bg-white/95 text-slate-600 shadow-sm backdrop-blur"><tr><th className="px-3 py-3">Task date/time</th><th className="px-3 py-3">Cleaner / hotel</th><th className="px-3 py-3">Owner at task time</th><th className="px-3 py-3">Manager at task time</th><th className="px-3 py-3">Snapshot recorded</th></tr></thead>
-        <tbody className="divide-y divide-slate-100">{visibleLogs.map((log) => <tr key={log.id} className="hover:bg-slate-50"><td className="whitespace-nowrap px-3 py-3 text-slate-600">{new Date(log.start_time).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}</td><td className="px-3 py-3 text-slate-700">{log.cleanerName}<span className="block text-xs text-slate-500">{log.hotelName}</span></td><td className="px-3 py-3 text-slate-700">{log.owner_name ?? "Unassigned owner"}</td><td className="px-3 py-3 text-slate-700">{log.manager_name ?? "Unassigned manager"}</td><td className="whitespace-nowrap px-3 py-3 text-slate-600">{log.responsibility_recorded_at ? new Date(log.responsibility_recorded_at).toLocaleString("en-GB", { timeZone: "Africa/Cairo" }) : "Unavailable"}</td></tr>)}{logs.length === 0 && <tr><td colSpan={5} className="px-3 py-8 text-center text-slate-500">No work-log snapshots found.</td></tr>}</tbody>
-        <tfoot><tr className="font-semibold text-slate-900"><td colSpan={5} className="px-3 py-3">Total snapshots <span className="float-right tabular-nums">{logs.length}</span></td></tr></tfoot>
+      <table className="min-w-max w-full text-left text-sm">
+        <thead className="sticky top-0 z-10 bg-white/95 text-slate-600 shadow-sm backdrop-blur"><tr>{visibleColumns.map((column) => <th key={column.id} className="whitespace-nowrap px-3 py-2"><div className="flex items-center gap-1"><span>{column.label}</span>{renderFilter(column)}</div></th>)}</tr></thead>
+        <tbody className="divide-y divide-slate-100">{visibleLogs.map((log) => {
+          const service = log.service_name_snapshot ?? log.services_config?.[0]?.name ?? "Service";
+          const hours = log.end_time ? durationHours(log.start_time, log.end_time) : 0;
+          const cells: Record<AuditColumnId, ReactNode> = {
+            date: <button type="button" onClick={() => onOpen(log)} className="whitespace-nowrap text-left text-sky-800 underline decoration-transparent underline-offset-2 hover:text-sky-950 hover:decoration-current focus:decoration-current">{new Date(log.start_time).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}</button>,
+            workerFacility: <>{log.cleanerName}<span className="block text-xs text-slate-500">{log.hotelName}</span></>,
+            owner: log.owner_name ?? "Unassigned owner",
+            manager: log.manager_name ?? "Unassigned manager",
+            snapshot: log.responsibility_recorded_at ? new Date(log.responsibility_recorded_at).toLocaleString("en-GB", { timeZone: "Africa/Cairo" }) : "Unavailable",
+            service,
+            status: lifecycleStatus(log),
+            hours: `${hours.toFixed(2)} hrs`,
+            value: `GBP ${getLogLaborCost(log).toFixed(2)}`,
+            approvals: approvalSummary(log),
+            room: logRoomReference(log),
+          };
+          return <tr key={log.id} className="align-top hover:bg-slate-50">{visibleColumns.map((column) => <td key={column.id} className="max-w-64 whitespace-nowrap px-3 py-3 text-slate-700">{cells[column.id]}</td>)}</tr>;
+        })}{filteredLogs.length === 0 && <tr><td colSpan={visibleColumns.length} className="px-3 py-8 text-center text-slate-500">No work-log snapshots match these filters.</td></tr>}</tbody>
+        <tfoot><tr className="font-semibold text-slate-900"><td colSpan={visibleColumns.length} className="px-3 py-3">Filtered audit records <span className="float-right tabular-nums">{filteredLogs.length}</span></td></tr></tfoot>
       </table>
     </div>
-    <DashboardPagination currentPage={currentPage} pageCount={pageCount} total={logs.length} pageSize={RECORDS_PER_PAGE} label="audit records" onPageChange={setPage} />
+    <DashboardPagination currentPage={currentPage} pageCount={pageCount} total={filteredLogs.length} pageSize={RECORDS_PER_PAGE} label="audit records" onPageChange={setPage} />
   </section>;
 }
 

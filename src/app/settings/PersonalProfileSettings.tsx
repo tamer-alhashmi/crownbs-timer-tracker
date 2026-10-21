@@ -11,6 +11,7 @@ import { UserAvatar } from "@/components/shared/UserAvatar";
 import type { UserRole } from "@/lib/roles";
 import { savePersonalProfile, saveSoundNotificationsPreference } from "./profileActions";
 import { useSoundSettings } from "@/components/chat/ChatProviders";
+import { showActionToast } from "@/components/ui/ActionToast";
 
 const profileSchema = z.object({
   fullName: z.string().trim().min(1, "Enter your name.").max(120),
@@ -58,8 +59,11 @@ export default function PersonalProfileSettings({ fullName, email, phoneNumber, 
     try {
       await saveSoundNotificationsPreference(nextValue);
       setSoundNotificationsEnabled(nextValue);
+      showActionToast("success", `Notification sounds ${nextValue ? "enabled" : "disabled"}.`);
     } catch (error) {
-      setNotice({ kind: "error", text: error instanceof Error ? error.message : "Unable to update notification sounds." });
+      const message = error instanceof Error ? error.message : "Unable to update notification sounds.";
+      setNotice({ kind: "error", text: message });
+      showActionToast("error", message);
     } finally {
       setSavingSoundPreference(false);
     }
@@ -71,9 +75,12 @@ export default function PersonalProfileSettings({ fullName, email, phoneNumber, 
       await savePersonalProfile(values);
       profileForm.current?.dispatchEvent(new Event("app:form-saved", { bubbles: true }));
       setNotice({ kind: "success", text: "Your personal details were saved." });
+      showActionToast("success", "Your personal details were saved.");
       router.refresh();
     } catch (error) {
-      setNotice({ kind: "error", text: error instanceof Error ? error.message : "Unable to save your profile." });
+      const message = error instanceof Error ? error.message : "Unable to save your profile.";
+      setNotice({ kind: "error", text: message });
+      showActionToast("error", message);
     }
   }));
 
@@ -94,10 +101,13 @@ export default function PersonalProfileSettings({ fullName, email, phoneNumber, 
       if (!response.ok || !result.avatarUrl) throw new Error(result.error ?? "Unable to upload your photo.");
       setPhoto(result.avatarUrl);
       setNotice({ kind: "success", text: result.warning ?? "Your profile photo was updated." });
+      showActionToast("success", result.warning ?? "Your profile photo was updated.");
       await queryClient.invalidateQueries({ queryKey: ["chat"] });
       router.refresh();
     } catch (error) {
-      setNotice({ kind: "error", text: error instanceof Error ? error.message : "Unable to upload your photo." });
+      const message = error instanceof Error ? error.message : "Unable to upload your photo.";
+      setNotice({ kind: "error", text: message });
+      showActionToast("error", message);
     } finally {
       setPhotoBusy(false);
       if (fileInput.current) fileInput.current.value = "";
@@ -113,10 +123,13 @@ export default function PersonalProfileSettings({ fullName, email, phoneNumber, 
       if (!response.ok) throw new Error(result.error ?? "Unable to remove your photo.");
       setPhoto(null);
       setNotice({ kind: "success", text: result.warning ?? "Your profile photo was removed." });
+      showActionToast("success", result.warning ?? "Your profile photo was removed.");
       await queryClient.invalidateQueries({ queryKey: ["chat"] });
       router.refresh();
     } catch (error) {
-      setNotice({ kind: "error", text: error instanceof Error ? error.message : "Unable to remove your photo." });
+      const message = error instanceof Error ? error.message : "Unable to remove your photo.";
+      setNotice({ kind: "error", text: message });
+      showActionToast("error", message);
     } finally {
       setPhotoBusy(false);
     }

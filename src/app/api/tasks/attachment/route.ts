@@ -61,17 +61,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Could not verify the property." }, { status: 500 });
   }
   if (!hotel || !hotel.is_active
-    || (actor.role === "owner" && hotel.owner_id !== actor.id)
-    || (actor.role === "manager" && hotel.manager_id !== actor.id)) {
+    || (actor.role === "owner" && hotel.owner_id !== actor.id)) {
     return NextResponse.json({ error: "That property is outside your assignment scope." }, { status: 403 });
   }
-  if (actor.role === "hk_admin" && actor.primary_hotel_id !== hotel.id) {
+  if (actor.role === "manager" || actor.role === "hk_admin") {
     const { data: assignment, error: assignmentError } = await supabase.from("user_hotel_assignments").select("hotel_id").eq("user_id", actor.id).eq("hotel_id", hotel.id).maybeSingle();
     if (assignmentError) {
       console.error("Task photo assignment lookup failed:", assignmentError.message);
       return NextResponse.json({ error: "Could not verify your hotel assignment." }, { status: 500 });
     }
-    if (!assignment) return NextResponse.json({ error: "That property is outside your assignment scope." }, { status: 403 });
+    const managerPropertyMatch = actor.role !== "manager" || hotel.manager_id === actor.id;
+    if (actor.role === "manager" && !managerPropertyMatch && actor.primary_hotel_id !== hotel.id && !assignment) {
+      return NextResponse.json({ error: "That property is outside your assignment scope." }, { status: 403 });
+    }
+    if (actor.role === "hk_admin" && actor.primary_hotel_id !== hotel.id && !assignment) {
+      return NextResponse.json({ error: "That property is outside your assignment scope." }, { status: 403 });
+    }
   }
 
   const path = `${actor.id}/task-dispatch/${randomUUID()}.${EXTENSIONS[file.type]}`;

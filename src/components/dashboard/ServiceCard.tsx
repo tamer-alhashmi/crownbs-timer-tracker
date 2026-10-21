@@ -4,7 +4,7 @@ import { CheckCircle2, Clock3, FileText, Hotel, UserRound, X } from "lucide-reac
 import type { BriefTask } from "@/lib/operationalBrief";
 import { WorkLogMediaGallery } from "./WorkLogMediaGallery";
 
-type Props = { task: BriefTask; onClose: () => void; onEdit?: () => void };
+type Props = { task: BriefTask; onClose: () => void; onEdit?: () => void; editLabel?: string };
 
 const timeOptions = { timeZone: "Europe/London" } as const;
 
@@ -16,8 +16,8 @@ function formatDate(value: string) {
   return new Date(`${value.slice(0, 10)}T12:00:00`).toLocaleDateString("en-GB", { ...timeOptions, dateStyle: "full" });
 }
 
-export function ServiceCard({ task, onClose, onEdit }: Props) {
-  const workflow = task.isLocked ? "Locked for payroll" : task.status === "active" ? "Work in progress" : "Completed - pending management review";
+export function ServiceCard({ task, onClose, onEdit, editLabel = "Edit" }: Props) {
+  const workflow = task.isLocked ? "Locked for payroll" : task.status === "active" ? "Work in progress" : task.status === "completed" ? "Completed - pending management review" : task.status === "cancelled" ? "Cancelled" : "Pending";
   const reviewState = task.status === "active"
     ? "Not submitted"
     : task.isLocked
@@ -37,7 +37,7 @@ export function ServiceCard({ task, onClose, onEdit }: Props) {
           </span>
         </div>
         <div className="flex items-center gap-2">
-          {onEdit && <button type="button" onClick={onEdit} className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800">Edit</button>}
+          {onEdit && <button type="button" onClick={onEdit} className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800">{editLabel}</button>}
           <button type="button" onClick={onClose} aria-label="Close work log details" title="Close" className="rounded-xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"><X className="h-5 w-5" /></button>
         </div>
       </div>

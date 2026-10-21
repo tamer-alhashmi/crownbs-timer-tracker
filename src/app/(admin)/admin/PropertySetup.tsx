@@ -1,8 +1,9 @@
 "use client";
 
 import { forwardRef, useCallback, useImperativeHandle, useState, useTransition, type FormEvent } from "react";
-import { MapPin, Pencil, Plus, Power, X } from "lucide-react";
+import { Loader2, MapPin, Pencil, Plus, Power, X } from "lucide-react";
 import { createProperty, getPropertyRooms, updateProperty, type PropertyRecord, type RoomSetupInput } from "./propertyActions";
+import { showActionToast } from "@/components/ui/ActionToast";
 
 type Assignee = { id: string; name: string; role: "owner" | "manager" };
 type RoomDraft = RoomSetupInput & { photoFiles: File[]; photos: string[] };
@@ -80,7 +81,9 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
         const rooms = await getPropertyRooms(property.id);
         setForm((current) => ({ ...current, rooms: rooms.map((room) => ({ ...room, photoFiles: [] })) }));
       } catch (error) {
-        setMessage({ text: error instanceof Error ? error.message : "Unable to load property rooms.", error: true });
+        const message = error instanceof Error ? error.message : "Unable to load property rooms.";
+        setMessage({ text: message, error: true });
+        showActionToast("error", message);
       }
     });
   };
@@ -104,6 +107,8 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
         return next.sort((left, right) => left.name.localeCompare(right.name));
       });
       setFormOpen(false);
+      setMessage({ text: `${saved.name} saved.`, error: false });
+      showActionToast("success", `${saved.name} ${editing ? "updated" : "created"}.`);
       try {
         for (const room of form.rooms) {
           for (const file of room.photoFiles) {
@@ -117,9 +122,10 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
             if (!response.ok) throw new Error(result.error ?? "Room photo upload failed.");
           }
         }
-        setMessage({ text: `${saved.name} saved.`, error: false });
       } catch (error) {
-        setMessage({ text: error instanceof Error ? `Property saved; photo upload failed: ${error.message}` : "Property saved, but photo upload failed.", error: true });
+        const message = error instanceof Error ? `Property saved; photo upload failed: ${error.message}` : "Property saved, but photo upload failed.";
+        setMessage({ text: message, error: true });
+        showActionToast("error", message);
       }
     });
   };
@@ -178,9 +184,13 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
         is_active: !property.is_active,
       });
       setProperties((current) => current.map((item) => item.id === updated.id ? updated : item));
-      setMessage({ text: `${updated.name} ${updated.is_active ? "activated" : "deactivated"}.`, error: false });
+      const message = `${updated.name} ${updated.is_active ? "activated" : "deactivated"}.`;
+      setMessage({ text: message, error: false });
+      showActionToast("success", message);
     } catch (error) {
-      setMessage({ text: error instanceof Error ? error.message : "Unable to update property status.", error: true });
+      const message = error instanceof Error ? error.message : "Unable to update property status.";
+      setMessage({ text: message, error: true });
+      showActionToast("error", message);
     }
   });
 
@@ -231,7 +241,7 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
           <p className="text-xs text-slate-600">A UUID and creation timestamp are generated automatically. New properties are active by default.</p>
         </div>
         {message?.error && <p role="alert" className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{message.text}</p>}
-        <div className="mt-6 flex flex-wrap justify-end gap-2"><button type="button" onClick={() => setFormOpen(false)} className="min-h-11 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancel</button><button type="submit" disabled={isPending} className="min-h-11 rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50">{editing ? "Save changes" : "Create property"}</button></div>
+        <div className="mt-6 flex flex-wrap justify-end gap-2"><button type="button" onClick={() => setFormOpen(false)} className="min-h-11 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancel</button><button type="submit" disabled={isPending} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Saving…" : editing ? "Save changes" : "Create property"}</button></div>
       </form>
     </div>}
   </section>;

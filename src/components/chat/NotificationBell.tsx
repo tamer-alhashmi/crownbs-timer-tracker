@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Bell, MessageCircle } from "lucide-react";
+import { Bell, Loader2, MessageCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { fetchTaskNotifications, fetchUnread, type TaskNotice } from "./chatApi";
@@ -11,6 +11,7 @@ import { UserAvatar } from "@/components/shared/UserAvatar";
 import { startAssignedTask } from "@/app/settings/taskActions";
 import { useSoundSettings } from "./ChatProviders";
 import { playChatSound } from "./chatSound";
+import { showActionToast } from "@/components/ui/ActionToast";
 
 export function NotificationBell() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -87,13 +88,17 @@ export function NotificationBell() {
       if (!result.success) {
         if (result.error.includes("already have an active running task")) setActiveTaskWarning(true);
         else setTaskError(result.error);
+        showActionToast("error", result.error);
         return;
       }
       setSelectedTaskId(null);
+      showActionToast("success", "Task started.");
       await taskQuery.refetch();
       router.refresh();
     } catch (error) {
-      setTaskError(error instanceof Error ? error.message : "Unable to start the assigned task.");
+      const message = error instanceof Error ? error.message : "Unable to start the assigned task.";
+      setTaskError(message);
+      showActionToast("error", message);
     } finally {
       setIsStarting(false);
     }
@@ -126,7 +131,7 @@ export function NotificationBell() {
         )}
       </button>
       {isOpen && (
-        <div data-back-button-overlay="true" className="absolute right-0 top-12 z-[70] w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/15">
+        <div data-back-button-overlay="true" className="absolute right-0 left-auto top-12 z-[70] mr-2 w-[calc(100vw-1.5rem)] max-w-sm overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/15 sm:mr-0 sm:w-[min(22rem,calc(100vw-2rem))]">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-slate-900">Notifications</p>
@@ -168,8 +173,8 @@ export function NotificationBell() {
                         {task.dispatch_metadata?.issueDescription && <p className="mt-1 text-xs text-slate-700">{task.dispatch_metadata.issueDescription}</p>}
                         {task.dispatch_metadata?.assetId && <p className="mt-1 text-xs text-slate-700">Asset: {task.dispatch_metadata.assetId}</p>}
                         {task.dispatch_metadata?.photoPath && <a href={`/api/tasks/attachment?taskId=${encodeURIComponent(task.id)}&path=${encodeURIComponent(task.dispatch_metadata.photoPath)}`} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-sky-700 underline">View attached photo</a>}
-                        <button type="button" onClick={() => void startTask(task.id)} disabled={isStarting} className="mt-3 min-h-10 rounded-lg bg-emerald-700 px-3 text-sm font-semibold text-white disabled:opacity-50">
-                          {isStarting ? "Starting..." : "Start Task"}
+                        <button type="button" onClick={() => void startTask(task.id)} disabled={isStarting} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-700 px-3 text-sm font-semibold text-white disabled:opacity-50">
+                          {isStarting ? <><Loader2 className="h-4 w-4 animate-spin" />Starting...</> : "Start Task"}
                         </button>
                       </div>
                     )}

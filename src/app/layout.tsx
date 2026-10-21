@@ -9,6 +9,7 @@ import { GlobalChatWidget } from "@/components/chat/GlobalChatWidget";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { BackButtonHandler } from "@/components/native/BackButtonHandler";
 import { ModalScrollLock } from "@/components/ui/ModalScrollLock";
+import { ActionToastViewport } from "@/components/ui/ActionToast";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -37,7 +38,10 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#ffffff",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#0f172a" },
+    { media: "(prefers-color-scheme: dark)", color: "#020617" },
+  ],
 };
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
@@ -60,8 +64,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body suppressHydrationWarning className="min-h-full flex flex-col bg-slate-100 text-slate-900">
+      <body suppressHydrationWarning className="min-h-full flex flex-col bg-slate-100 pb-[env(safe-area-inset-bottom,1rem)] text-slate-900">
         <ModalScrollLock />
+        <ActionToastViewport />
         {user ? (
           <ChatProviders key={user.userId} soundEnabled={soundNotificationsEnabled}>
             {children}

@@ -82,7 +82,7 @@ export default async function SettingsPage() {
   }
 
   const data = await getSettingsData();
-  const dispatchData = user.role === "owner" || user.role === "manager" ? await getTaskDispatchData() : null;
+  const dispatchData = ["admin", "owner", "manager"].includes(user.role) ? await getTaskDispatchData() : null;
   return (
     <SettingsHub
       role={data.actorRole}

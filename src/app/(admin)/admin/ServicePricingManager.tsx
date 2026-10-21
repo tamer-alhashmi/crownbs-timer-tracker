@@ -6,6 +6,7 @@ import { createService, deleteService, getServices, updateService, type ServiceR
 import type { PropertyRecord } from "./propertyActions";
 import { PropertySetup, type PropertySetupHandle } from "./PropertySetup";
 import type { BillingUnit } from "@/lib/servicePricing";
+import { showActionToast } from "@/components/ui/ActionToast";
 
 type ServiceForm = { name: string; default_rate: string; unit: BillingUnit; description: string };
 type Props = {
@@ -54,9 +55,13 @@ export function ServicePricingManager({ initialServices, initialProperties, prop
         const saved = editing ? await updateService(editing.id, input) : await createService(input);
         setServices((current) => editing ? current.map((service) => service.id === saved.id ? saved : service) : [...current, saved].sort((left, right) => left.name.localeCompare(right.name)));
         setFormOpen(false);
-        setMessage({ text: `${saved.name} saved.`, error: false });
+        const message = `${saved.name} saved.`;
+        setMessage({ text: message, error: false });
+        showActionToast("success", message);
       } catch (error) {
-        setMessage({ text: error instanceof Error ? error.message : "Unable to save service.", error: true });
+        const message = error instanceof Error ? error.message : "Unable to save service.";
+        setMessage({ text: message, error: true });
+        showActionToast("error", message);
       }
     });
   };
@@ -65,9 +70,13 @@ export function ServicePricingManager({ initialServices, initialProperties, prop
     try {
       const updated = await updateService(service.id, { is_active: !service.is_active });
       setServices((current) => current.map((item) => item.id === updated.id ? updated : item));
-      setMessage({ text: `${updated.name} ${updated.is_active ? "activated" : "deactivated"}.`, error: false });
+      const message = `${updated.name} ${updated.is_active ? "activated" : "deactivated"}.`;
+      setMessage({ text: message, error: false });
+      showActionToast("success", message);
     } catch (error) {
-      setMessage({ text: error instanceof Error ? error.message : "Unable to update service status.", error: true });
+      const message = error instanceof Error ? error.message : "Unable to update service status.";
+      setMessage({ text: message, error: true });
+      showActionToast("error", message);
     }
   });
 
@@ -77,10 +86,14 @@ export function ServicePricingManager({ initialServices, initialProperties, prop
       try {
         const removed = await deleteService(deactivating.id);
         setServices((current) => current.map((service) => service.id === removed.id ? removed : service));
-        setMessage({ text: `${removed.name} deactivated. Existing work logs are preserved.`, error: false });
+        const message = `${removed.name} deactivated. Existing work logs are preserved.`;
+        setMessage({ text: message, error: false });
+        showActionToast("success", message);
         setDeactivating(null);
       } catch (error) {
-        setMessage({ text: error instanceof Error ? error.message : "Unable to deactivate service.", error: true });
+        const message = error instanceof Error ? error.message : "Unable to deactivate service.";
+        setMessage({ text: message, error: true });
+        showActionToast("error", message);
       }
     });
   };
@@ -103,13 +116,13 @@ export function ServicePricingManager({ initialServices, initialProperties, prop
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {canManageProperties && <button type="button" onClick={() => propertySetupRef.current?.openCreate()} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
-          <Building2 className="h-4 w-4" />Add / Setup Property
+          {isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Building2 className="h-4 w-4" />}Add / Setup Property
         </button>}
         <button type="button" onClick={refreshServices} disabled={isPending} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50">
           {isPending && <LoaderCircle className="h-4 w-4 animate-spin" />}Refresh
         </button>
-        {canManageServices && <button type="button" onClick={openCreate} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-700 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-800">
-          <Plus className="h-4 w-4" />Add service
+        {canManageServices && <button type="button" onClick={openCreate} disabled={isPending} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-700 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50">
+          {isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}{isPending ? "Updating…" : "Add service"}
         </button>}
       </div>
     </div>
@@ -130,9 +143,9 @@ export function ServicePricingManager({ initialServices, initialProperties, prop
         <div className="mt-4 flex items-end justify-between gap-3 border-t border-slate-100 pt-3">
           <div><p className="text-2xl font-bold tabular-nums text-slate-950">{money.format(Number(service.default_rate))}</p><p className="mt-0.5 text-xs text-cyan-800">{UNIT_LABELS[service.unit]}</p></div>
           {canManageServices && <div className="flex items-center gap-1">
-            <button type="button" onClick={() => openEdit(service)} aria-label={`Edit ${service.name}`} title="Edit service" className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-950"><Pencil className="h-4 w-4" /></button>
+            <button type="button" onClick={() => openEdit(service)} disabled={isPending} aria-label={`Edit ${service.name}`} title="Edit service" className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-950 disabled:opacity-50"><Pencil className="h-4 w-4" /></button>
             <button type="button" role="switch" aria-checked={service.is_active} onClick={() => toggleService(service)} disabled={isPending} aria-label={`${service.is_active ? "Deactivate" : "Activate"} ${service.name}`} title={service.is_active ? "Deactivate service" : "Activate service"} className={`flex h-11 w-11 items-center justify-center rounded-lg disabled:opacity-50 ${service.is_active ? "text-emerald-700 hover:bg-emerald-50" : "text-slate-500 hover:bg-slate-100 hover:text-emerald-700"}`}><Power className="h-4 w-4" /></button>
-            {service.is_active && <button type="button" onClick={() => setDeactivating(service)} aria-label={`Delete ${service.name}`} title="Deactivate service" className="flex h-11 w-11 items-center justify-center rounded-lg text-rose-700 hover:bg-rose-50"><Trash2 className="h-4 w-4" /></button>}
+            {service.is_active && <button type="button" onClick={() => setDeactivating(service)} disabled={isPending} aria-label={`Delete ${service.name}`} title="Deactivate service" className="flex h-11 w-11 items-center justify-center rounded-lg text-rose-700 hover:bg-rose-50 disabled:opacity-50"><Trash2 className="h-4 w-4" /></button>}
           </div>}
         </div>
       </article>)}
