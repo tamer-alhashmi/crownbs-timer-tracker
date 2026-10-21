@@ -13,8 +13,6 @@ import SystemAccessPanel from "./SystemAccessPanel";
 import PersonalProfileSettings from "./PersonalProfileSettings";
 import SettingsHub from "./SettingsHub";
 import { PropertySettings } from "./AssetSettings";
-import { TaskDispatchClient } from "./TaskDispatchClient";
-import { getTaskDispatchData } from "./taskActions";
 
 export default async function SettingsPage() {
   const user = await getSessionUser();
@@ -44,7 +42,6 @@ export default async function SettingsPage() {
       <SettingsHub
         role={user.role}
         utility={utility}
-        overview={null}
         profile={<div className="mx-auto max-w-5xl">
           <PersonalProfileSettings fullName={name} email={profile?.email ?? user.email} phoneNumber={profile?.phone_number ?? null} avatarUrl={profile?.avatar_url ?? null} languagePreference={profile?.language_preference ?? "en"} role={user.role} />
           <section className="mt-5 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
@@ -73,7 +70,6 @@ export default async function SettingsPage() {
       <SettingsHub
         role={user.role}
         utility={utility}
-        overview={null}
         profile={<PersonalProfileSettings fullName={name} email={profile?.email ?? user.email} phoneNumber={profile?.phone_number ?? null} avatarUrl={profile?.avatar_url ?? null} languagePreference={profile?.language_preference ?? "en"} role={user.role} />}
         users={null}
         properties={null}
@@ -82,12 +78,10 @@ export default async function SettingsPage() {
   }
 
   const data = await getSettingsData();
-  const dispatchData = ["admin", "owner", "manager"].includes(user.role) ? await getTaskDispatchData() : null;
   return (
     <SettingsHub
       role={data.actorRole}
       utility={utility}
-      overview={dispatchData ? <TaskDispatchClient role={data.actorRole} {...dispatchData} /> : null}
       profile={<PersonalProfileSettings fullName={profile?.full_name ?? user.email} email={profile?.email ?? user.email} phoneNumber={profile?.phone_number ?? null} avatarUrl={profile?.avatar_url ?? null} languagePreference={profile?.language_preference ?? "en"} role={user.role} />}
       users={<><UserSettingsClient actorRole={data.actorRole} hotels={data.hotels} users={data.users} />{data.actorRole === "admin" && <SystemAccessPanel users={data.users} permissions={data.permissions} />}</>}
       properties={<PropertySettings properties={data.properties} managers={data.managers} />}
