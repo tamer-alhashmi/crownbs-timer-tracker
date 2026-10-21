@@ -9,7 +9,7 @@ const links = [
 
 export function MobileNav() {
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white/90 backdrop-blur-sm md:hidden">
+    <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white/90 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur-sm md:hidden">
       <div className="grid grid-cols-3 gap-2 px-4 py-2">
         {links.map(({ href, label, icon: Icon }) => (
           <Link

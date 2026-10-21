@@ -4,8 +4,8 @@
   "description": "Hotel Operations Suite & Housekeeping Time Tracker",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#ffffff",
+  "background_color": "#f1f5f9",
+  "theme_color": "#0f172a",
   "icons": [
     {
       "src": "/icon-192.png",

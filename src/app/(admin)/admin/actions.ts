@@ -16,6 +16,7 @@ type WorkLogUpdate = {
   roomsCompleted?: number;
   roomNumber?: string;
   notes?: string;
+  status?: "assigned" | "active" | "completed";
 };
 
 type PageResult<T> = { data: T[] | null; error: { message: string } | null };
@@ -77,7 +78,7 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
   const hotelFilter = user.role === "admin" ? null : hotelIds;
   const cleanersQuery = supabase.from("users").select("id, full_name, email, role, primary_hotel_id").eq("role", "cleaner").order("full_name").order("id");
   const assigneesQuery = supabase.from("users").select("id, full_name, email, role").in("role", ["owner", "manager"]).order("full_name").order("id");
-  const logsQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, shift_id, start_time, end_time, task_date, status, rooms_completed, room_ids, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, cost_override, deleted_at, cancelled_at, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, hotels(name), users!work_logs_user_id_fkey(full_name, email), services_config(name, description, default_rate, unit)").is("deleted_at", null).is("cancelled_at", null).order("start_time", { ascending: false }).order("id");
+  const logsQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, shift_id, start_time, end_time, task_date, status, rooms_completed, room_ids, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, cost_override, deleted_at, cancelled_at, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, hotels(name), users!work_logs_user_id_fkey(full_name, email, role), services_config(name, description, default_rate, unit)").is("deleted_at", null).order("start_time", { ascending: false }).order("id");
   const payrollQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, shift_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, room_ids, service_name_snapshot, service_description_snapshot, notes, cost_override, deleted_at, cancelled_at, travel_time_included, manager_approved, owner_approved, manager_approved_at, owner_approved_at, manager_rejected, owner_rejected, manager_rejected_at, owner_rejected_at, rejection_notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, import_key, is_locked, created_at, updated_at, hotels(name, location), users!work_logs_user_id_fkey(full_name, email), services_config(name, description, default_rate, unit)").eq("is_locked", true).eq("status", "completed").is("deleted_at", null).is("cancelled_at", null).order("start_time", { ascending: false }).order("id");
   const shiftsQuery = supabase.from("master_shifts").select("id, user_id, start_time, end_time, status").eq("status", "active").is("end_time", null).order("start_time").order("id");
   if (hotelFilter) {
@@ -224,17 +225,21 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
   });
   const cleanersById = new Map(cleaners.map((cleaner) => [cleaner.id, cleaner.full_name || cleaner.email]));
   const roomsById = new Map(rooms.map((room) => [room.id, room]));
-  const workLogsWithNames = workLogs.map((log) => ({
-    ...log,
-    room_numbers: Array.isArray(log.room_numbers) ? log.room_numbers : [],
-    roomDetails: (Array.isArray(log.room_ids) ? log.room_ids : []).flatMap((roomId) => {
-      const room = roomsById.get(roomId);
-      return room ? [{ name: room.room_name, floor: room.floor_section ?? "Unassigned section" }] : [];
-    }),
-    cleanerName: cleanersById.get(log.user_id) ?? "Unknown cleaner",
-    hotelName: hotelsById.get(log.hotel_id) ?? "Unknown hotel",
-  }));
-  const activeTasks = workLogsWithNames.filter((log) => log.status === "active" && !log.end_time);
+  const workLogsWithNames = workLogs.map((log) => {
+    const linkedUser = Array.isArray(log.users) ? log.users[0] : log.users;
+    return {
+      ...log,
+      room_numbers: Array.isArray(log.room_numbers) ? log.room_numbers : [],
+      roomDetails: (Array.isArray(log.room_ids) ? log.room_ids : []).flatMap((roomId) => {
+        const room = roomsById.get(roomId);
+        return room ? [{ name: room.room_name, floor: room.floor_section ?? "Unassigned section" }] : [];
+      }),
+      cleanerName: cleanersById.get(log.user_id) ?? linkedUser?.full_name ?? linkedUser?.email ?? "Unknown worker",
+      hotelName: hotelsById.get(log.hotel_id) ?? "Unknown hotel",
+      assigneeRole: linkedUser?.role ?? "cleaner",
+    };
+  });
+  const activeTasks = workLogsWithNames.filter((log) => !log.cancelled_at && log.status === "active" && !log.end_time);
   const cleanerRecordsById = new Map(cleaners.map((cleaner) => [cleaner.id, cleaner]));
   const visibleActiveShifts = activeShifts.filter((shift) => {
     if (user.role === "admin") return true;
@@ -270,7 +275,8 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
       .map((assignee) => ({ id: assignee.id, name: assignee.full_name || assignee.email, role: assignee.role })),
     services: visibleServices,
     rooms,
-    workLogs: workLogsWithNames,
+    workLogs: workLogsWithNames.filter((log) => !log.cancelled_at),
+    auditLogs: workLogsWithNames,
     payroll: payrollWithNames,
     activeShifts: visibleActiveShifts,
     activeTasks: activeTasks,
@@ -458,6 +464,9 @@ export async function updateWorkLog(logId: string, changes: WorkLogUpdate) {
   const user = await requireFeatureAccess("work_log_approvals", "edit");
   if (!["admin", "owner", "manager"].includes(user.role)) throw new Error("Management access required.");
   const { supabase, log } = await getLogForAction(logId);
+  if (changes.status !== undefined && user.role !== "admin") {
+    throw new Error("Only an admin can change a work log status.");
+  }
   if (user.role !== "admin") {
     const snapshotId = user.role === "owner" ? log.owner_id : log.manager_id;
     if (snapshotId !== user.userId) throw new Error("This work log belongs to the previous management assignment and cannot be edited.");
@@ -470,9 +479,11 @@ export async function updateWorkLog(logId: string, changes: WorkLogUpdate) {
   if (typeof changes.roomsCompleted === "number" && changes.roomsCompleted >= 0) payload.rooms_completed = changes.roomsCompleted;
   if (changes.roomNumber !== undefined) payload.room_number = changes.roomNumber.trim();
   if (changes.notes !== undefined) payload.notes = changes.notes.trim();
+  if (changes.status !== undefined) payload.status = changes.status;
   const { data: updated, error } = await supabase.from("work_logs").update(payload).eq("id", logId).select("*").single();
   if (error || !updated) throw new Error(error?.message ?? "Unable to update work log.");
-  await supabase.from("work_log_audit").insert({ work_log_id: logId, actor_id: user.userId, action: "edited", previous_values: log, new_values: updated });
+  const { error: auditError } = await supabase.from("work_log_audit").insert({ work_log_id: logId, actor_id: user.userId, action: "edited", previous_values: log, new_values: updated });
+  if (auditError) throw new Error(`Work log was updated, but audit history could not be saved: ${auditError.message}`);
   revalidatePath("/dashboard"); revalidatePath("/admin"); revalidatePath("/owner"); revalidatePath("/manager");
 }
 
@@ -480,17 +491,93 @@ export async function approveWorkLog(logId: string, role: ApprovalRole) {
   await requireFeatureAccess("work_log_approvals", "edit");
   const { supabase, log } = await getLogForAction(logId);
   const user = await assertRoleControlsLog(role, log);
+  let approvalRecord = log;
   if (log.status !== "completed" || !log.end_time) {
-    throw new Error("The cleaner must clock out before this log can be approved.");
+    const { data: assignee, error: assigneeError } = await supabase
+      .from("users")
+      .select("role")
+      .eq("id", log.user_id)
+      .maybeSingle();
+    if (assigneeError) throw new Error(`Unable to verify the assigned user's role: ${assigneeError.message}`);
+    if (!assignee || assignee.role === "cleaner" || !["active", "completed"].includes(log.status)) {
+      throw new Error("The cleaner must clock out before this log can be approved.");
+    }
+    const finalizedAt = new Date().toISOString();
+    const { data: finalized, error: finalizeError } = await supabase.from("work_logs")
+      .update({ status: "completed", end_time: finalizedAt, updated_at: finalizedAt })
+      .eq("id", logId)
+      .eq("status", log.status)
+      .is("end_time", null)
+      .select("*")
+      .maybeSingle();
+    if (finalizeError) throw new Error(`Unable to finalize the administrative task: ${finalizeError.message}`);
+    if (!finalized) throw new Error("This task was already updated and must be refreshed before approval.");
+    const { error: finalizeAuditError } = await supabase.from("work_log_audit").insert({
+      work_log_id: logId,
+      actor_id: user.userId,
+      action: "edited",
+      previous_values: log,
+      new_values: finalized,
+    });
+    if (finalizeAuditError) throw new Error(`Task was finalized, but audit history could not be saved: ${finalizeAuditError.message}`);
+    approvalRecord = finalized;
   }
-  if (log.is_locked) throw new Error("This log is already locked.");
+  if (approvalRecord.is_locked) throw new Error("This log is already locked.");
   const now = new Date().toISOString();
   const payload = role === "manager" ? { manager_approved: true, manager_rejected: false, manager_approved_at: now, rejection_notes: null } : { owner_approved: true, owner_rejected: false, owner_approved_at: now, rejection_notes: null };
-  const lock = role === "manager" ? log.owner_approved : log.manager_approved;
+  const lock = role === "manager" ? approvalRecord.owner_approved : approvalRecord.manager_approved;
   const { data: updated, error } = await supabase.from("work_logs").update({ ...payload, is_locked: lock, updated_at: now }).eq("id", logId).select("*").single();
   if (error || !updated) throw new Error(error?.message ?? "Unable to approve work log.");
-  await supabase.from("work_log_audit").insert({ work_log_id: logId, actor_id: user.userId, action: "approved", previous_values: log, new_values: updated });
+  const { error: auditError } = await supabase.from("work_log_audit").insert({ work_log_id: logId, actor_id: user.userId, action: "approved", previous_values: approvalRecord, new_values: updated });
+  if (auditError) throw new Error(`Work log was approved, but audit history could not be saved: ${auditError.message}`);
   revalidatePath("/admin"); revalidatePath("/owner"); revalidatePath("/manager");
+}
+
+export async function finalizeWorkLogWithoutClockOut(logId: string) {
+  const user = await requireFeatureAccess("work_log_approvals", "edit");
+  if (!["admin", "owner", "manager"].includes(user.role)) throw new Error("Management access required.");
+  if (typeof logId !== "string" || !logId) throw new Error("A work log is required.");
+  const supabase = createPrivilegedServerSupabaseClient();
+  const { data: previous, error: readError } = await supabase.from("work_logs")
+    .select("*")
+    .eq("id", logId)
+    .is("deleted_at", null)
+    .is("cancelled_at", null)
+    .maybeSingle();
+  if (readError || !previous) throw new Error(readError?.message ?? "Work log was not found.");
+  await assertManagementControlsHotel(user, previous.hotel_id);
+  if (previous.is_locked || previous.status !== "active" || previous.end_time) {
+    throw new Error("Only an active, unfinished work log can be finalized.");
+  }
+  if (user.role !== "admin" && user.role !== "owner") {
+    const { data: assignee, error: assigneeError } = await supabase.from("users")
+      .select("role")
+      .eq("id", previous.user_id)
+      .maybeSingle();
+    if (assigneeError) throw new Error(`Unable to verify the assigned user's role: ${assigneeError.message}`);
+    if (!assignee || assignee.role === "cleaner") {
+      throw new Error("Clock-out bypass is only available for administrative tasks.");
+    }
+  }
+  const now = new Date().toISOString();
+  const { data: updated, error: updateError } = await supabase.from("work_logs")
+    .update({ status: "completed", end_time: now, updated_at: now })
+    .eq("id", logId)
+    .eq("status", "active")
+    .is("end_time", null)
+    .select("*")
+    .maybeSingle();
+  if (updateError) throw new Error(`Unable to finalize the task: ${updateError.message}`);
+  if (!updated) throw new Error("This task was already finalized.");
+  const { error: auditError } = await supabase.from("work_log_audit").insert({
+    work_log_id: logId,
+    actor_id: user.userId,
+    action: "edited",
+    previous_values: previous,
+    new_values: updated,
+  });
+  if (auditError) throw new Error(`Task was finalized, but audit history could not be saved: ${auditError.message}`);
+  for (const path of ["/admin", "/owner", "/manager"]) revalidatePath(path);
 }
 
 export async function rejectWorkLog(logId: string, role: ApprovalRole, notes = "") {

@@ -2,7 +2,7 @@
 
 import { X } from "lucide-react";
 
-type Draft = { hotelId: string; serviceId: string; roomId: string; roomsCompleted: string; roomNumber: string; notes: string; startTime: string; endTime: string };
+type Draft = { hotelId: string; serviceId: string; roomId: string; roomsCompleted: string; roomNumber: string; notes: string; startTime: string; endTime: string; status: "assigned" | "active" | "completed" };
 type Room = { id: string; hotel_id: string; room_name: string; category: string };
 
 function durationHours(startTime: string, endTime: string) {
@@ -10,7 +10,7 @@ function durationHours(startTime: string, endTime: string) {
   return Math.max(0, (new Date(endTime).getTime() - new Date(startTime).getTime()) / 3_600_000);
 }
 
-export function FullEditPanel({ draft, setDraft, services, hotels, rooms, saving, onCancel, onSave }: { draft: Draft; setDraft: (draft: Draft) => void; services: { id: string; name: string }[]; hotels: { id: string; name: string }[]; rooms: Room[]; saving: boolean; onCancel: () => void; onSave: () => void }) {
+export function FullEditPanel({ draft, setDraft, services, hotels, rooms, saving, canEditStatus, statusDisabled, onCancel, onSave }: { draft: Draft; setDraft: (draft: Draft) => void; services: { id: string; name: string }[]; hotels: { id: string; name: string }[]; rooms: Room[]; saving: boolean; canEditStatus: boolean; statusDisabled: boolean; onCancel: () => void; onSave: () => void }) {
   const hotelRooms = rooms.filter((room) => room.hotel_id === draft.hotelId);
   const update = (changes: Partial<Draft>) => setDraft({ ...draft, ...changes });
   return (
@@ -24,6 +24,7 @@ export function FullEditPanel({ draft, setDraft, services, hotels, rooms, saving
           <label className="text-xs font-semibold text-slate-600">Room<select value={draft.roomId} onChange={(event) => update({ roomId: event.target.value, roomNumber: hotelRooms.find((room) => room.id === event.target.value)?.room_name ?? "" })} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-900"><option value="">No room selected</option>{hotelRooms.map((room) => <option key={room.id} value={room.id}>{room.room_name}{room.category ? ` - ${room.category}` : ""}</option>)}</select></label>
           <div className="grid grid-cols-2 gap-3"><label className="text-xs font-semibold text-slate-600">Start time<input type="datetime-local" value={draft.startTime} onChange={(event) => update({ startTime: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-900" /></label><label className="text-xs font-semibold text-slate-600">End time<input type="datetime-local" value={draft.endTime} onChange={(event) => update({ endTime: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-900" /></label></div>
           <div className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">Calculated duration: <strong>{durationHours(draft.startTime, draft.endTime).toFixed(2)} hours</strong></div>
+          {canEditStatus && <label className="text-xs font-semibold text-slate-600">Lifecycle status<select value={draft.status} disabled={statusDisabled} onChange={(event) => update({ status: event.target.value as Draft["status"] })} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-900 disabled:bg-slate-100"><option value="assigned">Pending</option><option value="active">Active</option><option value="completed">Completed</option></select>{statusDisabled && <span className="mt-1 block font-normal">Cancelled records keep their cancellation state.</span>}</label>}
           <label className="text-xs font-semibold text-slate-600">Rooms completed<input type="number" min="0" value={draft.roomsCompleted} onChange={(event) => update({ roomsCompleted: event.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-900" /></label>
           <label className="text-xs font-semibold text-slate-600">Selected room number<input value={draft.roomNumber} readOnly className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-100 p-2 text-sm text-slate-700" /></label>
           <label className="text-xs font-semibold text-slate-600">Full notes<textarea value={draft.notes} onChange={(event) => update({ notes: event.target.value })} rows={5} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-900" /></label>

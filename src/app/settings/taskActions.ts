@@ -347,7 +347,7 @@ export async function endOwnManagementTask(taskId: string) {
   if (typeof taskId !== "string" || !taskId) throw new Error("An active task is required.");
 
   const { data: task, error: taskError } = await supabase.from("work_logs")
-    .select("id, hotel_id, user_id, status, end_time, is_locked")
+    .select("*")
     .eq("id", taskId)
     .eq("user_id", actor.id)
     .eq("status", "active")
@@ -385,10 +385,18 @@ export async function endOwnManagementTask(taskId: string) {
     .eq("user_id", actor.id)
     .eq("status", "active")
     .is("end_time", null)
-    .select("id")
+    .select("*")
     .maybeSingle();
   if (updateError) throw new Error(`Unable to end your active task: ${updateError.message}`);
   if (!updated) throw new Error("This active task was already ended.");
+  const { error: auditError } = await supabase.from("work_log_audit").insert({
+    work_log_id: task.id,
+    actor_id: actor.id,
+    action: "edited",
+    previous_values: task,
+    new_values: updated,
+  });
+  if (auditError) throw new Error(`Task was ended, but audit history could not be saved: ${auditError.message}`);
   for (const path of ["/manager", "/hk-admin", "/admin"]) revalidatePath(path);
 }
 
