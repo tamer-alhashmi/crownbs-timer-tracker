@@ -91,6 +91,7 @@ export function ConversationView({
                 senderName={message.sender_id === userId ? userName : message.sender?.full_name ?? contact.full_name}
                 senderAvatarUrl={message.sender_id === userId ? userAvatarUrl : message.sender?.avatar_url ?? contact.avatar_url}
                 senderRole={message.sender_id === userId ? userRole : message.sender?.role ?? contact.role}
+                showAvatar={contact.conversation_type === "group"}
                 showSenderName={contact.conversation_type === "group" && message.sender_id !== userId}
                 onReply={(selected) => setReplyTo({
                   id: selected.id,

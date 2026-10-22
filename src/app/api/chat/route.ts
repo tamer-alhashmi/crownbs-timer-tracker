@@ -567,3 +567,67 @@ export async function PATCH(request: NextRequest) {
   }
   return NextResponse.json({ updated: data?.length ?? 0 });
 }
+
+export async function DELETE(request: NextRequest) {
+  if (!hasSameOrigin(request)) return apiError("Invalid request origin.", 403);
+  const context = await getChatActor();
+  if ("response" in context) return context.response;
+
+  let messageId: unknown;
+  try {
+    ({ messageId } = await request.json());
+  } catch {
+    return apiError("Invalid delete message request.", 400);
+  }
+  if (!isUuid(messageId)) return apiError("A valid message is required.", 400);
+
+  const { data: message, error: lookupError } = await context.supabase
+    .from("messages")
+    .select("id, sender_id, receiver_id, channel_id, attachment_url")
+    .eq("id", messageId)
+    .maybeSingle();
+  if (lookupError) {
+    console.error("[Chat System Error]:", lookupError);
+    return apiError("Could not load this message.", 500);
+  }
+  if (!message || message.sender_id !== context.actor.id) {
+    return apiError("Only your own messages can be deleted.", 403);
+  }
+
+  if (message.channel_id) {
+    const { data: membership, error: membershipError } = await context.supabase
+      .from("chat_channel_members")
+      .select("id")
+      .eq("channel_id", message.channel_id)
+      .eq("user_id", context.actor.id)
+      .maybeSingle();
+    if (membershipError) {
+      console.error("[Chat System Error]:", membershipError);
+      return apiError("Could not verify group access.", 500);
+    }
+    if (!membership) return apiError("You are not a member of this group.", 403);
+  } else {
+    if (!message.receiver_id) return apiError("This message is no longer available.", 404);
+    const contact = await getChatContact(context.supabase, message.receiver_id);
+    if (!contact || !canSeeChatContact(context.actor, contact.id)) {
+      return apiError("You are not permitted to access this conversation.", 403);
+    }
+  }
+
+  const { error: deleteError } = await context.supabase
+    .from("messages")
+    .delete()
+    .eq("id", message.id)
+    .eq("sender_id", context.actor.id);
+  if (deleteError) {
+    console.error("[Chat System Error]:", deleteError);
+    return apiError("Could not delete this message.", 500);
+  }
+  if (message.attachment_url) {
+    const { error: storageError } = await context.supabase.storage
+      .from("chat_attachments")
+      .remove([message.attachment_url]);
+    if (storageError) console.error("[Chat System Error]:", storageError);
+  }
+  return NextResponse.json({ deleted: true });
+}

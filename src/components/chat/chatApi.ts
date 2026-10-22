@@ -151,3 +151,9 @@ export const toggleMessageReaction = (messageId: string, emoji: string) =>
     method: "POST",
     body: JSON.stringify({ messageId, emoji }),
   });
+
+export const deleteChatMessage = (messageId: string) =>
+  request<{ deleted: boolean }>("/api/chat", {
+    method: "DELETE",
+    body: JSON.stringify({ messageId }),
+  });

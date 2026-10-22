@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Smile } from "lucide-react";
+import { Plus, Smile } from "lucide-react";
 import { useState } from "react";
 import type { ChatMessage } from "@/lib/chat/types";
 import { toggleMessageReaction } from "./chatApi";
@@ -74,7 +74,7 @@ export function ReactionBadges({
   );
 }
 
-export function ReactionPicker({ messageId }: { messageId: string }) {
+export function ReactionPicker({ messageId, trigger = "smile" }: { messageId: string; trigger?: "smile" | "plus" }) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
   const mutation = useReactionMutation(messageId);
@@ -88,7 +88,7 @@ export function ReactionPicker({ messageId }: { messageId: string }) {
         onClick={() => setOpen((current) => !current)}
         className="rounded-full p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"
       >
-        <Smile className="h-3.5 w-3.5" />
+        {trigger === "plus" ? <Plus className="h-3.5 w-3.5" /> : <Smile className="h-3.5 w-3.5" />}
       </button>
       {open && (
         <span className="absolute bottom-full right-0 z-30 mb-1 flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-600 dark:bg-[#202c33]">
