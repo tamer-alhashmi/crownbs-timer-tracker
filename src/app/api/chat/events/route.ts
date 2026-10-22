@@ -12,8 +12,6 @@ export async function GET() {
   let stopped = false;
   let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
   let channelCleanup: Promise<unknown> | null = null;
-  let channel: ReturnType<typeof context.supabase.channel>;
-
   const stop = () => {
     if (!stopped) {
       stopped = true;
@@ -34,7 +32,7 @@ export async function GET() {
     }
   };
 
-  channel = context.supabase
+  const channel = context.supabase
     .channel(`private-chat-notifications:${context.actor.id}`)
     .on(
       "postgres_changes",
@@ -55,7 +53,7 @@ export async function GET() {
             .eq("receiver_id", context.actor.id)
             .is("delivered_at", null)
             .then(({ error }) => {
-              if (error) console.error("Chat delivery receipt update failed:", error.message);
+              if (error) console.error("[Chat System Error]:", error);
             });
         }
       }
@@ -99,6 +97,90 @@ export async function GET() {
         filter: `assigned_by=eq.${context.actor.id}`,
       },
       () => send("data: {\"type\":\"task_started\"}\n\n")
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "messages",
+      },
+      async (payload) => {
+        const channelId = payload.new.channel_id;
+        if (typeof channelId !== "string") return;
+        const { data: membership, error } = await context.supabase
+          .from("chat_channel_members")
+          .select("id")
+          .eq("channel_id", channelId)
+          .eq("user_id", context.actor.id)
+          .maybeSingle();
+        if (error) {
+          console.error("[Chat System Error]:", error);
+          return;
+        }
+        if (membership) send("data: {\"type\":\"group_message\"}\n\n");
+      }
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "chat_conversation_preferences",
+        filter: `user_id=eq.${context.actor.id}`,
+      },
+      () => send("data: {\"type\":\"conversation_preferences\"}\n\n")
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "chat_channel_members",
+        filter: `user_id=eq.${context.actor.id}`,
+      },
+      () => send("data: {\"type\":\"group_membership\"}\n\n")
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "chat_message_reactions",
+      },
+      async (payload) => {
+        const changed = payload as unknown as {
+          new: Record<string, unknown>;
+          old: Record<string, unknown>;
+        };
+        const messageId = changed.new.message_id ?? changed.old.message_id;
+        if (typeof messageId !== "string") return;
+        const { data: message, error } = await context.supabase
+          .from("messages")
+          .select("sender_id, receiver_id, channel_id")
+          .eq("id", messageId)
+          .maybeSingle();
+        if (error) {
+          console.error("[Chat System Error]:", error);
+          return;
+        }
+        if (!message) return;
+        if (message.channel_id) {
+          const { data: membership, error: membershipError } = await context.supabase
+            .from("chat_channel_members")
+            .select("id")
+            .eq("channel_id", message.channel_id)
+            .eq("user_id", context.actor.id)
+            .maybeSingle();
+          if (membershipError) {
+            console.error("[Chat System Error]:", membershipError);
+            return;
+          }
+          if (membership) send("data: {\"type\":\"reaction\"}\n\n");
+        } else if ([message.sender_id, message.receiver_id].includes(context.actor.id)) {
+          send("data: {\"type\":\"reaction\"}\n\n");
+        }
+      }
     );
 
   const stream = new ReadableStream<Uint8Array>({

@@ -11,6 +11,7 @@ import { startAssignedTask } from "@/app/settings/taskActions";
 import { useSoundSettings } from "./ChatProviders";
 import { playChatSound } from "./chatSound";
 import { showActionToast } from "@/components/ui/ActionToast";
+import { safeChatError } from "./chatErrors";
 
 function relativeDispatchTime(value: string | null) {
   if (!value) return "Time unavailable";
@@ -103,15 +104,16 @@ export function NotificationBell() {
     try {
       const result = await startAssignedTask(taskId);
       if (!result.success) {
+        const message = safeChatError(new Error(result.error), "Unable to start the assigned task. Please try again.");
         if (result.error.includes("already have an active running task")) setActiveTaskWarning(true);
-        else setTaskError(result.error);
-        showActionToast("error", result.error);
+        else setTaskError(message);
+        showActionToast("error", message);
         return;
       }
       setSelectedTaskId(null);
       showActionToast("success", "Task started.");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to start the assigned task.";
+      const message = safeChatError(error, "Unable to start the assigned task. Please try again.");
       setTaskError(message);
       showActionToast("error", message);
     } finally {
@@ -158,11 +160,11 @@ export function NotificationBell() {
           </div>
           {error ? (
             <p role="alert" className="px-4 py-5 text-sm text-rose-600">
-              {error.message}
+              {safeChatError(error, "Notifications could not be loaded. Please try again.")}
             </p>
           ) : (
             <>
-            {taskQuery.error && <p role="alert" className="px-4 py-3 text-sm text-rose-600">{taskQuery.error.message}</p>}
+            {taskQuery.error && <p role="alert" className="px-4 py-3 text-sm text-rose-600">{safeChatError(taskQuery.error, "Task notifications could not be loaded. Please try again.")}</p>}
             {taskError && <p role="alert" className="mx-2 mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{taskError}</p>}
             {incoming.length > 0 && (
               <div className="border-b border-slate-100 p-2">

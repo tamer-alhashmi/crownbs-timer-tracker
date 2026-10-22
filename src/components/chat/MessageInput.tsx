@@ -7,6 +7,9 @@ import type { AttachmentType } from "@/lib/chat/types";
 import { sendMessage, uploadAttachment } from "./chatApi";
 import { playChatSound } from "./chatSound";
 import { useSoundSettings } from "./ChatProviders";
+import { VoiceMessageRecorder } from "./VoiceMessageRecorder";
+import { ReplyPreview, type ReplyTarget } from "./ReplyPreview";
+import { safeChatError } from "./chatErrors";
 
 const MAX_FILE_SIZE = 12 * 1024 * 1024;
 
@@ -22,9 +25,15 @@ function attachmentType(file: File): AttachmentType | null {
 
 export function MessageInput({
   receiverId,
+  channelId,
+  replyTo,
+  onCancelReply,
   onSent,
 }: {
   receiverId: string;
+  channelId?: string;
+  replyTo?: ReplyTarget | null;
+  onCancelReply?: () => void;
   onSent: () => void;
 }) {
   const [content, setContent] = useState("");
@@ -37,33 +46,62 @@ export function MessageInput({
     mutationFn: async () => {
       if (file && !attachmentType(file)) throw new Error("Choose an image, PDF, or Word document.");
       let attachment: { path: string; type: AttachmentType } | undefined;
-      if (file) attachment = await uploadAttachment(file, receiverId);
+      if (file) attachment = await uploadAttachment(file, receiverId, channelId);
       const result = await sendMessage({
-        receiverId,
+        receiverId: channelId ? "" : receiverId,
+        channelId,
         content: content.trim(),
         attachmentUrl: attachment?.path,
         attachmentType: attachment?.type,
+        parentId: replyTo?.id ?? null,
       });
       return result;
     },
     onSuccess: () => {
       setContent("");
       setFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      if (cameraInputRef.current) cameraInputRef.current.value = "";
       setError(null);
+      onCancelReply?.();
       if (soundNotificationsEnabled) playChatSound("sent");
       onSent();
     },
-    onError: (sendError) => setError(sendError.message),
+    onError: (sendError) => setError(safeChatError(sendError, "Couldn't send your message. Please try again.")),
   });
+
+  async function sendVoice(blob: Blob, durationSeconds: number) {
+    const extension = blob.type.includes("ogg") ? "ogg" : "webm";
+    const voiceFile = new File([blob], `voice-note.${extension}`, { type: blob.type || `audio/${extension}` });
+    const attachment = await uploadAttachment(voiceFile, receiverId, channelId);
+    await sendMessage({
+      receiverId: channelId ? "" : receiverId,
+      channelId,
+      content: "",
+      attachmentUrl: attachment.path,
+      attachmentType: "voice",
+      messageType: "voice",
+      mediaUrl: attachment.path,
+      durationSeconds,
+      parentId: replyTo?.id ?? null,
+    });
+    if (soundNotificationsEnabled) playChatSound("sent");
+    onCancelReply?.();
+    onSent();
+  }
 
   function chooseFile(selected: File | undefined) {
     if (!selected) return;
     if (!attachmentType(selected)) {
       setError("Choose an image, PDF, or Word document.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      if (cameraInputRef.current) cameraInputRef.current.value = "";
       return;
     }
     if (selected.size > MAX_FILE_SIZE) {
       setError("Attachments must be 12 MB or smaller.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      if (cameraInputRef.current) cameraInputRef.current.value = "";
       return;
     }
     setError(null);
@@ -78,6 +116,7 @@ export function MessageInput({
 
   return (
     <form onSubmit={submit} className="shrink-0 border-t border-[#d9d4cc] bg-[#f0f2f5] p-2.5 dark:border-slate-700 dark:bg-[#202c33] sm:p-3">
+      <ReplyPreview reply={replyTo ?? null} onCancel={onCancelReply ?? (() => undefined)} />
       {file && (
         <div className="mb-2 flex items-center justify-between rounded-lg bg-white px-3 py-2 text-xs text-slate-700 dark:bg-[#2a3942] dark:text-slate-100">
           <span className="truncate">{file.name}</span>
@@ -111,6 +150,7 @@ export function MessageInput({
         >
           <Paperclip className="h-5 w-5" />
         </button>
+        <VoiceMessageRecorder onSend={sendVoice} />
         <button
           type="button"
           aria-label="Take a photo"
