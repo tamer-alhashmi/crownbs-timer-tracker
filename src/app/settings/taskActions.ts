@@ -382,9 +382,25 @@ export async function endOwnManagementTask(taskId: string) {
     }
   }
 
-  const now = new Date().toISOString();
+  const startTimestamp = Date.parse(task.start_time);
+  const currentTimestamp = Date.now();
+  if (!Number.isFinite(startTimestamp) || startTimestamp > currentTimestamp) {
+    throw new Error("This task has an invalid or future start time and cannot be ended.");
+  }
+  const now = new Date(currentTimestamp).toISOString();
+  const autoApproveManager = actor.role === "manager";
   const { data: updated, error: updateError } = await supabase.from("work_logs")
-    .update({ status: "completed", end_time: now, updated_at: now })
+    .update({
+      status: "completed",
+      end_time: now,
+      rooms_completed: Math.max(0, task.rooms_completed ?? 0),
+      ...(autoApproveManager ? {
+        manager_approved: true,
+        manager_rejected: false,
+        manager_approved_at: now,
+      } : {}),
+      updated_at: now,
+    })
     .eq("id", task.id)
     .eq("user_id", actor.id)
     .eq("status", "active")
@@ -396,11 +412,13 @@ export async function endOwnManagementTask(taskId: string) {
   const { error: auditError } = await supabase.from("work_log_audit").insert({
     work_log_id: task.id,
     actor_id: actor.id,
-    action: "edited",
+    action: autoApproveManager ? "approved" : "edited",
     previous_values: task,
-    new_values: updated,
+    new_values: autoApproveManager
+      ? { ...updated, audit_note: "Automatically approved upon completion by the managerial assignee." }
+      : updated,
   });
-  if (auditError) throw new Error(`Task was ended, but audit history could not be saved: ${auditError.message}`);
+  if (auditError) throw new Error(`Task was ended${autoApproveManager ? " and manager-approved" : ""}, but audit history could not be saved: ${auditError.message}`);
   for (const path of ["/manager", "/hk-admin", "/admin"]) revalidatePath(path);
 }
 
@@ -516,9 +534,10 @@ export async function completeDispatchTask(taskId: string, reason: string) {
   if (typeof reason !== "string" || reason.trim().length < 5 || reason.trim().length > 1000) throw new Error("Enter an audit reason between 5 and 1,000 characters.");
   const { actor, supabase, task } = await getManagedTask(taskId);
   if (task.status !== "active") throw new Error("Only active tasks can be force-completed.");
-  const { error } = await supabase.rpc("record_management_override", {
-    p_entity_type: "task", p_entity_id: task.id, p_action: "force_complete_task",
-    p_actor_id: actor.id, p_reason: reason.trim(), p_end_time: null,
+  const { error } = await supabase.rpc("complete_dispatch_task", {
+    p_task_id: task.id,
+    p_actor_id: actor.id,
+    p_reason: reason.trim(),
   });
   if (error) throw new Error(`Unable to complete active task: ${error.message}`);
   revalidateTaskViews();

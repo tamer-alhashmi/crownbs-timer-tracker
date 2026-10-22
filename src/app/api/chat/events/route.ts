@@ -10,7 +10,31 @@ export async function GET() {
   const encoder = new TextEncoder();
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let stopped = false;
-  const channel = context.supabase
+  let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
+  let channelCleanup: Promise<unknown> | null = null;
+  let channel: ReturnType<typeof context.supabase.channel>;
+
+  const stop = () => {
+    if (!stopped) {
+      stopped = true;
+      if (heartbeat) clearInterval(heartbeat);
+    }
+    channelCleanup ??= context.supabase.removeChannel(channel);
+    return channelCleanup;
+  };
+
+  const send = (event: string) => {
+    if (stopped || !controller) return false;
+    try {
+      controller.enqueue(encoder.encode(event));
+      return true;
+    } catch {
+      void stop();
+      return false;
+    }
+  };
+
+  channel = context.supabase
     .channel(`private-chat-notifications:${context.actor.id}`)
     .on(
       "postgres_changes",
@@ -21,8 +45,7 @@ export async function GET() {
         filter: `receiver_id=eq.${context.actor.id}`,
       },
       (payload) => {
-        if (stopped) return;
-        controller.enqueue(encoder.encode("data: {\"type\":\"message\"}\n\n"));
+        if (!send("data: {\"type\":\"message\"}\n\n")) return;
         const messageId = payload.new.id;
         if (typeof messageId === "string") {
           void context.supabase
@@ -45,9 +68,7 @@ export async function GET() {
         table: "messages",
         filter: `sender_id=eq.${context.actor.id}`,
       },
-      () => {
-        if (!stopped) controller.enqueue(encoder.encode("data: {\"type\":\"read\"}\n\n"));
-      }
+      () => send("data: {\"type\":\"read\"}\n\n")
     )
     .on(
       "postgres_changes",
@@ -57,9 +78,7 @@ export async function GET() {
         table: "work_logs",
         filter: `assigned_to=eq.${context.actor.id}`,
       },
-      () => {
-        if (!stopped) controller.enqueue(encoder.encode("data: {\"type\":\"task_assigned\"}\n\n"));
-      }
+      () => send("data: {\"type\":\"task_assigned\"}\n\n")
     )
     .on(
       "postgres_changes",
@@ -69,9 +88,7 @@ export async function GET() {
         table: "work_logs",
         filter: `assigned_to=eq.${context.actor.id}`,
       },
-      () => {
-        if (!stopped) controller.enqueue(encoder.encode("data: {\"type\":\"task_updated\"}\n\n"));
-      }
+      () => send("data: {\"type\":\"task_updated\"}\n\n")
     )
     .on(
       "postgres_changes",
@@ -81,40 +98,31 @@ export async function GET() {
         table: "work_logs",
         filter: `assigned_by=eq.${context.actor.id}`,
       },
-      () => {
-        if (!stopped) controller.enqueue(encoder.encode("data: {\"type\":\"task_started\"}\n\n"));
-      }
+      () => send("data: {\"type\":\"task_started\"}\n\n")
     );
 
-  let controller: ReadableStreamDefaultController<Uint8Array>;
   const stream = new ReadableStream<Uint8Array>({
     start(streamController) {
       controller = streamController;
       channel.subscribe((status) => {
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-          if (!stopped) {
+          if (send("event: error\ndata: {}\n\n")) {
             try {
-              controller.enqueue(encoder.encode("event: error\ndata: {}\n\n"));
+              controller?.close();
             } catch {
-              // The stream can already be closed by the client disconnecting.
+              void stop();
+              return;
             }
           }
+          void stop();
         }
       });
       heartbeat = setInterval(() => {
-        if (!stopped) {
-          try {
-            controller.enqueue(encoder.encode(": keepalive\n\n"));
-          } catch {
-            stopped = true;
-          }
-        }
+        send(": keepalive\n\n");
       }, 20_000);
     },
     async cancel() {
-      stopped = true;
-      if (heartbeat) clearInterval(heartbeat);
-      await context.supabase.removeChannel(channel);
+      await stop();
     },
   });
 

@@ -3,7 +3,6 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState, useTransition, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import { Activity, Building2, CheckCheck, ClipboardList, Gauge, Images, Loader2, Settings, UsersRound } from "lucide-react";
 import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
 import { NotificationBell } from "@/components/chat/NotificationBell";
@@ -64,7 +63,6 @@ export default function HKAdminDashboardClient({
   dispatchData: DispatchData;
 }) {
   useWorkLogRealtimeRefresh();
-  const router = useRouter();
   const [activeTab, setActiveTab] = useState<DashboardTab>("overview");
   const [now, setNow] = useState(0);
   const [isPending, startTransition] = useTransition();
@@ -101,7 +99,6 @@ export default function HKAdminDashboardClient({
       await updateHKRoomStatus(roomId, status, notes);
       setFeedback({ text: "Room status and inspection notes saved.", error: false });
       showActionToast("success", "Room status and inspection notes saved.");
-      router.refresh();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to update this room.";
       setFeedback({ text: message, error: true });
@@ -119,7 +116,6 @@ export default function HKAdminDashboardClient({
         showActionToast("success", `${intervention.label} recorded in the audit log.`);
         setIntervention(null);
         setReason("");
-        router.refresh();
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unable to intervene on this task.";
         setFeedback({ text: message, error: true });

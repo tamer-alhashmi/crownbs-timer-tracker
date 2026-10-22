@@ -97,18 +97,13 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
   const currentPage = Math.min(page, pageCount);
   const visibleLogs = filteredLogs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => router.refresh(), 15_000);
-    return () => window.clearInterval(timer);
-  }, [router]);
-
-  const run = (operation: () => Promise<unknown>, success: string) => startTransition(async () => {
+  const run = (operation: () => Promise<unknown>, success: string, refreshAfter = false) => startTransition(async () => {
     try {
       setMessage("");
       await operation();
       setMessage(success);
       showActionToast("success", success);
-      router.refresh();
+      if (refreshAfter) router.refresh();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to update the operation.";
       setMessage(message);
@@ -132,7 +127,6 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
           setPersistedEditingRoomIds(payload.roomIds);
           setMessage("Changes saved. You can now add evidence to the selected rooms.");
           showActionToast("success", "Work log changes saved.");
-          router.refresh();
         } catch (error) {
           const message = error instanceof Error ? error.message : "Unable to save task changes.";
           setMessage(message);
@@ -148,7 +142,7 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
     setHotelId(nextHotelId);
     setServiceId("");
     setRoomIds([]);
-    run(() => switchHotel(nextHotelId), "Hotel selection updated.");
+    run(() => switchHotel(nextHotelId), "Hotel selection updated.", true);
   };
 
   const beginEdit = async (log: WorkLog) => {

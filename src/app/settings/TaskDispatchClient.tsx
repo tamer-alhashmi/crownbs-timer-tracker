@@ -1,14 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { ClipboardCheck, Loader2, Plus, X } from "lucide-react";
 import { dispatchTask, type getTaskDispatchData } from "./taskActions";
 import type { UserRole } from "@/lib/roles";
-import { useWorkLogRealtimeRefresh } from "@/lib/useWorkLogRealtimeRefresh";
 import { TaskManagementDialog } from "./TaskManagementDialog";
 import { showActionToast } from "@/components/ui/ActionToast";
 
@@ -76,14 +74,12 @@ const priorities = [
 ] as const;
 
 export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks, stats }: Props) {
-  useWorkLogRealtimeRefresh();
   const [isOpen, setIsOpen] = useState(false);
   const [taskListStatus, setTaskListStatus] = useState<"assigned" | "active" | "completed" | null>(null);
   const [notice, setNotice] = useState("");
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoError, setPhotoError] = useState("");
   const [isPending, startTransition] = useTransition();
-  const router = useRouter();
   const dialogRef = useRef<HTMLElement>(null);
   const form = useForm<DispatchValues>({
     resolver: zodResolver(schema),
@@ -198,7 +194,6 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
     setPhoto(null);
     setPhotoError("");
     setIsOpen(false);
-    router.refresh();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to assign this task.";
       setNotice(message);

@@ -3,7 +3,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Bell, Loader2, MessageCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { fetchTaskNotifications, fetchUnread, type TaskNotice } from "./chatApi";
 import { useChatStore } from "./chatStore";
 import { roleLabel } from "@/lib/chat/types";
@@ -23,19 +22,16 @@ export function NotificationBell() {
   const [taskError, setTaskError] = useState("");
   const [activeTaskWarning, setActiveTaskWarning] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
-  const router = useRouter();
   const { soundNotificationsEnabled } = useSoundSettings();
   const { data, error } = useQuery({
     queryKey: ["chat", "unread"],
     queryFn: fetchUnread,
-    refetchInterval: 15_000,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
   });
   const taskQuery = useQuery({
     queryKey: ["tasks", "notifications"],
     queryFn: fetchTaskNotifications,
-    refetchInterval: 10_000,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
   });
@@ -93,8 +89,6 @@ export function NotificationBell() {
       }
       setSelectedTaskId(null);
       showActionToast("success", "Task started.");
-      await taskQuery.refetch();
-      router.refresh();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to start the assigned task.";
       setTaskError(message);
@@ -131,7 +125,7 @@ export function NotificationBell() {
         )}
       </button>
       {isOpen && (
-        <div data-back-button-overlay="true" className="absolute right-0 left-auto top-12 z-[70] mr-2 w-[calc(100vw-1.5rem)] max-w-sm overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/15 sm:mr-0 sm:w-[min(22rem,calc(100vw-2rem))]">
+        <div data-back-button-overlay="true" className="absolute right-0 top-full z-50 mt-2 w-[calc(100vw-2rem)] max-w-sm overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/15 sm:w-96">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-slate-900">Notifications</p>

@@ -2,41 +2,48 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { Building2, Gauge, ShieldCheck, UserRound } from "lucide-react";
+import { Building2, ShieldCheck, UserRound } from "lucide-react";
 import type { UserRole } from "@/lib/roles";
 
-type Tab = "overview" | "profile" | "users" | "properties";
+type Tab = "profile" | "users" | "properties";
 type Props = {
   role: UserRole;
   utility: ReactNode;
-  overview: ReactNode;
   profile: ReactNode;
   users: ReactNode;
   properties: ReactNode;
 };
 
 const tabs: { id: Tab; label: string; icon: typeof UserRound }[] = [
-  { id: "overview", label: "Overview", icon: Gauge },
   { id: "profile", label: "Profile & Security", icon: ShieldCheck },
   { id: "users", label: "User Management", icon: UserRound },
   { id: "properties", label: "Properties & Hotels", icon: Building2 },
 ];
 
-export default function SettingsHub({ role, utility, overview, profile, users, properties }: Props) {
+export default function SettingsHub({ role, utility, profile, users, properties }: Props) {
   const visibleTabs = tabs.filter(({ id }) =>
-    (id === "overview" && ["owner", "manager"].includes(role)) ||
     id === "profile" ||
     (id === "users" && ["admin", "owner", "manager"].includes(role)) ||
     (id === "properties" && ["admin", "owner"].includes(role))
   );
-  const [activeTab, setActiveTab] = useState<Tab>(() =>
-    ["owner", "manager"].includes(role) ? "overview" : "profile"
-  );
+  const [activeTab, setActiveTab] = useState<Tab>("profile");
   useEffect(() => {
-    const requestedTab = new URLSearchParams(window.location.search).get("tab");
-    if (requestedTab && visibleTabs.some((tab) => tab.id === requestedTab)) setActiveTab(requestedTab as Tab);
+    const url = new URL(window.location.href);
+    const requestedTab = url.searchParams.get("tab");
+    if (requestedTab === "overview") {
+      url.searchParams.set("tab", "profile");
+      window.history.replaceState(null, "", url);
+      return;
+    }
+    if (requestedTab && tabs.some(({ id }) => id === requestedTab && (
+      id === "profile" ||
+      (id === "users" && ["admin", "owner", "manager"].includes(role)) ||
+      (id === "properties" && ["admin", "owner"].includes(role))
+    ))) {
+      setActiveTab(requestedTab as Tab);
+    }
   }, [role]);
-  const content: Record<Tab, ReactNode> = { overview, profile, users, properties };
+  const content: Record<Tab, ReactNode> = { profile, users, properties };
 
   return (
     <main className="min-h-screen bg-slate-50 px-3 py-5 text-slate-900 sm:px-6 sm:py-8">
