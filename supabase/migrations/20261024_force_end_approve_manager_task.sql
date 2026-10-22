@@ -147,8 +147,11 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.force_end_approve_manager_task(UUID, UUID) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.force_end_approve_manager_task(UUID, UUID) TO service_role;
+REVOKE ALL ON FUNCTION public.force_end_approve_manager_task (UUID, UUID)
+FROM PUBLIC, anon, authenticated;
+
+GRANT
+EXECUTE ON FUNCTION public.force_end_approve_manager_task (UUID, UUID) TO service_role;
 
 CREATE OR REPLACE FUNCTION public.complete_dispatch_task(
   p_task_id UUID,
@@ -263,8 +266,11 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.complete_dispatch_task(UUID, UUID, TEXT) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.complete_dispatch_task(UUID, UUID, TEXT) TO service_role;
+REVOKE ALL ON FUNCTION public.complete_dispatch_task (UUID, UUID, TEXT)
+FROM PUBLIC, anon, authenticated;
+
+GRANT
+EXECUTE ON FUNCTION public.complete_dispatch_task (UUID, UUID, TEXT) TO service_role;
 
 NOTIFY pgrst, 'reload schema';
 
