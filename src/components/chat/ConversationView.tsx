@@ -64,7 +64,7 @@ export function ConversationView({
     <>
       <div className="flex min-h-0 flex-1 flex-col bg-[#efeae2] dark:bg-[#0b141a]">
         <div
-          className="flex-1 space-y-2.5 overflow-y-auto px-3 py-5 sm:px-4"
+          className="w-full min-w-0 flex-1 space-y-3 overflow-y-auto px-3 py-5 sm:px-4"
           style={{
             backgroundImage:
               "radial-gradient(circle at 20% 20%, rgba(120, 113, 100, 0.055) 1px, transparent 1.5px), radial-gradient(circle at 75% 65%, rgba(120, 113, 100, 0.045) 1px, transparent 1.5px)",
