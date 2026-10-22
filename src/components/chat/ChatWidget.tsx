@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, MessageCircle, Minus, X } from "lucide-react";
+import { ArrowLeft, MessageCircle, Minus, Phone, X } from "lucide-react";
 import { useEffect, useId, useRef } from "react";
 import { Capacitor } from "@capacitor/core";
 import type { AppUserSession } from "@/lib/auth";
@@ -14,8 +14,9 @@ import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchContacts } from "./chatApi";
 import { createClient } from "@/lib/supabase/client";
+import { ChatErrorBoundary } from "./ChatErrorBoundary";
 
-export function ChatWidget({ user, profile }: { user: AppUserSession; profile: { name: string; avatarUrl: string | null; role: AppUserSession["role"] } }) {
+function ChatWidgetContent({ user, profile }: { user: AppUserSession; profile: { name: string; avatarUrl: string | null; role: AppUserSession["role"] } }) {
   const widgetId = useId().replaceAll(":", "");
   const isChatOpen = useChatStore((state) => state.isChatOpen);
   const activeContact = useChatStore((state) => state.activeContact);
@@ -188,10 +189,10 @@ export function ChatWidget({ user, profile }: { user: AppUserSession; profile: {
             {displayedContact ? (
               <span className="mt-1 flex items-center gap-1.5">
                 <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold leading-4 text-emerald-50">
-                  {roleLabel(displayedContact.role)}
+                  {displayedContact.conversation_type === "group" ? "Group" : roleLabel(displayedContact.role)}
                 </span>
-                <LiveStatusIndicator isClockedIn={displayedContact.is_clocked_in ?? false} showLabel={false} className={displayedContact.is_clocked_in ? "text-emerald-300" : "text-slate-300"} />
-                <span className="truncate text-[11px] text-emerald-50/90">Private conversation</span>
+                {displayedContact.conversation_type !== "group" && <LiveStatusIndicator isClockedIn={displayedContact.is_clocked_in ?? false} showLabel={false} className={displayedContact.is_clocked_in ? "text-emerald-300" : "text-slate-300"} />}
+                <span className="truncate text-[11px] text-emerald-50/90">{displayedContact.conversation_type === "group" ? "Group conversation" : "Private conversation"}</span>
               </span>
             ) : (
               <span className="block text-xs text-emerald-50/90">Your hotel team</span>
@@ -199,6 +200,16 @@ export function ChatWidget({ user, profile }: { user: AppUserSession; profile: {
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          {displayedContact && displayedContact.conversation_type !== "group" && (
+            <button
+              type="button"
+              aria-label={`Call ${displayedContact.full_name}`}
+              onClick={() => window.dispatchEvent(new CustomEvent("chat:start-call", { detail: displayedContact }))}
+              className="rounded-full p-2 text-white/90 transition hover:bg-white/15 hover:text-white"
+            >
+              <Phone aria-hidden="true" className="h-4 w-4" />
+            </button>
+          )}
           <button
             type="button"
             aria-label="Minimize chat"
@@ -220,8 +231,16 @@ export function ChatWidget({ user, profile }: { user: AppUserSession; profile: {
       {displayedContact ? (
         <ConversationView userId={user.userId} userRole={user.role} userName={profile.name} userAvatarUrl={profile.avatarUrl} contact={displayedContact} />
       ) : (
-        <ContactList />
+        <ContactList userRole={user.role} />
       )}
     </section>
+  );
+}
+
+export function ChatWidget({ user, profile }: { user: AppUserSession; profile: { name: string; avatarUrl: string | null; role: AppUserSession["role"] } }) {
+  return (
+    <ChatErrorBoundary>
+      <ChatWidgetContent user={user} profile={profile} />
+    </ChatErrorBoundary>
   );
 }

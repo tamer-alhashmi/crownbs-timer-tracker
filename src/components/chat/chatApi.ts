@@ -5,16 +5,29 @@ import type {
   UnreadMessage,
 } from "@/lib/chat/types";
 import type { UserRole } from "@/lib/roles";
+import { logChatError, safeChatError } from "./chatErrors";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
-      ...init?.headers,
-    },
-  });
-  const result: unknown = await response.json();
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...init,
+      headers: {
+        ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+        ...init?.headers,
+      },
+    });
+  } catch (error) {
+    logChatError(error);
+    throw new Error("We couldn't connect to chat. Check your internet connection and try again. / تعذر الاتصال بالمحادثة. تحقق من اتصالك بالإنترنت وحاول مرة أخرى.");
+  }
+  let result: unknown;
+  try {
+    result = await response.json();
+  } catch (error) {
+    logChatError(error);
+    throw new Error("We couldn't load the chat response. Please try again. / تعذر تحميل رد المحادثة. حاول مرة أخرى.");
+  }
   if (!response.ok) {
     const message =
       typeof result === "object" &&
@@ -23,7 +36,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
       typeof result.error === "string"
         ? result.error
         : "Chat request failed.";
-    throw new Error(message);
+    throw new Error(safeChatError(new Error(message), "We couldn't complete that chat action. Please try again."));
   }
   return result as T;
 }
@@ -66,21 +79,32 @@ export type TaskNotice = {
 export const fetchTaskNotifications = () =>
   request<{ incoming: TaskNotice[]; outgoing: TaskNotice[] }>("/api/tasks/notifications");
 
-export const fetchConversation = (contactId: string) =>
+export const fetchConversation = (contactId: string, channelId?: string) =>
   request<{ messages: ChatMessage[] }>(
-    `/api/chat?view=history&contactId=${encodeURIComponent(contactId)}`
+    channelId
+      ? `/api/chat?view=history&channelId=${encodeURIComponent(channelId)}`
+      : `/api/chat?view=history&contactId=${encodeURIComponent(contactId)}`
   );
 
-export const markConversationRead = (receiverId: string) =>
+export const markConversationRead = (receiverId: string, channelId?: string) =>
   request<{ updated: number }>("/api/chat", {
     method: "PATCH",
-    body: JSON.stringify({ receiverId }),
+    body: JSON.stringify(channelId ? { channelId } : { receiverId }),
   });
 
-export const uploadAttachment = (file: File, receiverId: string) => {
+export const setConversationPinned = (contactId: string, isPinned: boolean, channelId?: string) =>
+  request<{ is_pinned: boolean }>(channelId ? "/api/chat/channels" : "/api/chat", {
+    method: "PATCH",
+    body: JSON.stringify(channelId
+      ? { channelId, isPinned }
+      : { action: "pin", contactId, isPinned }),
+  });
+
+export const uploadAttachment = (file: File, receiverId: string, channelId?: string) => {
   const formData = new FormData();
   formData.set("file", file);
-  formData.set("receiverId", receiverId);
+  if (channelId) formData.set("channelId", channelId);
+  else formData.set("receiverId", receiverId);
   return request<{ path: string; type: AttachmentType }>("/api/chat/attachment", {
     method: "POST",
     body: formData,
@@ -89,11 +113,41 @@ export const uploadAttachment = (file: File, receiverId: string) => {
 
 export const sendMessage = (input: {
   receiverId: string;
+  channelId?: string;
   content: string;
   attachmentUrl?: string;
-  attachmentType?: AttachmentType;
+  attachmentType?: AttachmentType | "voice";
+  messageType?: ChatMessage["message_type"];
+  mediaUrl?: string;
+  durationSeconds?: number;
+  parentId?: string | null;
 }) =>
   request<{ message: ChatMessage }>("/api/chat", {
     method: "POST",
     body: JSON.stringify(input),
+  });
+
+export const createGroupChannel = (input: {
+  name: string;
+  propertyId: string | null;
+  memberIds: string[];
+}) =>
+  request<{ channel: ChatContact }>("/api/chat/channels", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+export type GroupOptions = {
+  properties: { id: string; name: string }[];
+  members: { id: string; full_name: string; role: UserRole; property_ids: string[] }[];
+  allowCompanyWide: boolean;
+};
+
+export const fetchGroupOptions = () =>
+  request<GroupOptions>("/api/chat/channels?view=options");
+
+export const toggleMessageReaction = (messageId: string, emoji: string) =>
+  request<{ reacted: boolean }>("/api/chat/interactions", {
+    method: "POST",
+    body: JSON.stringify({ messageId, emoji }),
   });

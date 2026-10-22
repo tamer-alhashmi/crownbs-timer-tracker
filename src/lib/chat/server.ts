@@ -41,7 +41,7 @@ export async function getChatActor() {
     .maybeSingle();
 
   if (error) {
-    console.error("Chat profile lookup failed:", error.message);
+    console.error("[Chat System Error]:", error);
     return { response: apiError("Could not verify your account.", 500) } as const;
   }
   if (!profile || !isChatRole(profile.role)) {
@@ -52,14 +52,14 @@ export async function getChatActor() {
     .from("hotels")
     .select("id, owner_id, manager_id, is_active");
   if (hotelsError) {
-    console.error("Chat hotel scope lookup failed:", hotelsError.message);
+    console.error("[Chat System Error]:", hotelsError);
     return { response: apiError("Could not verify your chat scope.", 500) } as const;
   }
   const { data: users, error: usersError } = await supabase
     .from("users")
     .select("id, role, primary_hotel_id");
   if (usersError) {
-    console.error("Chat user scope lookup failed:", usersError.message);
+    console.error("[Chat System Error]:", usersError);
     return { response: apiError("Could not verify your chat scope.", 500) } as const;
   }
 
@@ -67,7 +67,7 @@ export async function getChatActor() {
     .from("user_hotel_assignments")
     .select("user_id, hotel_id");
   if (allAssignmentsError) {
-    console.error("Chat hotel assignment lookup failed:", allAssignmentsError.message);
+    console.error("[Chat System Error]:", allAssignmentsError);
     return { response: apiError("Could not verify your chat scope.", 500) } as const;
   }
   const assignments = allHotelAssignments ?? [];
@@ -103,13 +103,16 @@ export async function getChatActor() {
     const { data: existingThreads, error: threadsError } = await supabase
       .from("messages")
       .select("sender_id, receiver_id")
-      .or(`sender_id.eq.${profile.id},receiver_id.eq.${profile.id}`);
+      .or(`sender_id.eq.${profile.id},receiver_id.eq.${profile.id}`)
+      .is("channel_id", null);
+    // Direct-message visibility is derived from the legacy sender/receiver pair only.
     if (threadsError) {
-      console.error("Chat thread visibility lookup failed:", threadsError.message);
+      console.error("[Chat System Error]:", threadsError);
       return { response: apiError("Could not verify your chat contacts.", 500) } as const;
     }
     (existingThreads ?? []).forEach((message) => {
-      visibleIds.add(message.sender_id === profile.id ? message.receiver_id : message.sender_id);
+      const contactId = message.sender_id === profile.id ? message.receiver_id : message.sender_id;
+      if (contactId) visibleIds.add(contactId);
     });
   }
   visibleIds.delete(profile.id);
@@ -144,7 +147,7 @@ export async function getChatContact(
     .eq("id", id)
     .maybeSingle();
   if (error) {
-    console.error("Chat contact lookup failed:", error.message);
+    console.error("[Chat System Error]:", error);
     throw new Error("Could not load chat contact.");
   }
   if (!data || !isUserRole(data.role)) return null;

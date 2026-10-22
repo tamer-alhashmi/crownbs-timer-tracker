@@ -2,12 +2,14 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AppUserSession } from "@/lib/auth";
 import type { ChatContact } from "@/lib/chat/types";
 import { fetchConversation, markConversationRead } from "./chatApi";
 import { MessageBubble } from "./MessageBubble";
 import { MessageInput } from "./MessageInput";
+import { safeChatError } from "./chatErrors";
+import type { ReplyTarget } from "./ReplyPreview";
 
 export function ConversationView({
   userId,
@@ -25,13 +27,14 @@ export function ConversationView({
   const queryClient = useQueryClient();
   const bottomRef = useRef<HTMLDivElement>(null);
   const markedThroughRef = useRef<string | null>(null);
+  const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null);
   const queryKey = ["chat", "history", contact.id];
   const { data, isPending, error } = useQuery({
     queryKey,
-    queryFn: () => fetchConversation(contact.id),
+    queryFn: () => fetchConversation(contact.id, contact.channel_id),
   });
   const readMutation = useMutation({
-    mutationFn: () => markConversationRead(contact.id),
+    mutationFn: () => markConversationRead(contact.id, contact.channel_id),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["chat", "unread"] });
       void queryClient.invalidateQueries({ queryKey: ["chat", "contacts"] });
@@ -41,15 +44,17 @@ export function ConversationView({
   const markRead = readMutation.mutate;
 
   useEffect(() => {
-    const unreadMessages = data?.messages.filter(
-      (message) => message.receiver_id === userId && !message.read_at && !message.is_read
+    const unreadMessages = data?.messages.filter((message) =>
+      contact.conversation_type === "group"
+        ? message.sender_id !== userId
+        : message.receiver_id === userId && !message.read_at && !message.is_read
     );
     const lastUnreadId = unreadMessages?.at(-1)?.id ?? null;
     if (lastUnreadId && lastUnreadId !== markedThroughRef.current && !readMutation.isPending) {
       markedThroughRef.current = lastUnreadId;
       markRead();
     }
-  }, [data?.messages, markRead, readMutation.isPending, userId]);
+  }, [contact.conversation_type, data?.messages, markRead, readMutation.isPending, userId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -68,14 +73,14 @@ export function ConversationView({
         >
           {readMutation.isError && (
             <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:bg-rose-950/50 dark:text-rose-200">
-              {readMutation.error.message}
+              {safeChatError(readMutation.error, "We couldn't update the read status. Please try again.")}
             </p>
           )}
           {isPending ? (
             <p className="py-10 text-center text-sm text-slate-600 dark:text-slate-300">Loading conversation…</p>
           ) : error ? (
             <p role="alert" className="py-10 text-center text-sm text-rose-700 dark:text-rose-300">
-              {error.message}
+              {safeChatError(error, "We couldn't load this conversation. Please try again.")}
             </p>
           ) : data?.messages.length ? (
             data.messages.map((message) => (
@@ -83,9 +88,16 @@ export function ConversationView({
                 key={message.id}
                 message={message}
                 isOwn={message.sender_id === userId}
-                senderName={message.sender_id === userId ? userName : contact.full_name}
-                senderAvatarUrl={message.sender_id === userId ? userAvatarUrl : contact.avatar_url}
-                senderRole={message.sender_id === userId ? userRole : contact.role}
+                senderName={message.sender_id === userId ? userName : message.sender?.full_name ?? contact.full_name}
+                senderAvatarUrl={message.sender_id === userId ? userAvatarUrl : message.sender?.avatar_url ?? contact.avatar_url}
+                senderRole={message.sender_id === userId ? userRole : message.sender?.role ?? contact.role}
+                showSenderName={contact.conversation_type === "group" && message.sender_id !== userId}
+                onReply={(selected) => setReplyTo({
+                  id: selected.id,
+                  content: selected.content,
+                  senderName: selected.sender_id === userId ? userName : selected.sender?.full_name ?? contact.full_name,
+                  messageType: selected.message_type,
+                })}
               />
             ))
           ) : (
@@ -103,6 +115,9 @@ export function ConversationView({
         </div>
         <MessageInput
           receiverId={contact.id}
+          channelId={contact.channel_id}
+          replyTo={replyTo}
+          onCancelReply={() => setReplyTo(null)}
           onSent={() => {
             void queryClient.invalidateQueries({ queryKey });
             void queryClient.invalidateQueries({ queryKey: ["chat", "unread"] });

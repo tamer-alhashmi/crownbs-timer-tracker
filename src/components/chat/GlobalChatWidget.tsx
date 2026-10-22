@@ -11,8 +11,10 @@ import { ChatWidget } from "./ChatWidget";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 import { useSoundSettings } from "./ChatProviders";
 import { playChatSound } from "./chatSound";
+import { ActiveCallModal } from "./ActiveCallModal";
+import { ChatErrorBoundary } from "./ChatErrorBoundary";
 
-export function GlobalChatWidget({ user, profile }: { user: AppUserSession; profile: { name: string; avatarUrl: string | null; role: AppUserSession["role"] } }) {
+function GlobalChatWidgetContent({ user, profile }: { user: AppUserSession; profile: { name: string; avatarUrl: string | null; role: AppUserSession["role"] } }) {
   const queryClient = useQueryClient();
   const sessionUserId = useChatStore((state) => state.sessionUserId);
   const isChatOpen = useChatStore((state) => state.isChatOpen);
@@ -118,6 +120,15 @@ export function GlobalChatWidget({ user, profile }: { user: AppUserSession; prof
         </button>
       )}
       <ChatWidget user={user} profile={profile} />
+      <ActiveCallModal userId={user.userId} />
     </>
+  );
+}
+
+export function GlobalChatWidget({ user, profile }: { user: AppUserSession; profile: { name: string; avatarUrl: string | null; role: AppUserSession["role"] } }) {
+  return (
+    <ChatErrorBoundary>
+      <GlobalChatWidgetContent user={user} profile={profile} />
+    </ChatErrorBoundary>
   );
 }
