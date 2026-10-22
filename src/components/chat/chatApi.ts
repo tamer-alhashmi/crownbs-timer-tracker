@@ -4,6 +4,7 @@ import type {
   ChatMessage,
   UnreadMessage,
 } from "@/lib/chat/types";
+import type { UserRole } from "@/lib/roles";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -39,6 +40,7 @@ export type TaskNotice = {
   service_name_snapshot: string | null;
   notes: string | null;
   assigned_at: string | null;
+  start_time: string;
   status: string;
   priority: "low" | "medium" | "high" | "urgent";
   due_at: string | null;
@@ -52,6 +54,13 @@ export type TaskNotice = {
     photoPath?: string | null;
   } | null;
   assignee_name?: string;
+  assignee_role?: UserRole | null;
+  sender_name?: string;
+  sender_role?: UserRole | null;
+  hotel_name?: string;
+  room_label?: string | null;
+  room_names?: string[];
+  floor_section?: string | null;
 };
 
 export const fetchTaskNotifications = () =>

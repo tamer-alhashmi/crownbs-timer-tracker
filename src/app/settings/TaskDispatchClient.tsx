@@ -66,6 +66,9 @@ const defaultValues: DispatchValues = {
   notes: "",
 };
 const fieldClass = "min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900";
+const MAX_ATTACHMENT_SIZE = 4.5 * 1024 * 1024;
+const IMAGE_TOO_LARGE_MESSAGE = "The selected image exceeds 4.5MB. Please choose a smaller photo or compress it before attaching.";
+const IMAGE_TOO_LARGE_NOTICE = `Image Too Large: ${IMAGE_TOO_LARGE_MESSAGE}`;
 const priorities = [
   { value: "low", label: "Low", classes: "border-slate-300 bg-slate-100 text-slate-700" },
   { value: "medium", label: "Medium", classes: "border-blue-200 bg-blue-50 text-blue-800" },
@@ -133,9 +136,16 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
   const submit = form.handleSubmit((values) => startTransition(async () => {
     try {
     setNotice("");
+    if (photo && photo.size > MAX_ATTACHMENT_SIZE) {
+      setPhotoError(IMAGE_TOO_LARGE_MESSAGE);
+      setPhoto(null);
+      setNotice(IMAGE_TOO_LARGE_NOTICE);
+      showActionToast("error", IMAGE_TOO_LARGE_NOTICE);
+      return;
+    }
     if (photoError) {
-      setNotice(photoError);
-      showActionToast("error", photoError);
+      setNotice(photoError === IMAGE_TOO_LARGE_MESSAGE ? IMAGE_TOO_LARGE_NOTICE : photoError);
+      showActionToast("error", photoError === IMAGE_TOO_LARGE_MESSAGE ? IMAGE_TOO_LARGE_NOTICE : photoError);
       return;
     }
     let photoPath: string | null = null;
@@ -195,7 +205,10 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
     setPhotoError("");
     setIsOpen(false);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to assign this task.";
+      const message = photo && photo.size > MAX_ATTACHMENT_SIZE
+        ? IMAGE_TOO_LARGE_NOTICE
+        : error instanceof Error ? error.message : "Unable to assign this task.";
+      if (photo && photo.size > MAX_ATTACHMENT_SIZE) setPhotoError(IMAGE_TOO_LARGE_MESSAGE);
       setNotice(message);
       showActionToast("error", message);
     }
@@ -269,8 +282,16 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
                       <Field label="Fixture / asset ID" error={errors.assetId?.message}><input {...form.register("assetId")} className={fieldClass} placeholder="Optional asset reference" /></Field>
                       <label className="block text-sm font-medium text-slate-700">Photo attachment <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => {
                         const file = event.target.files?.[0] ?? null;
-                        if (file && (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 8 * 1024 * 1024)) {
-                          setPhotoError("Choose a JPG, PNG, or WebP photo smaller than 8 MB.");
+                        if (file && file.size > MAX_ATTACHMENT_SIZE) {
+                          setPhotoError(IMAGE_TOO_LARGE_MESSAGE);
+                          setNotice(IMAGE_TOO_LARGE_NOTICE);
+                          setPhoto(null);
+                          event.target.value = "";
+                          showActionToast("error", IMAGE_TOO_LARGE_NOTICE);
+                          return;
+                        }
+                        if (file && !["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+                          setPhotoError("Choose a JPG, PNG, or WebP photo.");
                           setNotice("");
                           setPhoto(null);
                           event.target.value = "";
@@ -281,7 +302,9 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
                         setPhoto(file);
                       }} className="mt-1 block w-full text-xs text-slate-600 file:mr-3 file:min-h-10 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:font-semibold" /></label>
                       {photo && <p className="text-xs text-slate-600">Selected: {photo.name}</p>}
-                      {photoError && <p role="alert" className="text-xs text-rose-700">{photoError}</p>}
+                      {photoError === IMAGE_TOO_LARGE_MESSAGE
+                        ? <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-800"><p className="text-xs font-bold">Image Too Large</p><p className="mt-0.5 text-xs">{IMAGE_TOO_LARGE_MESSAGE}</p></div>
+                        : photoError && <p role="alert" className="text-xs text-rose-700">{photoError}</p>}
                     </div>
                   </div>
                 </section>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Bell, Loader2, MessageCircle } from "lucide-react";
+import { AlertCircle, Bell, Clock, Loader2, MapPin, MessageCircle, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { fetchTaskNotifications, fetchUnread, type TaskNotice } from "./chatApi";
 import { useChatStore } from "./chatStore";
@@ -11,6 +11,27 @@ import { startAssignedTask } from "@/app/settings/taskActions";
 import { useSoundSettings } from "./ChatProviders";
 import { playChatSound } from "./chatSound";
 import { showActionToast } from "@/components/ui/ActionToast";
+
+function relativeDispatchTime(value: string | null) {
+  if (!value) return "Time unavailable";
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return "Time unavailable";
+  const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60_000));
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes} min${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days} day${days === 1 ? "" : "s"} ago`;
+  return new Date(timestamp).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+}
+
+function priorityStyle(priority: TaskNotice["priority"]) {
+  if (priority === "urgent") return "bg-red-50 text-red-800";
+  if (priority === "high") return "bg-amber-50 text-amber-900";
+  if (priority === "medium") return "bg-blue-50 text-blue-800";
+  return "bg-slate-100 text-slate-700";
+}
 
 export function NotificationBell() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -125,7 +146,7 @@ export function NotificationBell() {
         )}
       </button>
       {isOpen && (
-        <div data-back-button-overlay="true" className="absolute right-0 top-full z-50 mt-2 w-[calc(100vw-2rem)] max-w-sm overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/15 sm:w-96">
+        <div data-back-button-overlay="true" className="fixed left-1/2 top-[calc(env(safe-area-inset-top)+0.75rem)] z-50 w-[92vw] max-w-[calc(100vw-1.5rem)] -translate-x-1/2 overflow-x-hidden overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/15 max-h-[calc(85dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-1rem)] sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-96 sm:max-w-sm sm:translate-x-0 sm:max-h-[85dvh]">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-slate-900">Notifications</p>
@@ -147,32 +168,32 @@ export function NotificationBell() {
               <div className="border-b border-slate-100 p-2">
                 <p className="px-2 py-1 text-xs font-bold uppercase tracking-wide text-slate-500">Assigned tasks</p>
                 {incoming.map((task) => (
-                  <div key={task.id} className="rounded-xl p-2 hover:bg-slate-50">
-                    <button type="button" onClick={() => { setSelectedTaskId(selectedTaskId === task.id ? null : task.id); setTaskError(""); }} className="w-full text-left">
-                      <span className="block text-sm font-semibold text-slate-900">{task.service_name_snapshot ?? "Assigned task"}</span>
-                      <span className="block text-xs text-slate-600">{task.notes || task.dispatch_metadata?.issueDescription || "Tap to review task details"}</span>
-                    </button>
+                  <article key={task.id} className="mb-2 rounded-lg border border-slate-100 bg-white p-3 transition hover:bg-slate-50">
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="min-w-0 text-sm font-semibold text-slate-900">{task.service_name_snapshot ?? "Assigned task"}</h3>
+                      <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold capitalize ${priorityStyle(task.priority)}`}><AlertCircle className="h-3.5 w-3.5" />{task.priority === "low" ? "Standard" : task.priority}</span>
+                    </div>
+                    <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-600"><User className="h-3.5 w-3.5 shrink-0 text-slate-400" /><span className="min-w-0 truncate">From: {task.sender_name ?? "Team member"}{task.sender_role ? ` · ${roleLabel(task.sender_role)}` : ""}</span></p>
+                    <p className="mt-1 flex items-start gap-1.5 text-xs text-slate-600"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" /><span>{task.hotel_name ?? "Property"}{task.room_label ? ` · ${task.room_label}` : task.floor_section ? ` · ${task.floor_section}` : ""}</span></p>
+                    <p className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500"><Clock className="h-3.5 w-3.5 text-slate-400" />{relativeDispatchTime(task.assigned_at)}</p>
+                    {(task.notes || task.dispatch_metadata?.issueDescription) && <p className="mt-2 rounded-md border border-slate-100 bg-slate-50 px-2.5 py-2 text-xs leading-5 text-slate-700">{task.notes || task.dispatch_metadata?.issueDescription}</p>}
+                    <div className="mt-3 flex items-center justify-end gap-2">
+                      <button type="button" aria-expanded={selectedTaskId === task.id} onClick={() => { setSelectedTaskId(selectedTaskId === task.id ? null : task.id); setTaskError(""); }} className="min-h-9 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-white">{selectedTaskId === task.id ? "Hide details" : "View task"}</button>
+                      <button type="button" onClick={() => void startTask(task.id)} disabled={isStarting} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-emerald-700 px-3 text-xs font-semibold text-white disabled:opacity-50">
+                        {isStarting ? <><Loader2 className="h-4 w-4 animate-spin" />Starting...</> : "Accept / Start"}
+                      </button>
+                    </div>
                     {selectedTaskId === task.id && (
-                      <div className="mt-2 rounded-lg bg-slate-100 p-3">
-                        <p className="text-xs text-slate-600">Property task · assigned {task.assigned_at ? new Date(task.assigned_at).toLocaleString() : "recently"}</p>
-                        <div className="mt-2 flex flex-wrap items-center gap-2">
-                          <span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${task.priority === "urgent" ? "bg-red-100 text-red-800" : task.priority === "high" ? "bg-amber-100 text-amber-900" : task.priority === "medium" ? "bg-blue-100 text-blue-800" : "bg-slate-200 text-slate-700"}`}>{task.priority} priority</span>
-                          {task.due_at && <span className="text-xs text-slate-600">Due {new Date(task.due_at).toLocaleString()}</span>}
-                        </div>
-                        {task.notes && <p className="mt-2 text-sm text-slate-800">{task.notes}</p>}
-                        {task.dispatch_metadata?.floorSection && <p className="mt-1 text-xs text-slate-700">Section: {task.dispatch_metadata.floorSection}</p>}
-                        {task.dispatch_metadata?.roomIds?.length ? <p className="mt-1 text-xs text-slate-700">{task.dispatch_metadata.roomIds.length} room{task.dispatch_metadata.roomIds.length === 1 ? "" : "s"} assigned</p> : null}
-                        {task.dispatch_metadata?.linenChecklist?.length ? <p className="mt-1 text-xs text-slate-700">Linen: {task.dispatch_metadata.linenChecklist.join(", ")}</p> : null}
-                        {task.dispatch_metadata?.durationHours && <p className="mt-1 text-xs text-slate-700">Estimated duration: {task.dispatch_metadata.durationHours} hours</p>}
-                        {task.dispatch_metadata?.issueDescription && <p className="mt-1 text-xs text-slate-700">{task.dispatch_metadata.issueDescription}</p>}
-                        {task.dispatch_metadata?.assetId && <p className="mt-1 text-xs text-slate-700">Asset: {task.dispatch_metadata.assetId}</p>}
-                        {task.dispatch_metadata?.photoPath && <a href={`/api/tasks/attachment?taskId=${encodeURIComponent(task.id)}&path=${encodeURIComponent(task.dispatch_metadata.photoPath)}`} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-sky-700 underline">View attached photo</a>}
-                        <button type="button" onClick={() => void startTask(task.id)} disabled={isStarting} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-700 px-3 text-sm font-semibold text-white disabled:opacity-50">
-                          {isStarting ? <><Loader2 className="h-4 w-4 animate-spin" />Starting...</> : "Start Task"}
-                        </button>
+                      <div className="mt-3 space-y-1 border-t border-slate-100 pt-3 text-xs text-slate-700">
+                        {task.due_at && <p>Due {new Date(task.due_at).toLocaleString()}</p>}
+                        {task.floor_section && <p>Section: {task.floor_section}</p>}
+                        {task.dispatch_metadata?.linenChecklist?.length ? <p>Linen: {task.dispatch_metadata.linenChecklist.join(", ")}</p> : null}
+                        {task.dispatch_metadata?.durationHours && <p>Estimated duration: {task.dispatch_metadata.durationHours} hours</p>}
+                        {task.dispatch_metadata?.assetId && <p>Asset: {task.dispatch_metadata.assetId}</p>}
+                        {task.dispatch_metadata?.photoPath && <a href={`/api/tasks/attachment?taskId=${encodeURIComponent(task.id)}&path=${encodeURIComponent(task.dispatch_metadata.photoPath)}`} target="_blank" rel="noreferrer" className="mt-1 inline-block font-semibold text-sky-700 underline">View attached photo</a>}
                       </div>
                     )}
-                  </div>
+                  </article>
                 ))}
               </div>
             )}
@@ -188,9 +209,13 @@ export function NotificationBell() {
               <div className="border-b border-slate-100 p-2">
                 <p className="px-2 py-1 text-xs font-bold uppercase tracking-wide text-slate-500">Task updates</p>
                 {outgoing.map((task) => (
-                  <p key={task.id} className="rounded-xl px-3 py-2 text-sm text-slate-700">
-                    <span className="font-semibold">{task.assignee_name}</span> started {task.service_name_snapshot ?? "an assigned task"}.
-                  </p>
+                  <article key={task.id} className="mb-2 rounded-lg border border-slate-100 bg-white p-3 text-sm text-slate-700 hover:bg-slate-50">
+                    <div className="flex items-start justify-between gap-2"><h3 className="min-w-0 font-semibold text-slate-900">{task.service_name_snapshot ?? "Assigned task"}</h3><span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold capitalize ${priorityStyle(task.priority)}`}><AlertCircle className="h-3.5 w-3.5" />{task.priority === "low" ? "Standard" : task.priority}</span></div>
+                    <p className="mt-2 flex items-center gap-1.5 text-xs"><User className="h-3.5 w-3.5 text-slate-400" />Started by: {task.assignee_name ?? "Team member"}{task.assignee_role ? ` · ${roleLabel(task.assignee_role)}` : ""}</p>
+                    <p className="mt-1 flex items-center gap-1.5 text-xs"><MapPin className="h-3.5 w-3.5 text-slate-400" />{task.hotel_name ?? "Property"}{task.room_label ? ` · ${task.room_label}` : ""}</p>
+                    <p className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500"><Clock className="h-3.5 w-3.5 text-slate-400" />{relativeDispatchTime(task.start_time)}</p>
+                    {(task.notes || task.dispatch_metadata?.issueDescription) && <p className="mt-2 rounded-md border border-slate-100 bg-slate-50 px-2.5 py-2 text-xs leading-5">{task.notes || task.dispatch_metadata?.issueDescription}</p>}
+                  </article>
                 ))}
               </div>
             )}

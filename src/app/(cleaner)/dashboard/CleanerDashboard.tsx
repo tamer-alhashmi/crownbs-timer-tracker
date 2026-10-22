@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useState, useTransition } from "react";
+import { FormEvent, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { BriefcaseBusiness, CalendarDays, Clock3, MapPin } from "lucide-react";
+import { BedDouble, BriefcaseBusiness, CalendarDays, Clock3, FileText, MapPin, Pencil, Wrench, ClipboardList } from "lucide-react";
 import { clockIn, clockOut, endTask, startTask, switchHotel, updateTask } from "./actions";
 import { UserProfileMenu } from "@/components/layout/UserProfileMenu";
 import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
@@ -64,10 +64,17 @@ type Props = {
 const PAGE_SIZE = 30;
 const dateLabel = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString("en-GB", { timeZone: "Europe/London", dateStyle: "medium" });
 
+function submissionIcon(serviceName: string) {
+  if (/maintenance|repair/i.test(serviceName)) return Wrench;
+  if (/room|housekeep|clean/i.test(serviceName)) return BedDouble;
+  return ClipboardList;
+}
+
 export default function CleanerDashboard({ user, hotels, services, rooms, shift, logs, brief, roomMedia, roomMediaConfigured }: Props) {
   useWorkLogRealtimeRefresh();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [activeTab, setActiveTab] = useState<"operations" | "history">("operations");
   const activeTask = logs.find((log) => log.status === "active");
   const [hotelId, setHotelId] = useState(activeTask?.hotel_id ?? user.hotelId ?? hotels[0]?.id ?? "");
   const [serviceId, setServiceId] = useState(activeTask?.service_id ?? services[0]?.id ?? "");
@@ -146,6 +153,7 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
   };
 
   const beginEdit = async (log: WorkLog) => {
+    setActiveTab("operations");
     setEditingId(log.id);
     setPersistedEditingRoomIds(log.room_ids?.length ? log.room_ids : rooms.filter((room) => room.hotel_id === log.hotel_id && log.room_numbers.includes(room.room_name)).map((room) => room.id));
     setHotelId(log.hotel_id);
@@ -194,8 +202,13 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
     };
   };
 
-  return <main className="min-h-screen bg-slate-100 pb-24"><div className="mx-auto max-w-2xl px-4 pb-8 pt-6">
+  return <main className="min-h-dvh bg-slate-100 pb-24"><div className="mx-auto max-w-2xl px-4 pb-8 pt-6">
     <header className="mb-5 rounded-3xl bg-slate-900 p-5 text-white shadow-lg"><div className="flex items-center justify-between gap-3"><div className="min-w-0"><p className="text-xs uppercase tracking-[0.25em] text-slate-400">Shift overview</p><h1 className="mt-1 text-2xl font-bold">{user.fullName}</h1><p className="mt-1 text-sm text-slate-400">{user.email}</p></div><div className="flex items-center gap-2"><UserProfileMenu name={user.fullName} email={user.email} avatarUrl={user.avatarUrl} role="cleaner" settingsHref="/settings" /></div></div><div className="mt-4 flex items-center justify-between rounded-2xl bg-slate-800/70 p-3 text-sm"><span className="flex items-center gap-2 text-slate-300"><Clock3 className="h-4 w-4" /> Master shift</span><LiveStatusIndicator isClockedIn={Boolean(shift)} className={shift ? "font-semibold text-emerald-300" : "font-semibold text-slate-300"} /></div></header>
+    <nav aria-label="Cleaner dashboard sections" role="tablist" className="mb-5 grid grid-cols-2 gap-2 rounded-2xl bg-white p-1.5 shadow-sm ring-1 ring-slate-200">
+      <button type="button" id="operations-tab" role="tab" aria-selected={activeTab === "operations"} aria-controls="operations-panel" onClick={() => setActiveTab("operations")} className={`min-h-11 rounded-xl px-3 py-2 text-sm font-semibold transition ${activeTab === "operations" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}`}>Daily Operations</button>
+      <button type="button" id="history-tab" role="tab" aria-selected={activeTab === "history"} aria-controls="history-panel" onClick={() => setActiveTab("history")} className={`min-h-11 rounded-xl px-3 py-2 text-sm font-semibold transition ${activeTab === "history" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}`}>Submissions &amp; History</button>
+    </nav>
+    <section id="operations-panel" role="tabpanel" aria-labelledby="operations-tab" hidden={activeTab !== "operations"}>
     {activeTask && <section className="mb-5 rounded-3xl border border-emerald-200 bg-emerald-50 p-4"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">Active task</p><h2 className="mt-1 text-lg font-bold text-emerald-950">{activeTask.serviceName}</h2><p className="text-sm text-emerald-800">{activeTask.hotelName}{activeTask.room_numbers.length ? ` · ${activeTask.room_numbers.join(", ")}` : ""}</p>{activeTask.room_ids.length > 0 && <RoomMediaCapture workLogId={activeTask.id} rooms={rooms.filter((room) => room.hotel_id === activeTask.hotel_id && activeTask.room_ids.includes(room.id))} initialMedia={roomMedia} storageConfigured={roomMediaConfigured} />}<button type="button" disabled={isPending} onClick={() => run(() => endTask(activeTask.id, { notes }), "Task completed. Start another task when ready.")} className="mt-3 w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white">End task</button></section>}
     <OperationalBrief brief={brief} />
     <section className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200"><div className="flex items-center justify-between"><div><p className="text-xs uppercase tracking-[0.2em] text-slate-500">Hotel switch</p><h2 className="mt-1 text-lg font-bold text-slate-900">Current property</h2></div><MapPin className="h-5 w-5 text-sky-700" /></div><select value={hotelId} onChange={(event) => chooseHotel(event.target.value)} disabled={isPending || Boolean(activeTask)} className="mt-4 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-900"><option value="">Select an active hotel</option>{hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select></section>
@@ -207,10 +220,48 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
       {editingId && (editingMediaLoading ? <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-500">Loading saved room media...</p> : <RoomMediaCapture workLogId={editingId} rooms={selectedRooms} initialMedia={editingMedia} storageConfigured={roomMediaConfigured} uploadsEnabled={editRoomSelectionSaved} />)}
       <div className="flex gap-2"><button type="submit" disabled={isPending || (!editingId && !shift) || !hotelId || !effectiveServiceId} className="flex-1 rounded-xl bg-sky-700 px-4 py-3 text-sm font-semibold text-white disabled:bg-slate-200 disabled:text-slate-500">{isPending ? "Saving..." : editingId ? "Save Changes" : "Start task"}</button>{editingId && <button type="button" onClick={() => { setEditingId(null); setEditingMedia([]); setPersistedEditingRoomIds([]); setRoomIds([]); setNotes(""); }} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700">Done</button>}</div></form></section>
     {message && <p className="mt-4 rounded-xl bg-slate-900 px-3 py-2 text-sm text-white" role="status">{message}</p>}
-    <section className="mt-5"><div className="mb-3 flex items-center gap-2"><CalendarDays className="h-5 w-5 text-sky-700" /><h2 className="text-lg font-bold text-slate-900">Recent submissions</h2></div><div className="mb-3 grid gap-3 rounded-xl bg-white p-3 shadow-sm ring-1 ring-slate-200 sm:grid-cols-[1fr_1fr_auto]"><label className="text-xs font-semibold text-slate-600">From<input type="date" value={fromDate} max={toDate || undefined} onChange={(event) => { setFromDate(event.target.value); setPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900" /></label><label className="text-xs font-semibold text-slate-600">To<input type="date" value={toDate} min={fromDate || undefined} onChange={(event) => { setToDate(event.target.value); setPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900" /></label><button type="button" onClick={() => { setFromDate(""); setToDate(""); setPage(1); }} className="self-end rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">Clear</button></div>
-      <div className="space-y-3">{visibleLogs.map((log) => <article key={log.id} className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-semibold text-slate-900">{log.serviceName}</p><p className="text-sm text-slate-600">{log.hotelName} · {log.rooms_completed} rooms</p><p className="mt-1 text-xs text-slate-500">Task date: {dateLabel(log.task_date)} · Manager: {log.manager_name ?? "Unassigned manager"}</p></div><span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">{log.is_locked ? "Locked for payroll" : "Pending approval"}</span></div>{log.room_numbers.length > 0 && <p className="mt-2 text-sm text-slate-700">Rooms: {log.room_numbers.join(", ")}</p>}<p className="mt-2 text-sm text-slate-700">{log.notes || "No notes provided"}</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => setSelectedTask(toBriefTask(log))} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700">Details</button>{!log.is_locked && <button type="button" onClick={() => beginEdit(log)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700">Modify</button>}</div></article>)}{filteredLogs.length === 0 && <p className="rounded-2xl bg-white p-4 text-sm text-slate-500 ring-1 ring-slate-200">No completed tasks match this date range.</p>}</div>
+    </section>
+    <section id="history-panel" role="tabpanel" aria-labelledby="history-tab" hidden={activeTab !== "history"}>
+    <section className="mt-5">
+      <div className="mb-3 flex items-center gap-2"><CalendarDays className="h-5 w-5 text-sky-700" /><h2 className="text-lg font-bold text-slate-900">Recent submissions</h2></div>
+      <div className="mb-3 rounded-xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
+        <div className="grid grid-cols-2 gap-2">
+          <label className="text-xs font-semibold text-slate-600">From<span className="relative mt-1 block"><CalendarDays className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input type="date" value={fromDate} max={toDate || undefined} onChange={(event) => { setFromDate(event.target.value); setPage(1); }} className="block w-full rounded-lg border border-slate-200 py-2 pl-8 pr-2 text-sm font-normal text-slate-900" /></span></label>
+          <label className="text-xs font-semibold text-slate-600">To<span className="relative mt-1 block"><CalendarDays className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input type="date" value={toDate} min={fromDate || undefined} onChange={(event) => { setToDate(event.target.value); setPage(1); }} className="block w-full rounded-lg border border-slate-200 py-2 pl-8 pr-2 text-sm font-normal text-slate-900" /></span></label>
+          <button type="button" onClick={() => { setFromDate(""); setToDate(""); setPage(1); }} className="col-span-2 min-h-8 justify-self-end rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700">Clear dates</button>
+        </div>
+      </div>
+      <div className="space-y-3">
+        {visibleLogs.map((log) => {
+          const ServiceIcon = submissionIcon(log.serviceName);
+          return <article key={log.id} className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-sky-50 text-sky-700"><ServiceIcon className="h-4 w-4" /></span>
+                <h3 className="min-w-0 font-semibold text-slate-900">{log.serviceName}</h3>
+              </div>
+              <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${log.is_locked ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{log.is_locked ? "Locked for payroll" : "Pending approval"}</span>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="min-w-0 rounded-lg bg-slate-50 px-3 py-2"><p className="text-[11px] font-medium text-slate-500">Property</p><p className="mt-0.5 flex items-center gap-1.5 text-sm text-slate-800"><MapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" /><span className="truncate">{log.hotelName}</span></p></div>
+              <div className="min-w-0 rounded-lg bg-slate-50 px-3 py-2"><p className="text-[11px] font-medium text-slate-500">Rooms</p><p className="mt-0.5 flex items-center gap-1.5 text-sm text-slate-800"><BedDouble className="h-3.5 w-3.5 shrink-0 text-slate-400" /><span className="truncate">{log.room_numbers.length ? log.room_numbers.join(", ") : `${log.rooms_completed} completed`}</span></p></div>
+              <div className="min-w-0 rounded-lg bg-slate-50 px-3 py-2"><p className="text-[11px] font-medium text-slate-500">Manager</p><p className="mt-0.5 truncate text-sm text-slate-800">{log.manager_name ?? "Unassigned manager"}</p></div>
+              <div className="min-w-0 rounded-lg bg-slate-50 px-3 py-2"><p className="text-[11px] font-medium text-slate-500">Completed</p><p className="mt-0.5 flex items-center gap-1.5 text-sm text-slate-800"><Clock3 className="h-3.5 w-3.5 shrink-0 text-slate-400" /><span className="truncate">{log.end_time ? new Date(log.end_time).toLocaleString("en-GB", { timeZone: "Africa/Cairo", dateStyle: "medium", timeStyle: "short" }) : dateLabel(log.task_date)}</span></p></div>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+              {log.notes ? <p className="min-w-0 flex-1 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-700">{log.notes}</p> : <span className="flex-1" />}
+              <div className="flex shrink-0 gap-2">
+                <button type="button" onClick={() => setSelectedTask(toBriefTask(log))} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"><FileText className="h-3.5 w-3.5" />Details</button>
+                {!log.is_locked && <button type="button" onClick={() => beginEdit(log)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"><Pencil className="h-3.5 w-3.5" />Modify</button>}
+              </div>
+            </div>
+          </article>;
+        })}
+        {filteredLogs.length === 0 && <p className="rounded-2xl bg-white p-4 text-sm text-slate-500 ring-1 ring-slate-200">No completed tasks match this date range.</p>}
+      </div>
       <DashboardPagination currentPage={currentPage} pageCount={pageCount} total={filteredLogs.length} pageSize={PAGE_SIZE} label="completed tasks" onPageChange={setPage} />
     </section>
     {selectedTask && <ServiceCard task={selectedTask} onClose={() => setSelectedTask(null)} onEdit={() => { const log = logs.find((item) => item.id === selectedTask.id); if (log && !log.is_locked) { setSelectedTask(null); beginEdit(log); } }} />}
+     </section>
   </div></main>;
 }
