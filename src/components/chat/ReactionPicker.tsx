@@ -1,19 +1,18 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Smile } from "lucide-react";
+import { Plus, Smile } from "lucide-react";
 import { useState } from "react";
 import type { ChatMessage } from "@/lib/chat/types";
 import { toggleMessageReaction } from "./chatApi";
 import { safeChatError } from "./chatErrors";
 
 const EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+type Reaction = { emoji: string; count: number; reacted: boolean };
 
-export function ReactionPicker({ messageId, reactions }: { messageId: string; reactions?: { emoji: string; count: number; reacted: boolean }[] }) {
-  const [open, setOpen] = useState(false);
-  const [error, setError] = useState("");
+function useReactionMutation(messageId: string) {
   const queryClient = useQueryClient();
-  const mutation = useMutation({
+  return useMutation({
     mutationFn: (emoji: string) => toggleMessageReaction(messageId, emoji),
     onMutate: async (emoji) => {
       await queryClient.cancelQueries({ queryKey: ["chat", "history"] });
@@ -35,27 +34,82 @@ export function ReactionPicker({ messageId, reactions }: { messageId: string; re
       }
       return { previous };
     },
-    onSuccess: () => {
-      setOpen(false);
-      setError("");
-    },
-    onError: (cause, _emoji, context) => {
+    onError: (_cause, _emoji, context) => {
       context?.previous.forEach(([key, value]) => queryClient.setQueryData(key, value));
-      setError(safeChatError(cause, "Couldn't update this reaction. Please try again."));
     },
     onSettled: () => void queryClient.invalidateQueries({ queryKey: ["chat", "history"] }),
   });
+}
+
+export function ReactionBadges({
+  messageId,
+  reactions,
+  isOwn,
+}: {
+  messageId: string;
+  reactions?: Reaction[];
+  isOwn: boolean;
+}) {
+  const mutation = useReactionMutation(messageId);
+  const [error, setError] = useState("");
+  if (!reactions?.length) return null;
   return (
-    <span className="relative inline-flex items-center gap-1">
-      {reactions?.map((reaction) => (
-        <button key={reaction.emoji} type="button" aria-label={`${reaction.emoji}, ${reaction.count} reactions`} onClick={() => mutation.mutate(reaction.emoji)} className={`rounded-full border px-1.5 py-0.5 text-xs ${reaction.reacted ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white/90 dark:border-slate-700 dark:bg-[#202c33]"}`}>
+    <span className={`pointer-events-auto relative flex max-w-full items-center gap-1 ${isOwn ? "justify-end" : "justify-start"}`}>
+      {reactions.map((reaction) => (
+        <button
+          key={reaction.emoji}
+          type="button"
+          aria-label={`${reaction.emoji}, ${reaction.count} reactions`}
+          disabled={mutation.isPending}
+          onClick={() => mutation.mutate(reaction.emoji, {
+            onError: (cause) => setError(safeChatError(cause, "Couldn't update this reaction. Please try again.")),
+          })}
+          className={`rounded-full border px-1.5 py-0.5 text-xs shadow-sm ${reaction.reacted ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white/95 dark:border-slate-700 dark:bg-[#202c33]"}`}
+        >
           {reaction.emoji} <span className="text-[10px]">{reaction.count}</span>
         </button>
       ))}
-      <button type="button" aria-label="Add reaction" onClick={() => setOpen(!open)} className="rounded-full p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"><Smile className="h-3.5 w-3.5" /></button>
+      {error && <span role="alert" className="absolute bottom-full right-0 z-30 mb-1 w-56 rounded-lg bg-rose-50 p-2 text-[11px] text-rose-700">{error}</span>}
+    </span>
+  );
+}
+
+export function ReactionPicker({ messageId, trigger = "smile" }: { messageId: string; trigger?: "smile" | "plus" }) {
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState("");
+  const mutation = useReactionMutation(messageId);
+
+  return (
+    <span className="relative inline-flex items-center">
+      <button
+        type="button"
+        aria-label="Add reaction"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className="rounded-full p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"
+      >
+        {trigger === "plus" ? <Plus className="h-3.5 w-3.5" /> : <Smile className="h-3.5 w-3.5" />}
+      </button>
       {open && (
         <span className="absolute bottom-full right-0 z-30 mb-1 flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-600 dark:bg-[#202c33]">
-          {EMOJIS.map((emoji) => <button key={emoji} type="button" aria-label={`React ${emoji}`} disabled={mutation.isPending} onClick={() => mutation.mutate(emoji)} className="rounded-full p-1.5 text-base hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-700">{emoji}</button>)}
+          {EMOJIS.map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              aria-label={`React ${emoji}`}
+              disabled={mutation.isPending}
+              onClick={() => mutation.mutate(emoji, {
+                onSuccess: () => {
+                  setOpen(false);
+                  setError("");
+                },
+                onError: (cause) => setError(safeChatError(cause, "Couldn't update this reaction. Please try again.")),
+              })}
+              className="rounded-full p-1.5 text-base hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-700"
+            >
+              {emoji}
+            </button>
+          ))}
         </span>
       )}
       {error && <span role="alert" className="absolute bottom-full right-0 z-40 mb-9 w-56 rounded-lg bg-rose-50 p-2 text-[11px] text-rose-700">{error}</span>}

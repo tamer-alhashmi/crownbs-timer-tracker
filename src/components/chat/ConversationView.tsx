@@ -64,7 +64,7 @@ export function ConversationView({
     <>
       <div className="flex min-h-0 flex-1 flex-col bg-[#efeae2] dark:bg-[#0b141a]">
         <div
-          className="flex-1 space-y-2.5 overflow-y-auto px-3 py-5 sm:px-4"
+          className="w-full min-w-0 flex-1 space-y-3 overflow-y-auto px-3 py-5 sm:px-4"
           style={{
             backgroundImage:
               "radial-gradient(circle at 20% 20%, rgba(120, 113, 100, 0.055) 1px, transparent 1.5px), radial-gradient(circle at 75% 65%, rgba(120, 113, 100, 0.045) 1px, transparent 1.5px)",
@@ -91,6 +91,7 @@ export function ConversationView({
                 senderName={message.sender_id === userId ? userName : message.sender?.full_name ?? contact.full_name}
                 senderAvatarUrl={message.sender_id === userId ? userAvatarUrl : message.sender?.avatar_url ?? contact.avatar_url}
                 senderRole={message.sender_id === userId ? userRole : message.sender?.role ?? contact.role}
+                showAvatar={contact.conversation_type === "group"}
                 showSenderName={contact.conversation_type === "group" && message.sender_id !== userId}
                 onReply={(selected) => setReplyTo({
                   id: selected.id,
