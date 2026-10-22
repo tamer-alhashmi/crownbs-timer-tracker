@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, MessageCircle, Pencil, RotateCcw, UserRound, X } from "lucide-react";
+import { BriefcaseBusiness, Loader2, MapPin, MessageCircle, Pencil, RotateCcw, X } from "lucide-react";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 import { useChatStore } from "@/components/chat/chatStore";
 import { showActionToast } from "@/components/ui/ActionToast";
@@ -51,6 +51,15 @@ type Props = {
 function elapsed(start: string, now: number) {
   const minutes = Math.max(0, Math.floor((now - Date.parse(start)) / 60_000));
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
+}
+
+function priorityClass(priority: string) {
+  switch (priority.toLowerCase()) {
+    case "urgent": return "bg-red-100 text-red-800";
+    case "high": return "bg-amber-100 text-amber-900";
+    case "medium": return "bg-blue-100 text-blue-800";
+    default: return "bg-slate-100 text-slate-700";
+  }
 }
 
 export function TaskManagementDialog({ status, tasks, users, rooms, onClose }: Props) {
@@ -118,45 +127,47 @@ export function TaskManagementDialog({ status, tasks, users, rooms, onClose }: P
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-5 sm:p-6">
         {!tasks.length && <p className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">No tasks in this category.</p>}
         {tasks.map((task) => <article key={task.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-start gap-3">
-                <UserAvatar name={task.staffName} avatarUrl={task.staffAvatarUrl} role={task.staffRole} className="h-10 w-10 shrink-0 bg-sky-100 text-sm text-sky-800" />
-                <div className="min-w-0 flex-1">
-                  <h3 className="font-bold text-slate-950">{task.name}</h3>
-                  <p className="mt-0.5 text-sm text-slate-600">{task.hotelName}{task.roomLabel ? ` · ${task.roomLabel}` : ""}{task.dispatchMetadata?.floorSection ? ` · ${task.dispatchMetadata.floorSection}` : ""}</p>
-                  <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500"><UserRound className="h-3.5 w-3.5" />{task.staffName} · {task.staffRole.replace("_", " ")}</p>
-                </div>
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex min-w-0 items-start gap-2">
+              <BriefcaseBusiness className="mt-0.5 h-5 w-5 shrink-0 text-sky-700" />
+              <div className="min-w-0">
+                <h3 className="truncate font-bold text-slate-950">{task.name}</h3>
+                <span className="mt-1 inline-flex max-w-full items-center gap-1 rounded-full bg-sky-50 px-2 py-1 text-[11px] font-medium text-sky-800">
+                  <MapPin className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{[task.hotelName, task.roomLabel, task.dispatchMetadata?.floorSection].filter(Boolean).join(" · ")}</span>
+                </span>
               </div>
-              {task.notes && <p className="mt-3 whitespace-pre-wrap rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">{task.notes}</p>}
-              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-                {task.assignedAt && <span>Assigned {new Date(task.assignedAt).toLocaleString()}</span>}
-                <span>Started {new Date(task.startTime).toLocaleString()}</span>
-                {task.endTime && <span>Finished {new Date(task.endTime).toLocaleString()}</span>}
-                {status === "active" && <span className="rounded-full bg-blue-50 px-2 py-0.5 font-semibold text-blue-800">Running · {elapsed(task.startTime, now)}</span>}
-                {status === "completed" && <span className="rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-800">Duration · {elapsed(task.startTime, Date.parse(task.endTime ?? task.startTime))}</span>}
-                <span className="capitalize">{task.priority} priority</span>
-              </div>
-              {status === "completed" && task.photos.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{task.photos.map((photo) => <a key={photo.id} href={photo.url} target="_blank" rel="noreferrer" className="rounded-lg border border-sky-200 px-3 py-2 text-xs font-semibold text-sky-800 hover:bg-sky-50">{photo.mediaType === "image" ? "View inspection photo" : "View attachment"} · {photo.name}</a>)}</div>}
-              {status === "completed" && !task.photos.length && <p className="mt-2 text-xs text-slate-500">No photo evidence attached.</p>}
             </div>
-            <div className="flex shrink-0 flex-wrap gap-2">
-              {status === "assigned" && <button type="button" onClick={() => beginEdit(task)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-xs font-semibold"><Pencil className="h-3.5 w-3.5" /> Edit / reassign</button>}
-              {status === "active" && task.staffId && <button type="button" onClick={() => openChat({
+            <div className="flex shrink-0 gap-1">
+              {status === "assigned" && <button type="button" aria-label="Edit or reassign task" title="Edit / reassign" onClick={() => beginEdit(task)} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-slate-200 px-2 text-[11px] font-semibold"><Pencil className="h-3.5 w-3.5" /><span className="sm:hidden">Edit</span><span className="hidden sm:inline">Edit / reassign</span></button>}
+              {status === "active" && task.staffId && <button type="button" aria-label="Message assignee" onClick={() => openChat({
                 id: task.staffId!,
                 full_name: task.staffName,
                 email: task.staffEmail,
                 role: task.staffRole,
                 avatar_url: task.staffAvatarUrl,
-              } satisfies ChatContact)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-xs font-semibold"><MessageCircle className="h-3.5 w-3.5" /> Message</button>}
-              {status === "active" && <button type="button" onClick={() => { setReasonTaskId(task.id); setReasonAction("complete"); setReason(""); }} className="min-h-9 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-800">End task</button>}
-              {status === "assigned" && <button type="button" onClick={() => { setReasonTaskId(task.id); setReasonAction("cancel"); setReason(""); }} className="min-h-9 rounded-lg border border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-800">Cancel</button>}
-              {status === "active" && <button type="button" onClick={() => { setReasonTaskId(task.id); setReasonAction("cancel"); setReason(""); }} className="min-h-9 rounded-lg border border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-800">Cancel</button>}
+              } satisfies ChatContact)} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-slate-200 px-2 text-[11px] font-semibold"><MessageCircle className="h-3.5 w-3.5" /><span className="sr-only">Message</span></button>}
+              {status === "active" && <button type="button" onClick={() => { setReasonTaskId(task.id); setReasonAction("complete"); setReason(""); }} className="min-h-9 rounded-lg border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-semibold text-emerald-800">End</button>}
+              {(status === "assigned" || status === "active") && <button type="button" aria-label="Cancel task" onClick={() => { setReasonTaskId(task.id); setReasonAction("cancel"); setReason(""); }} className="min-h-9 rounded-lg border border-rose-200 bg-rose-50 px-2 text-[11px] font-semibold text-rose-800">Cancel</button>}
               {status === "completed" && <button type="button" onClick={() => {
                 if (window.confirm(`Reopen “${task.name}” and resend it to ${task.staffName}?`)) perform(() => reopenCompletedDispatchTask(task.id), "Task reopened and re-dispatched.");
-              }} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 text-xs font-semibold text-amber-900"><RotateCcw className="h-3.5 w-3.5" /> Reopen</button>}
+              }} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2 text-[11px] font-semibold text-amber-900"><RotateCcw className="h-3.5 w-3.5" /><span className="sm:hidden">Open</span><span className="hidden sm:inline">Reopen</span></button>}
             </div>
           </div>
+          <div className="mt-3 flex w-full items-center gap-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+            <UserAvatar name={task.staffName} avatarUrl={task.staffAvatarUrl} role={task.staffRole} className="h-7 w-7 shrink-0 bg-sky-100 text-xs text-sky-800" />
+            <span className="min-w-0 truncate text-xs font-semibold text-slate-700">{task.staffName} · {task.staffRole.replace("_", " ")}</span>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+            <div className="min-w-0 rounded-lg bg-slate-50 p-2.5"><p className="font-semibold text-slate-500">Assigned</p><p className="mt-1 break-words text-slate-800">{task.assignedAt ? new Date(task.assignedAt).toLocaleString() : "—"}</p></div>
+            <div className="min-w-0 rounded-lg bg-slate-50 p-2.5"><p className="font-semibold text-slate-500">Finished</p><p className="mt-1 break-words text-slate-800">{task.endTime ? new Date(task.endTime).toLocaleString() : "Not finished"}</p></div>
+            <div className="min-w-0 rounded-lg bg-slate-50 p-2.5"><p className="font-semibold text-slate-500">Started</p><p className="mt-1 break-words text-slate-800">{new Date(task.startTime).toLocaleString()}</p></div>
+            <div className="flex min-w-0 items-center justify-between gap-2 rounded-lg bg-slate-50 p-2.5"><span className="font-semibold text-slate-500">Priority</span><span className={`rounded-full px-2 py-1 text-[10px] font-bold capitalize ${priorityClass(task.priority)}`}>{task.priority}</span></div>
+          </div>
+          {status === "active" && <span className="mt-2 inline-flex rounded-full bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-800">Running · {elapsed(task.startTime, now)}</span>}
+          {status === "completed" && <span className="mt-2 inline-flex rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">Duration · {elapsed(task.startTime, Date.parse(task.endTime ?? task.startTime))}</span>}
+          {status === "completed" && task.photos.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{task.photos.map((photo) => <a key={photo.id} href={photo.url} target="_blank" rel="noreferrer" className="rounded-lg border border-sky-200 px-3 py-2 text-xs font-semibold text-sky-800 hover:bg-sky-50">{photo.mediaType === "image" ? "View inspection photo" : "View attachment"} · {photo.name}</a>)}</div>}
+          {status === "completed" && !task.photos.length && <p className="mt-2 text-xs text-slate-500">No photo evidence attached.</p>}
           {editingTask?.id === task.id && <div className="mt-4 space-y-3 rounded-xl border border-sky-200 bg-sky-50/50 p-4">
             <label className="block text-xs font-semibold text-slate-700">Reassign to<select value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm">{eligibleStaff.map((user) => <option key={user.id} value={user.id}>{user.full_name} · {user.role.replace("_", " ")}</option>)}</select></label>
             <label className="block text-xs font-semibold text-slate-700">Zone / instructions<input value={floorSection} onChange={(event) => setFloorSection(event.target.value)} maxLength={120} className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 px-3 text-sm" /></label>
@@ -171,6 +182,7 @@ export function TaskManagementDialog({ status, tasks, users, rooms, onClose }: P
               reasonAction === "complete" ? "Task completed and audited." : "Task cancelled and audited."
             )} className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white disabled:opacity-50">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Saving…" : reasonAction === "complete" ? "Confirm end task" : "Confirm cancellation"}</button><button type="button" onClick={() => setReasonTaskId(null)} className="min-h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold">Keep task</button></div>
           </div>}
+          {task.notes && <p className="mt-3 w-full whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{task.notes}</p>}
         </article>)}
       </div>
     </section>

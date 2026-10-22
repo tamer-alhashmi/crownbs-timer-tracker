@@ -20,7 +20,10 @@ export function useWorkLogRealtimeRefresh() {
     isRefreshingRef.current = true;
     startTransition(() => router.refresh());
   }, [router, startTransition]);
-  refreshRef.current = refresh;
+
+  useEffect(() => {
+    refreshRef.current = refresh;
+  }, [refresh]);
 
   const scheduleRefresh = useCallback(() => {
     if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
@@ -42,7 +45,7 @@ export function useWorkLogRealtimeRefresh() {
     const supabase = createClient();
     const channel = supabase
       .channel(`work-log-refresh-${crypto.randomUUID()}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "work_logs" }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "work_logs" }, () => refreshRef.current())
       .on("postgres_changes", { event: "*", schema: "public", table: "master_shifts" }, scheduleRefresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "rooms" }, scheduleRefresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "hotels" }, scheduleRefresh)

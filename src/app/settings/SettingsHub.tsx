@@ -2,30 +2,35 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { Building2, ShieldCheck, UserRound } from "lucide-react";
+import { Building2, CalendarDays, ShieldCheck, UserRound } from "lucide-react";
 import type { UserRole } from "@/lib/roles";
 
-type Tab = "profile" | "users" | "properties";
+type Tab = "profile" | "users" | "properties" | "payroll";
 type Props = {
   role: UserRole;
   utility: ReactNode;
   profile: ReactNode;
+  payroll?: ReactNode;
   users: ReactNode;
   properties: ReactNode;
 };
 
 const tabs: { id: Tab; label: string; icon: typeof UserRound }[] = [
   { id: "profile", label: "Profile & Security", icon: ShieldCheck },
+  { id: "payroll", label: "Payroll & History", icon: CalendarDays },
   { id: "users", label: "User Management", icon: UserRound },
   { id: "properties", label: "Properties & Hotels", icon: Building2 },
 ];
 
-export default function SettingsHub({ role, utility, profile, users, properties }: Props) {
-  const visibleTabs = tabs.filter(({ id }) =>
-    id === "profile" ||
+function isTabVisible(id: Tab, role: UserRole) {
+  return id === "profile" ||
+    (id === "payroll" && role === "cleaner") ||
     (id === "users" && ["admin", "owner", "manager"].includes(role)) ||
-    (id === "properties" && ["admin", "owner"].includes(role))
-  );
+    (id === "properties" && ["admin", "owner"].includes(role));
+}
+
+export default function SettingsHub({ role, utility, profile, payroll, users, properties }: Props) {
+  const visibleTabs = tabs.filter(({ id }) => isTabVisible(id, role));
   const [activeTab, setActiveTab] = useState<Tab>("profile");
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -35,15 +40,11 @@ export default function SettingsHub({ role, utility, profile, users, properties 
       window.history.replaceState(null, "", url);
       return;
     }
-    if (requestedTab && tabs.some(({ id }) => id === requestedTab && (
-      id === "profile" ||
-      (id === "users" && ["admin", "owner", "manager"].includes(role)) ||
-      (id === "properties" && ["admin", "owner"].includes(role))
-    ))) {
+    if (requestedTab && tabs.some(({ id }) => id === requestedTab && isTabVisible(id, role))) {
       setActiveTab(requestedTab as Tab);
     }
   }, [role]);
-  const content: Record<Tab, ReactNode> = { profile, users, properties };
+  const content: Record<Tab, ReactNode> = { profile, payroll: payroll ?? null, users, properties };
 
   return (
     <main className="min-h-screen bg-slate-50 px-3 py-5 text-slate-900 sm:px-6 sm:py-8">
@@ -61,8 +62,10 @@ export default function SettingsHub({ role, utility, profile, users, properties 
               <button
                 key={id}
                 type="button"
+                id={`settings-tab-${id}`}
                 role="tab"
                 aria-selected={activeTab === id}
+                aria-controls={`settings-panel-${id}`}
                 onClick={() => setActiveTab(id)}
                 className={`inline-flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${
                   activeTab === id
@@ -71,14 +74,23 @@ export default function SettingsHub({ role, utility, profile, users, properties 
                 }`}
               >
                 <Icon className="h-4 w-4" />
-                {label}
+                {role === "cleaner" && id === "profile" ? "Personal Information" : label}
               </button>
             ))}
           </nav>
         </header>
-        <section role="tabpanel" className="min-w-0">
-          {content[activeTab]}
-        </section>
+        {visibleTabs.map(({ id }) => (
+          <section
+            key={id}
+            id={`settings-panel-${id}`}
+            role="tabpanel"
+            aria-labelledby={`settings-tab-${id}`}
+            hidden={activeTab !== id}
+            className="min-w-0"
+          >
+            {content[id]}
+          </section>
+        ))}
       </div>
     </main>
   );

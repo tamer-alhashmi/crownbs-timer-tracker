@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Building2, Clock3, MapPin, UserRound } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { getSessionUser } from "@/lib/auth";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { UserProfileMenu } from "@/components/layout/UserProfileMenu";
@@ -34,7 +34,7 @@ export default async function SettingsPage() {
   );
 
   if (user.role === "cleaner") {
-    const [{ data: hotel }, { data: payroll }] = await Promise.all([
+    const [, { data: payroll }] = await Promise.all([
       user.hotelId ? supabase.from("hotels").select("name, location").eq("id", user.hotelId).maybeSingle() : Promise.resolve({ data: null }),
       supabase.from("work_logs").select("id, start_time, end_time, task_date, rooms_completed, is_locked, cost_override, deleted_at, cancelled_at, services_config(name, default_rate, unit)").eq("user_id", user.userId).eq("status", "completed").is("deleted_at", null).is("cancelled_at", null).order("start_time", { ascending: false }),
     ]);
@@ -45,20 +45,15 @@ export default async function SettingsPage() {
         profile={<div className="mx-auto max-w-5xl">
           <PersonalProfileSettings fullName={name} email={profile?.email ?? user.email} phoneNumber={profile?.phone_number ?? null} avatarUrl={profile?.avatar_url ?? null} languagePreference={profile?.language_preference ?? "en"} role={user.role} />
           <section className="mt-5 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
-            <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">Work profile</p><h2 className="mt-1 text-lg font-bold text-slate-950">Your operating defaults</h2></div><Building2 className="h-5 w-5 text-slate-400" /></div>
-            <dl className="mt-5 divide-y divide-slate-100"><ProfileField icon={MapPin} label="Active hotel" value={hotel?.name ?? "No hotel assigned"} /><ProfileField icon={Clock3} label="Work time zone" value="Europe/London" /><ProfileField icon={Clock3} label="Time display" value="24-hour clock" /></dl>
-            <p className="mt-4 text-sm leading-5 text-slate-500">Your active hotel can be changed from the shift overview when you are not running a task.</p>
-          </section>
-          <section className="mt-5 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
             <div className="mb-4"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">Quick reference</p><h2 className="mt-1 text-lg font-bold text-slate-950">Cleaner system manual</h2><p className="mt-1 text-sm text-slate-600">Quick guidance for shift and task workflows.</p></div>
             <SystemManual role="cleaner" />
           </section>
-          <div className="mt-5"><PayrollSummary logs={payroll ?? []} /></div>
           <section className="mt-5 flex flex-col gap-4 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
             <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Account session</p><h2 className="mt-1 font-bold">Sign out of this device</h2><p className="mt-1 text-sm text-slate-500">Your shift and submitted work logs remain saved.</p></div>
             <SignOutButton />
           </section>
         </div>}
+        payroll={<div className="mx-auto max-w-5xl"><PayrollSummary logs={payroll ?? []} /></div>}
         users={null}
         properties={null}
       />
@@ -87,8 +82,4 @@ export default async function SettingsPage() {
       properties={<PropertySettings properties={data.properties} managers={data.managers} />}
     />
   );
-}
-
-function ProfileField({ icon: Icon, label, value }: { icon: typeof UserRound; label: string; value: string }) {
-  return <div className="grid grid-cols-[1.25rem_7rem_1fr] items-center gap-3 py-3 text-sm"><Icon className="h-4 w-4 text-slate-400" /><dt className="text-slate-500">{label}</dt><dd className="break-words font-medium text-slate-900">{value}</dd></div>;
 }
