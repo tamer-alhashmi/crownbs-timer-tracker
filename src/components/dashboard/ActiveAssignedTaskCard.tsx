@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { endOwnManagementTask } from "@/app/settings/taskActions";
 import { showActionToast } from "@/components/ui/ActionToast";
 import { Loader2 } from "lucide-react";
@@ -20,7 +19,6 @@ function elapsed(startTime: string, now: number) {
 }
 
 export function ActiveAssignedTaskCard({ task }: { task: ActiveAssignedTaskDetails }) {
-  const router = useRouter();
   const [now, setNow] = useState(0);
   const [message, setMessage] = useState("");
   const [isPending, startTransition] = useTransition();
@@ -39,7 +37,6 @@ export function ActiveAssignedTaskCard({ task }: { task: ActiveAssignedTaskDetai
     try {
       await endOwnManagementTask(task.id);
       showActionToast("success", "Task completed and sent for management review.");
-      router.refresh();
     } catch (error) {
       const text = error instanceof Error ? error.message : "Unable to end this task.";
       setMessage(text);

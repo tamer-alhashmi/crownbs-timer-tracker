@@ -14,7 +14,6 @@ export function ContactList() {
   const { data, isPending, error } = useQuery({
     queryKey: ["chat", "contacts"],
     queryFn: fetchContacts,
-    refetchInterval: 15_000,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
   });

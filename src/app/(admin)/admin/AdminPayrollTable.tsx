@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import { ChevronDown, Download, FileSpreadsheet, FileText, Loader2, Pencil, Trash2, X } from "lucide-react";
 import { strToU8, zipSync } from "fflate";
 import { jsPDF } from "jspdf";
@@ -103,7 +102,6 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
   cleaners: { id: string; name: string; primary_hotel_id?: string | null }[];
   canManageTasks: boolean;
 }) {
-  const router = useRouter();
   const today = new Date().toISOString().slice(0, 10);
   const monthStart = `${today.slice(0, 7)}-01`;
   const [from, setFrom] = useState(monthStart);
@@ -242,7 +240,6 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
         setEditingTask(null);
         setTaskMessage({ text: "Payroll task updated.", error: false });
         showActionToast("success", "Payroll task updated.");
-        router.refresh();
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unable to update task.";
         setTaskMessage({ text: message, error: true });
@@ -259,7 +256,6 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
         setDeletingTask(null);
         setTaskMessage({ text: "Task removed from payroll. Its audit history is retained.", error: false });
         showActionToast("success", "Task removed from payroll. Its audit history is retained.");
-        router.refresh();
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unable to remove task.";
         setTaskMessage({ text: message, error: true });

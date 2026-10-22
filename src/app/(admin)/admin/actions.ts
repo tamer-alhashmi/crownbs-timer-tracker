@@ -51,13 +51,33 @@ async function getLogForAction(logId: string) {
   return { supabase, log };
 }
 
-async function assertRoleControlsLog(role: ApprovalRole, log: { hotel_id: string; owner_id: string | null; manager_id: string | null }) {
+async function assertRoleControlsLog(role: ApprovalRole, log: { user_id: string; hotel_id: string; owner_id: string | null; manager_id: string | null }) {
   const user = await requireManagement();
+  if (user.userId === log.user_id) {
+    throw new Error("You cannot approve or reject your own work log.");
+  }
   if (user.role === "admin") return user;
   if (user.role !== role) throw new Error(`Only the ${role} can perform this approval.`);
+  if (role === "manager") {
+    const supabase = createPrivilegedServerSupabaseClient();
+    const { data: assignee, error } = await supabase.from("users").select("role").eq("id", log.user_id).maybeSingle();
+    if (error) throw new Error(`Unable to verify the assigned user's role: ${error.message}`);
+    if (!assignee || !["hk_admin", "cleaner"].includes(assignee.role)) {
+      throw new Error("Managers can approve only work logs completed by HK Admins or Cleaners.");
+    }
+  }
   const snapshotId = role === "owner" ? log.owner_id : log.manager_id;
   if (snapshotId !== user.userId) throw new Error(`This work log belongs to the previous ${role} assignment and cannot be changed by the current ${role}.`);
   return user;
+}
+
+function getFinalizationTime(startTime: string) {
+  const startTimestamp = Date.parse(startTime);
+  const now = Date.now();
+  if (!Number.isFinite(startTimestamp) || startTimestamp > now) {
+    throw new Error("This task has an invalid or future start time and cannot be finalized.");
+  }
+  return new Date(now).toISOString();
 }
 
 async function loadManagementOverview(period?: { from: string; to: string }) {
@@ -472,11 +492,19 @@ export async function updateWorkLog(logId: string, changes: WorkLogUpdate) {
     if (snapshotId !== user.userId) throw new Error("This work log belongs to the previous management assignment and cannot be edited.");
   }
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  const nextStartTime = changes.startTime ? Date.parse(changes.startTime) : Date.parse(log.start_time);
+  const nextEndTime = changes.endTime ? Date.parse(changes.endTime) : log.end_time ? Date.parse(log.end_time) : null;
+  if (!Number.isFinite(nextStartTime) || (nextEndTime !== null && (!Number.isFinite(nextEndTime) || nextEndTime < nextStartTime))) {
+    throw new Error("The end time must be at or after the start time.");
+  }
+  if (changes.roomsCompleted !== undefined && (!Number.isInteger(changes.roomsCompleted) || changes.roomsCompleted < 0)) {
+    throw new Error("Units completed must be a non-negative whole number.");
+  }
   if (changes.hotelId) payload.hotel_id = changes.hotelId;
   if (changes.serviceId) payload.service_id = changes.serviceId;
-  if (changes.startTime) payload.start_time = new Date(changes.startTime).toISOString();
-  if (changes.endTime) payload.end_time = new Date(changes.endTime).toISOString();
-  if (typeof changes.roomsCompleted === "number" && changes.roomsCompleted >= 0) payload.rooms_completed = changes.roomsCompleted;
+  if (changes.startTime) payload.start_time = new Date(nextStartTime).toISOString();
+  if (changes.endTime) payload.end_time = new Date(Date.parse(changes.endTime)).toISOString();
+  if (changes.roomsCompleted !== undefined) payload.rooms_completed = changes.roomsCompleted;
   if (changes.roomNumber !== undefined) payload.room_number = changes.roomNumber.trim();
   if (changes.notes !== undefined) payload.notes = changes.notes.trim();
   if (changes.status !== undefined) payload.status = changes.status;
@@ -491,20 +519,32 @@ export async function approveWorkLog(logId: string, role: ApprovalRole) {
   await requireFeatureAccess("work_log_approvals", "edit");
   const { supabase, log } = await getLogForAction(logId);
   const user = await assertRoleControlsLog(role, log);
+  const { data: assignee, error: assigneeError } = await supabase
+    .from("users")
+    .select("role")
+    .eq("id", log.user_id)
+    .maybeSingle();
+  if (assigneeError) throw new Error(`Unable to verify the assigned user's role: ${assigneeError.message}`);
+  if (!assignee) throw new Error("The assigned user could not be found.");
   let approvalRecord = log;
   if (log.status !== "completed" || !log.end_time) {
-    const { data: assignee, error: assigneeError } = await supabase
-      .from("users")
-      .select("role")
-      .eq("id", log.user_id)
-      .maybeSingle();
-    if (assigneeError) throw new Error(`Unable to verify the assigned user's role: ${assigneeError.message}`);
-    if (!assignee || assignee.role === "cleaner" || !["active", "completed"].includes(log.status)) {
+    if (assignee.role === "cleaner" || !["active", "completed"].includes(log.status)) {
       throw new Error("The cleaner must clock out before this log can be approved.");
     }
-    const finalizedAt = new Date().toISOString();
+    const finalizedAt = getFinalizationTime(log.start_time);
+    const autoApproveManager = assignee.role === "manager";
     const { data: finalized, error: finalizeError } = await supabase.from("work_logs")
-      .update({ status: "completed", end_time: finalizedAt, updated_at: finalizedAt })
+      .update({
+        status: "completed",
+        end_time: finalizedAt,
+        rooms_completed: Math.max(0, log.rooms_completed ?? 0),
+        ...(autoApproveManager ? {
+          manager_approved: true,
+          manager_rejected: false,
+          manager_approved_at: finalizedAt,
+        } : {}),
+        updated_at: finalizedAt,
+      })
       .eq("id", logId)
       .eq("status", log.status)
       .is("end_time", null)
@@ -515,12 +555,40 @@ export async function approveWorkLog(logId: string, role: ApprovalRole) {
     const { error: finalizeAuditError } = await supabase.from("work_log_audit").insert({
       work_log_id: logId,
       actor_id: user.userId,
-      action: "edited",
+      action: autoApproveManager ? "approved" : "edited",
       previous_values: log,
-      new_values: finalized,
+      new_values: autoApproveManager
+        ? { ...finalized, audit_note: "Manager approval was recorded automatically when the managerial task was finalized." }
+        : finalized,
     });
     if (finalizeAuditError) throw new Error(`Task was finalized, but audit history could not be saved: ${finalizeAuditError.message}`);
     approvalRecord = finalized;
+  }
+  if (assignee.role === "manager" && !approvalRecord.manager_approved) {
+    const approvedAt = new Date().toISOString();
+    const { data: managerApproved, error: managerApprovalError } = await supabase.from("work_logs")
+      .update({
+        manager_approved: true,
+        manager_rejected: false,
+        manager_approved_at: approvedAt,
+        updated_at: approvedAt,
+      })
+      .eq("id", logId)
+      .eq("status", "completed")
+      .select("*")
+      .single();
+    if (managerApprovalError || !managerApproved) {
+      throw new Error(managerApprovalError?.message ?? "Unable to record automatic Manager approval.");
+    }
+    const { error: managerAuditError } = await supabase.from("work_log_audit").insert({
+      work_log_id: logId,
+      actor_id: user.userId,
+      action: "approved",
+      previous_values: approvalRecord,
+      new_values: { ...managerApproved, audit_note: "Manager approval was recorded automatically for the managerial assignee." },
+    });
+    if (managerAuditError) throw new Error(`Manager approval was recorded, but its audit history could not be saved: ${managerAuditError.message}`);
+    approvalRecord = managerApproved;
   }
   if (approvalRecord.is_locked) throw new Error("This log is already locked.");
   const now = new Date().toISOString();
@@ -549,19 +617,32 @@ export async function finalizeWorkLogWithoutClockOut(logId: string) {
   if (previous.is_locked || previous.status !== "active" || previous.end_time) {
     throw new Error("Only an active, unfinished work log can be finalized.");
   }
-  if (user.role !== "admin" && user.role !== "owner") {
-    const { data: assignee, error: assigneeError } = await supabase.from("users")
-      .select("role")
-      .eq("id", previous.user_id)
-      .maybeSingle();
-    if (assigneeError) throw new Error(`Unable to verify the assigned user's role: ${assigneeError.message}`);
-    if (!assignee || assignee.role === "cleaner") {
-      throw new Error("Clock-out bypass is only available for administrative tasks.");
-    }
+  const { data: assignee, error: assigneeError } = await supabase.from("users")
+    .select("role")
+    .eq("id", previous.user_id)
+    .maybeSingle();
+  if (assigneeError) throw new Error(`Unable to verify the assigned user's role: ${assigneeError.message}`);
+  if (!assignee) throw new Error("The assigned user could not be found.");
+  if (user.role === "manager" && (previous.user_id === user.userId || assignee.role !== "hk_admin")) {
+    throw new Error("Managers can only finalize unfinished HK Admin tasks assigned to their team.");
   }
-  const now = new Date().toISOString();
+  if (user.role !== "admin" && user.role !== "owner" && assignee.role === "cleaner") {
+    throw new Error("Clock-out bypass is only available for administrative tasks.");
+  }
+  const now = getFinalizationTime(previous.start_time);
+  const autoApproveManager = assignee.role === "manager";
   const { data: updated, error: updateError } = await supabase.from("work_logs")
-    .update({ status: "completed", end_time: now, updated_at: now })
+    .update({
+      status: "completed",
+      end_time: now,
+      rooms_completed: Math.max(0, previous.rooms_completed ?? 0),
+      ...(autoApproveManager ? {
+        manager_approved: true,
+        manager_rejected: false,
+        manager_approved_at: now,
+      } : {}),
+      updated_at: now,
+    })
     .eq("id", logId)
     .eq("status", "active")
     .is("end_time", null)
@@ -572,12 +653,43 @@ export async function finalizeWorkLogWithoutClockOut(logId: string) {
   const { error: auditError } = await supabase.from("work_log_audit").insert({
     work_log_id: logId,
     actor_id: user.userId,
-    action: "edited",
+    action: autoApproveManager ? "approved" : "edited",
     previous_values: previous,
-    new_values: updated,
+    new_values: autoApproveManager
+      ? { ...updated, audit_note: "Manager approval was recorded automatically when the managerial task was finalized." }
+      : updated,
   });
   if (auditError) throw new Error(`Task was finalized, but audit history could not be saved: ${auditError.message}`);
   for (const path of ["/admin", "/owner", "/manager"]) revalidatePath(path);
+}
+
+export async function forceEndAndApproveManagerTask(taskId: string) {
+  const user = await requireFeatureAccess("work_log_approvals", "edit");
+  if (!["admin", "owner"].includes(user.role)) throw new Error("Only a Platform Admin or Property Owner can force-end and approve a Manager task.");
+  if (typeof taskId !== "string" || !taskId) throw new Error("A work log is required.");
+  const supabase = createPrivilegedServerSupabaseClient();
+  const { data: task, error: taskError } = await supabase.from("work_logs")
+    .select("id, user_id, hotel_id, status, is_locked, deleted_at, cancelled_at")
+    .eq("id", taskId)
+    .maybeSingle();
+  if (taskError) throw new Error(`Unable to verify the task: ${taskError.message}`);
+  if (!task || !["assigned", "active"].includes(task.status) || task.is_locked || task.deleted_at || task.cancelled_at) {
+    throw new Error("Only an active or pending Manager task can be force-ended.");
+  }
+  const { data: assignee, error: assigneeError } = await supabase.from("users")
+    .select("role")
+    .eq("id", task.user_id)
+    .maybeSingle();
+  if (assigneeError) throw new Error(`Unable to verify the assignee: ${assigneeError.message}`);
+  if (!assignee || assignee.role !== "manager") throw new Error("This action is only available for tasks assigned to a Manager.");
+  await assertManagementControlsHotel(user, task.hotel_id);
+
+  const { error } = await supabase.rpc("force_end_approve_manager_task", {
+    p_task_id: task.id,
+    p_actor_id: user.userId,
+  });
+  if (error) throw new Error(`Unable to force-end and approve the Manager task: ${error.message}`);
+  for (const path of ["/admin", "/owner", "/manager", "/dashboard"]) revalidatePath(path);
 }
 
 export async function rejectWorkLog(logId: string, role: ApprovalRole, notes = "") {
@@ -589,6 +701,13 @@ export async function rejectWorkLog(logId: string, role: ApprovalRole, notes = "
   const payload = role === "manager" ? { manager_approved: false, manager_rejected: true, manager_rejected_at: now, is_locked: false, rejection_notes: notes.trim() } : { owner_approved: false, owner_rejected: true, owner_rejected_at: now, is_locked: false, rejection_notes: notes.trim() };
   const { data: updated, error } = await supabase.from("work_logs").update({ ...payload, updated_at: now }).eq("id", logId).select("*").single();
   if (error || !updated) throw new Error(error?.message ?? "Unable to reject work log.");
-  await supabase.from("work_log_audit").insert({ work_log_id: logId, actor_id: user.userId, action: "rejected", previous_values: log, new_values: updated });
+  const { error: auditError } = await supabase.from("work_log_audit").insert({
+    work_log_id: logId,
+    actor_id: user.userId,
+    action: "rejected",
+    previous_values: log,
+    new_values: updated,
+  });
+  if (auditError) throw new Error(`Work log was rejected, but audit history could not be saved: ${auditError.message}`);
   revalidatePath("/admin"); revalidatePath("/owner"); revalidatePath("/manager");
 }

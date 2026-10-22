@@ -25,7 +25,6 @@ export function GlobalChatWidget({ user, profile }: { user: AppUserSession; prof
   const { data } = useQuery({
     queryKey: ["chat", "unread"],
     queryFn: fetchUnread,
-    refetchInterval: 15_000,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
   });
@@ -50,7 +49,6 @@ export function GlobalChatWidget({ user, profile }: { user: AppUserSession; prof
     const closeEvents = () => events.close();
     events.onmessage = refreshChat;
     events.onopen = refreshChat;
-    events.onerror = refreshChat;
     window.addEventListener("app:signout", closeEvents);
     return () => {
       window.removeEventListener("app:signout", closeEvents);
