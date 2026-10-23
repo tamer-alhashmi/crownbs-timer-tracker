@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState, useTransition, type FormEvent } from "react";
+import { useEffect, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { Activity, Building2, CheckCheck, ClipboardList, Gauge, Images, Loader2, Settings, UsersRound } from "lucide-react";
 import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
 import { NotificationBell } from "@/components/chat/NotificationBell";
@@ -58,9 +58,11 @@ function elapsed(startTime: string, now: number) {
 export default function HKAdminDashboardClient({
   data,
   dispatchData,
+  intelligence,
 }: {
   data: HousekeepingDashboardData;
   dispatchData: DispatchData;
+  intelligence: ReactNode;
 }) {
   useWorkLogRealtimeRefresh();
   const [activeTab, setActiveTab] = useState<DashboardTab>("overview");
@@ -160,6 +162,7 @@ export default function HKAdminDashboardClient({
             <Metric label="Cleaners on shift" value={data.shifts.length} icon={UsersRound} />
           </section>
           {dispatchData && <TaskDispatchClient role="hk_admin" {...dispatchData} />}
+          {intelligence}
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
             <h2 className="text-lg font-bold">Property snapshot</h2>
             <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">

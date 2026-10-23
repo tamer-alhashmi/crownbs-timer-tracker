@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { getSessionUser } from "@/lib/auth";
@@ -13,6 +14,7 @@ import SystemAccessPanel from "./SystemAccessPanel";
 import PersonalProfileSettings from "./PersonalProfileSettings";
 import SettingsHub from "./SettingsHub";
 import { PropertySettings } from "./AssetSettings";
+import { OwnerBillingSkeleton, OwnerBillingWidget } from "@/components/dashboard/OwnerBillingWidget";
 
 export default async function SettingsPage() {
   const user = await getSessionUser();
@@ -77,6 +79,7 @@ export default async function SettingsPage() {
     <SettingsHub
       role={data.actorRole}
       utility={utility}
+      billing={user.role === "owner" ? <Suspense fallback={<OwnerBillingSkeleton />}><OwnerBillingWidget ownerId={user.userId} /></Suspense> : null}
       profile={<PersonalProfileSettings fullName={profile?.full_name ?? user.email} email={profile?.email ?? user.email} phoneNumber={profile?.phone_number ?? null} avatarUrl={profile?.avatar_url ?? null} languagePreference={profile?.language_preference ?? "en"} role={user.role} />}
       users={<><UserSettingsClient actorRole={data.actorRole} hotels={data.hotels} users={data.users} />{data.actorRole === "admin" && <SystemAccessPanel users={data.users} permissions={data.permissions} />}</>}
       properties={<PropertySettings properties={data.properties} managers={data.managers} />}

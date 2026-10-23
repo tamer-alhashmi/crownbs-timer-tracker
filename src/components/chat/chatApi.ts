@@ -76,8 +76,25 @@ export type TaskNotice = {
   floor_section?: string | null;
 };
 
+export type OverdueTaskNotice = {
+  id: string;
+  task_id: string;
+  title: string;
+  task_title: string;
+  hotel_name: string;
+  assignee_name: string;
+  open_duration: string;
+  created_at: string;
+  href: string;
+};
+
 export const fetchTaskNotifications = () =>
-  request<{ incoming: TaskNotice[]; outgoing: TaskNotice[] }>("/api/tasks/notifications");
+  request<{ incoming: TaskNotice[]; outgoing: TaskNotice[]; overdue: OverdueTaskNotice[] }>(
+    "/api/tasks/escalations",
+    { method: "POST" }
+  ).then(() =>
+    request<{ incoming: TaskNotice[]; outgoing: TaskNotice[]; overdue: OverdueTaskNotice[] }>("/api/tasks/notifications")
+  );
 
 export const fetchConversation = (contactId: string, channelId?: string) =>
   request<{ messages: ChatMessage[] }>(

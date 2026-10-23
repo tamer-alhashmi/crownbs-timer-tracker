@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import type { ReactNode } from "react";
 import "./globals.css";
 import "./management-dashboard.css";
+import "leaflet/dist/leaflet.css";
 import { getSessionUser } from "@/lib/auth";
 import { ChatProviders } from "@/components/chat/ChatProviders";
 import { GlobalChatWidget } from "@/components/chat/GlobalChatWidget";

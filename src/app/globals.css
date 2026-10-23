@@ -1656,3 +1656,22 @@ html {
     border-radius: 1.5rem;
   }
 }
+.location-picker-marker {
+  width: 36px;
+  height: 44px;
+  filter: drop-shadow(0 2px 3px rgb(15 23 42 / 0.35));
+}
+
+.location-picker-marker svg {
+  display: block;
+  width: 36px;
+  height: 44px;
+  fill: #0369a1;
+  stroke: white;
+  stroke-width: 1.5;
+}
+
+.location-picker-marker svg circle {
+  fill: white;
+  stroke: white;
+}

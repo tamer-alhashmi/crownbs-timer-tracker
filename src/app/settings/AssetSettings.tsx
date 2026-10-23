@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState, useTransition, type ReactNode } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Building2, ChevronDown, Loader2, Pencil, Plus, Trash2, Upload } from "lucide-react";
+import { Building2, ChevronDown, Loader2, MapPin, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { showActionToast } from "@/components/ui/ActionToast";
 import {
   archiveOwnedProperty,
@@ -46,6 +47,16 @@ type Property = {
   services: Service[];
 };
 type Manager = { id: string; full_name: string };
+const MapLocationPicker = dynamic(() => import("./MapLocationPicker"), {
+  ssr: false,
+  loading: () => (
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-950/55 p-4">
+      <div className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-medium text-slate-700 shadow-xl">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading map…
+      </div>
+    </div>
+  ),
+});
 const fieldClass = "min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900";
 const propertySchema = z.object({
   name: z.string().trim().min(1, "Enter a property name.").max(120),
@@ -67,6 +78,7 @@ type ServiceValues = z.infer<typeof serviceSchema>;
 export function PropertySettings({ properties, managers }: { properties: Property[]; managers: Manager[] }) {
   const [editing, setEditing] = useState<Property | null>(null);
   const [adding, setAdding] = useState(false);
+  const [locationPickerOpen, setLocationPickerOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
@@ -74,6 +86,7 @@ export function PropertySettings({ properties, managers }: { properties: Propert
     resolver: zodResolver(propertySchema),
     defaultValues: { name: "", location: "", roomCount: "0", floorCount: "0", managerId: "" },
   });
+  const locationRegistration = form.register("location");
 
   const beginEdit = (property: Property) => {
     setEditing(property);
@@ -137,7 +150,20 @@ export function PropertySettings({ properties, managers }: { properties: Propert
           <h3 className="font-bold text-slate-950">{editing ? `Edit ${editing.name}` : "Add a property"}</h3>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <Input label="Property name" error={form.formState.errors.name?.message}><input {...form.register("name")} className={fieldClass} autoComplete="organization" /></Input>
-            <Input label="Address / location" error={form.formState.errors.location?.message}><input {...form.register("location")} className={fieldClass} autoComplete="street-address" /></Input>
+            <Input label="Address / location" error={form.formState.errors.location?.message}>
+              <div className="relative">
+                <input {...locationRegistration} className={`${fieldClass} pr-12`} autoComplete="street-address" />
+                <button
+                  type="button"
+                  title="Pick property location on map"
+                  aria-label="Pick property location on map"
+                  onClick={() => setLocationPickerOpen(true)}
+                  className="absolute inset-y-0 right-0 grid w-11 place-items-center rounded-r-xl text-sky-700 transition hover:bg-sky-50"
+                >
+                  <MapPin className="h-5 w-5" />
+                </button>
+              </div>
+            </Input>
             <Input label="Total rooms" error={form.formState.errors.roomCount?.message}><input {...form.register("roomCount")} type="number" min="0" step="1" className={fieldClass} /></Input>
             <Input label="Floors / sections" error={form.formState.errors.floorCount?.message}><input {...form.register("floorCount")} type="number" min="0" step="1" className={fieldClass} /></Input>
             <Input label="Assigned manager"><select {...form.register("managerId")} className={fieldClass}><option value="">No manager assigned</option>{managers.map((manager) => <option key={manager.id} value={manager.id}>{manager.full_name}</option>)}</select></Input>
@@ -148,6 +174,15 @@ export function PropertySettings({ properties, managers }: { properties: Propert
             <button type="button" onClick={() => { setAdding(false); setEditing(null); setMessage(""); }} className="min-h-11 rounded-xl border border-slate-200 px-4 text-sm font-semibold">Cancel</button>
           </div>
         </form>
+      )}
+      {locationPickerOpen && (
+        <MapLocationPicker
+          onCancel={() => setLocationPickerOpen(false)}
+          onConfirm={(location) => {
+            form.setValue("location", location, { shouldDirty: true, shouldValidate: true });
+            setLocationPickerOpen(false);
+          }}
+        />
       )}
       {message && !adding && !editing && <p role="status" className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">{message}</p>}
 

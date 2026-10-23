@@ -193,6 +193,27 @@ function isEmailConflict(error: unknown) {
     /already registered|already exists/.test(message);
 }
 
+function isAuthEmailAlreadyRegistered(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { message?: unknown };
+  return typeof candidate.message === "string" &&
+    /already\s+(been\s+)?(registered|exists)/i.test(candidate.message);
+}
+
+async function findAuthUserByEmail(
+  supabase: ReturnType<typeof createPrivilegedServerSupabaseClient>,
+  email: string
+) {
+  const normalizedEmail = email.trim().toLowerCase();
+  for (let page = 1; ; page += 1) {
+    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error) throw new Error(`Unable to look up the existing login account: ${error.message}`);
+    const user = data.users.find((candidate) => candidate.email?.toLowerCase() === normalizedEmail);
+    if (user) return user;
+    if (data.users.length < 1000) return null;
+  }
+}
+
 async function emailAlreadyInUse(
   supabase: ReturnType<typeof createPrivilegedServerSupabaseClient>,
   email: string,
@@ -207,6 +228,8 @@ async function emailAlreadyInUse(
 
 export async function createManagedUser(input: UserInput): Promise<ActionResult> {
   let createdUserId: string | null = null;
+  let createdAuthUser = false;
+  let createdProfile = false;
   let cleanupClient: ReturnType<typeof createPrivilegedServerSupabaseClient> | null = null;
   try {
   const context = await requireSettingsAccess("create");
@@ -222,16 +245,49 @@ export async function createManagedUser(input: UserInput): Promise<ActionResult>
   if (unavailableHotel) throw new Error("Staff must be assigned only to active properties.");
   if (!values.password && !values.pinCode) throw new Error("Provide a password or a 4-digit PIN.");
   const password = values.password?.trim() || `${crypto.randomUUID()}Aa1!`;
-  const { data: authUser, error: authError } = await context.supabase.auth.admin.createUser({ email: values.email, password, email_confirm: true });
-  if (authError || !authUser.user) throw new Error(authError?.message ?? "Unable to create login account.");
-  createdUserId = authUser.user.id;
-  const { error: profileError } = await context.supabase.from("users").insert({ id: authUser.user.id, full_name: values.fullName, email: values.email, phone_number: values.phoneNumber || null, role: values.role, pin_code: values.pinCode || null, primary_hotel_id: values.primaryHotelId });
+  let authUser: Awaited<ReturnType<typeof context.supabase.auth.admin.createUser>>["data"]["user"] = null;
+  let createUserError: unknown = null;
+  try {
+    const result = await context.supabase.auth.admin.createUser({
+      email: values.email,
+      password,
+      email_confirm: true,
+    });
+    authUser = result.data.user;
+    createUserError = result.error;
+  } catch (error) {
+    createUserError = error;
+  }
+
+  if (createUserError || !authUser) {
+    if (!isAuthEmailAlreadyRegistered(createUserError)) {
+      throw new Error(createUserError instanceof Error ? createUserError.message : "Unable to create login account.");
+    }
+    authUser = await findAuthUserByEmail(context.supabase, values.email);
+    if (!authUser) {
+      throw new Error("An existing login account was reported, but could not be found by email.");
+    }
+  } else {
+    createdAuthUser = true;
+  }
+
+  createdUserId = authUser.id;
+  const { error: profileError } = await context.supabase.from("users").upsert({
+    id: authUser.id,
+    full_name: values.fullName,
+    email: values.email,
+    phone_number: values.phoneNumber || null,
+    role: values.role,
+    pin_code: values.pinCode || null,
+    primary_hotel_id: values.primaryHotelId,
+  }, { onConflict: "id" });
   if (profileError) throw new Error(profileError.message);
+  createdProfile = true;
   if (["manager", "hk_admin", "cleaner"].includes(values.role) && values.hotelIds.length) {
     const { error: assignmentError } = await context.supabase
       .from("user_hotel_assignments")
       .upsert(values.hotelIds.map((hotelId) => ({
-        user_id: authUser.user.id,
+        user_id: authUser.id,
         hotel_id: hotelId,
         is_primary: hotelId === values.primaryHotelId,
         assigned_by: context.actor.userId,
@@ -240,13 +296,13 @@ export async function createManagedUser(input: UserInput): Promise<ActionResult>
   }
   if (values.role === "owner" && values.hotelIds.length) {
     for (const hotelId of values.hotelIds) {
-      const { error: assignmentError } = await context.supabase.from("hotels").update({ owner_id: authUser.user.id }).eq("id", hotelId);
+      const { error: assignmentError } = await context.supabase.from("hotels").update({ owner_id: authUser.id }).eq("id", hotelId);
       if (assignmentError) throw new Error(assignmentError.message);
     }
   }
   if (values.role === "manager" && values.hotelIds.length) {
     for (const hotelId of values.hotelIds) {
-      const { error: managerError } = await context.supabase.from("hotels").update({ manager_id: authUser.user.id }).eq("id", hotelId);
+      const { error: managerError } = await context.supabase.from("hotels").update({ manager_id: authUser.id }).eq("id", hotelId);
       if (managerError) throw new Error(managerError.message);
     }
   }
@@ -254,10 +310,14 @@ export async function createManagedUser(input: UserInput): Promise<ActionResult>
   return { success: true };
   } catch (error) {
     if (createdUserId && cleanupClient) {
-      const { error: profileCleanupError } = await cleanupClient.from("users").delete().eq("id", createdUserId);
-      const { error: authCleanupError } = await cleanupClient.auth.admin.deleteUser(createdUserId);
-      if (profileCleanupError || authCleanupError) {
-        console.error("Managed user creation cleanup failed:", profileCleanupError ?? authCleanupError);
+      const profileCleanup = createdProfile
+        ? await cleanupClient.from("users").delete().eq("id", createdUserId)
+        : { error: null };
+      const authCleanup = createdAuthUser
+        ? await cleanupClient.auth.admin.deleteUser(createdUserId)
+        : { error: null };
+      if (profileCleanup.error || authCleanup.error) {
+        console.error("Managed user creation cleanup failed:", profileCleanup.error ?? authCleanup.error);
       }
     }
     if (isEmailConflict(error)) {
