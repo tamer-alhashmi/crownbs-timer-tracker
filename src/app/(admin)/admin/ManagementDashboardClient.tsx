@@ -58,7 +58,7 @@ function useDashboardTab() {
 type Log = { id: string; user_id: string; hotel_id: string; service_id: string | null; cleanerName: string; hotelName: string; assigneeRole: string; start_time: string; end_time: string | null; task_date: string; status: string; cancelled_at?: string | null; rooms_completed: number; room_number: string | null; room_numbers: string[]; roomDetails?: { name: string; floor: string }[]; service_name_snapshot: string | null; service_description_snapshot: string | null; notes: string | null; cost_override?: number | string | null; owner_id: string | null; owner_name: string | null; manager_id: string | null; manager_name: string | null; responsibility_recorded_at: string | null; manager_approved: boolean; owner_approved: boolean; manager_rejected: boolean; owner_rejected: boolean; is_locked: boolean; rejection_notes?: string | null; services_config?: { name: string; default_rate: number; unit?: string }[] };
 type Room = { id: string; hotel_id: string; room_name: string; floor_section?: string | null; category: string; status?: string };
 type DispatchData = Awaited<ReturnType<typeof getTaskDispatchData>>;
-type Props = { data: { userRole: string; currentUserId: string; userName: string; userEmail: string; userAvatarUrl: string | null; canManagePayrollTasks: boolean; canManageActiveOperations: boolean; hotels: PropertyRecord[]; services: ServiceRecord[]; cleaners: { id: string; name: string; primary_hotel_id: string | null }[]; rooms: Room[]; workLogs: Log[]; auditLogs: Log[]; payroll: PayrollLog[]; activeShifts: { id: string; user_id: string; start_time: string; cleanerName: string; task: Log | null }[]; activeTasks: Log[]; overrideAudit: OverrideAuditRecord[]; brief: ManagementBrief }; dispatchData?: DispatchData };
+type Props = { data: { userRole: string; currentUserId: string; userName: string; userEmail: string; userAvatarUrl: string | null; canManagePayrollTasks: boolean; canManageActiveOperations: boolean; hotels: PropertyRecord[]; services: ServiceRecord[]; cleaners: { id: string; name: string; primary_hotel_id: string | null }[]; rooms: Room[]; workLogs: Log[]; auditLogs: Log[]; payroll: PayrollLog[]; activeShifts: { id: string; user_id: string; start_time: string; cleanerName: string; task: Log | null }[]; activeTasks: Log[]; overrideAudit: OverrideAuditRecord[]; brief: ManagementBrief }; dispatchData?: DispatchData; tenantIntelligence?: ReactNode };
 type AuditDetail = { label: string; value: string };
 type OverrideAuditRecord = { id: string; entity_type: "task" | "shift"; action: string; actor_name: string; target_label: string; override_reason: string; previous_details: AuditDetail[]; new_details: AuditDetail[]; created_at: string };
 type Draft = { hotelId: string; serviceId: string; roomId: string; roomsCompleted: string; roomNumber: string; notes: string; startTime: string; endTime: string; status: "assigned" | "active" | "completed" };
@@ -113,7 +113,7 @@ function toBriefTask(log: Log): BriefTask {
   return { id: log.id, cleaner: log.cleanerName, hotel: log.hotelName, service: serviceName, serviceDescription: log.service_description_snapshot ?? serviceName, taskDate: log.task_date,   status: log.cancelled_at ? "cancelled" : log.status, startTime: log.start_time, endTime: log.end_time, ownerId: log.owner_id, ownerName: log.owner_name ?? "Unassigned owner", managerId: log.manager_id, managerName: log.manager_name ?? "Unassigned manager", responsibilityRecordedAt: log.responsibility_recorded_at ?? log.start_time, room: roomNumbers.join(", ") || log.room_number || "", rooms: log.rooms_completed, hours, rate, cost: calculateTaskCost(hours, log.rooms_completed, { name: serviceName, unit, default_rate: rate }, log.cost_override), notes: log.notes ?? "", managerApproved: log.manager_approved, ownerApproved: log.owner_approved, managerRejected: log.manager_rejected, ownerRejected: log.owner_rejected, isLocked: log.is_locked, rejectionNotes: log.rejection_notes ?? "" };
 }
 
-export default function ManagementDashboardClient({ data, dispatchData }: Props) {
+export default function ManagementDashboardClient({ data, dispatchData, tenantIntelligence }: Props) {
   useWorkLogRealtimeRefresh();
   const activeTab = useDashboardTab();
   const [isPending, startTransition] = useTransition();
@@ -340,6 +340,7 @@ export default function ManagementDashboardClient({ data, dispatchData }: Props)
             }} /> : null;
           })()}
           {dispatchData && <TaskDispatchClient role={data.userRole as UserRole} {...dispatchData} />}
+          {tenantIntelligence}
           <DashboardHeading title="Executive overview" description="Portfolio performance, approvals, and operating costs at a glance." />
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <Metric label="Properties" value={data.hotels.length} icon={Hotel} />

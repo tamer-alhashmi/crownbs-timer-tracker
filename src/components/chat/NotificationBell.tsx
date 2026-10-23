@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, Bell, Clock, Loader2, MapPin, MessageCircle, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { fetchTaskNotifications, fetchUnread, type TaskNotice } from "./chatApi";
+import { fetchTaskNotifications, fetchUnread, type OverdueTaskNotice, type TaskNotice } from "./chatApi";
 import { useChatStore } from "./chatStore";
 import { roleLabel } from "@/lib/chat/types";
 import { UserAvatar } from "@/components/shared/UserAvatar";
@@ -56,11 +56,13 @@ export function NotificationBell() {
     queryFn: fetchTaskNotifications,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
+    refetchInterval: 60_000,
   });
   const openChat = useChatStore((state) => state.openChat);
   const incoming = taskQuery.data?.incoming ?? [];
   const outgoing = taskQuery.data?.outgoing ?? [];
-  const unreadCount = (data?.count ?? 0) + incoming.length;
+  const overdue = taskQuery.data?.overdue ?? [];
+  const unreadCount = (data?.count ?? 0) + incoming.length + overdue.length;
 
   useEffect(() => {
     if (!isOpen) return;
@@ -166,6 +168,22 @@ export function NotificationBell() {
             <>
             {taskQuery.error && <p role="alert" className="px-4 py-3 text-sm text-rose-600">{safeChatError(taskQuery.error, "Task notifications could not be loaded. Please try again.")}</p>}
             {taskError && <p role="alert" className="mx-2 mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{taskError}</p>}
+            {overdue.length > 0 && (
+              <div className="border-b border-rose-100 bg-rose-50/40 p-2">
+                <p className="px-2 py-1 text-xs font-bold uppercase tracking-wide text-rose-800">Overdue task alerts</p>
+                {overdue.map((alert: OverdueTaskNotice) => (
+                  <article key={alert.id} className="mb-2 rounded-lg border border-rose-200 bg-white p-3 shadow-sm">
+                    <h3 className="text-sm font-bold text-rose-800">⚠️ {alert.title}</h3>
+                    <p className="mt-1 text-xs font-semibold text-slate-900">{alert.hotel_name} · {alert.task_title}</p>
+                    <p className="mt-1 text-xs text-slate-600">Assigned staff: {alert.assignee_name}</p>
+                    <p className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-rose-700"><Clock className="h-3.5 w-3.5" />Open for {alert.open_duration}</p>
+                    <div className="mt-2 flex justify-end">
+                      <a href={alert.href} className="inline-flex min-h-9 items-center rounded-lg bg-rose-700 px-3 text-xs font-semibold text-white hover:bg-rose-800">View task · {alert.task_id.slice(0, 8)}</a>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
             {incoming.length > 0 && (
               <div className="border-b border-slate-100 p-2">
                 <p className="px-2 py-1 text-xs font-bold uppercase tracking-wide text-slate-500">Assigned tasks</p>

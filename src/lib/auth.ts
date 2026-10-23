@@ -21,16 +21,17 @@ function chatSessionProof(user: AppUserSession): string | null {
   return createHmac("sha256", secret).update(payload).digest("base64url");
 }
 
-export async function setSessionCookies(user: AppUserSession) {
+export async function setSessionCookies(user: AppUserSession, options: { rememberMe?: boolean } = {}) {
   const cookieStore = await cookies();
   const proof = chatSessionProof(user);
+  const maxAge = options.rememberMe ? 60 * 60 * 24 * 30 : 60 * 60 * 12;
 
   cookieStore.set("role", user.role, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: 60 * 60 * 12,
+    maxAge,
   });
 
   cookieStore.set("user-id", user.userId, {
@@ -38,7 +39,7 @@ export async function setSessionCookies(user: AppUserSession) {
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: 60 * 60 * 12,
+    maxAge,
   });
 
   cookieStore.set("hotel-id", user.hotelId ?? "", {
@@ -46,7 +47,7 @@ export async function setSessionCookies(user: AppUserSession) {
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: 60 * 60 * 12,
+    maxAge,
   });
 
   cookieStore.set("user-email", user.email, {
@@ -54,7 +55,7 @@ export async function setSessionCookies(user: AppUserSession) {
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: 60 * 60 * 12,
+    maxAge,
   });
   if (proof) {
     cookieStore.set("chat-session-proof", proof, {
@@ -62,7 +63,7 @@ export async function setSessionCookies(user: AppUserSession) {
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
-      maxAge: 60 * 60 * 12,
+      maxAge,
     });
   } else {
     cookieStore.delete("chat-session-proof");

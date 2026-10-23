@@ -3,6 +3,7 @@ import { getSessionUser } from "@/lib/auth";
 import { getManagementOverview } from "../../(admin)/admin/actions";
 import ManagementDashboardClient from "../../(admin)/admin/ManagementDashboardClient";
 import { getTaskDispatchData } from "@/app/settings/taskActions";
+import { RoleIntelligenceSection } from "@/components/dashboard/RoleIntelligenceSection";
 
 function getPeriod(searchParams: Record<string, string | string[] | undefined>) {
   const from = typeof searchParams.from === "string" && /^\d{4}-\d{2}-\d{2}$/.test(searchParams.from) ? searchParams.from : undefined;
@@ -22,5 +23,5 @@ export default async function OwnerDashboardPage({ searchParams }: { searchParam
   const user = await getSessionUser();
   if (!user || user.role !== "owner") redirect("/login");
   const [data, dispatchData] = await Promise.all([getManagementOverview(getPeriod(await searchParams)), getTaskDispatchData()]);
-  return <ManagementDashboardClient data={data} dispatchData={dispatchData} />;
+  return <ManagementDashboardClient data={data} dispatchData={dispatchData} tenantIntelligence={<RoleIntelligenceSection />} />;
 }

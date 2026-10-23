@@ -69,8 +69,71 @@ export async function GET() {
       assignee_role: task.assigned_to ? usersById.get(task.assigned_to)?.role ?? null : null,
     };
   };
+  const { data: alertRecords, error: alertsError } = await supabase
+    .from("task_overdue_alerts")
+    .select("id, task_id, incident_started_at, created_at")
+    .eq("recipient_id", actor.id)
+    .order("created_at", { ascending: false })
+    .limit(30);
+  if (alertsError) {
+    console.error("Overdue task notification query failed:", alertsError.message);
+    return NextResponse.json({ error: "Could not load task notifications." }, { status: 500 });
+  }
+
+  const alertTaskIds = [...new Set((alertRecords ?? []).map((alert) => alert.task_id))];
+  const { data: alertTasks, error: alertTasksError } = alertTaskIds.length
+    ? await supabase
+        .from("work_logs")
+        .select("id, hotel_id, user_id, assigned_to, start_time, status, end_time, deleted_at, cancelled_at, service_name_snapshot")
+        .in("id", alertTaskIds)
+        .eq("status", "active")
+        .is("end_time", null)
+        .is("deleted_at", null)
+        .is("cancelled_at", null)
+    : { data: [], error: null };
+  if (alertTasksError) {
+    console.error("Overdue task details query failed:", alertTasksError.message);
+    return NextResponse.json({ error: "Could not load task notifications." }, { status: 500 });
+  }
+
+  const activeAlertRecords = (alertRecords ?? []).filter((alert) =>
+    (alertTasks ?? []).some((task) => task.id === alert.task_id && task.start_time === alert.incident_started_at)
+  );
+  const alertAssigneeIds = [...new Set((alertTasks ?? []).map((task) => task.assigned_to ?? task.user_id))];
+  const alertHotelIds = [...new Set((alertTasks ?? []).map((task) => task.hotel_id))];
+  const [{ data: alertUsers, error: alertUsersError }, { data: alertHotels, error: alertHotelsError }] = await Promise.all([
+    alertAssigneeIds.length ? supabase.from("users").select("id, full_name").in("id", alertAssigneeIds) : Promise.resolve({ data: [], error: null }),
+    alertHotelIds.length ? supabase.from("hotels").select("id, name").in("id", alertHotelIds) : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (alertUsersError || alertHotelsError) {
+    console.error("Overdue task notification detail lookup failed:", alertUsersError?.message ?? alertHotelsError?.message);
+    return NextResponse.json({ error: "Could not load task notifications." }, { status: 500 });
+  }
+  const alertTaskById = new Map((alertTasks ?? []).map((task) => [task.id, task]));
+  const alertUserById = new Map((alertUsers ?? []).map((user) => [user.id, user.full_name]));
+  const alertHotelById = new Map((alertHotels ?? []).map((hotel) => [hotel.id, hotel.name]));
+  const overdue = activeAlertRecords.flatMap((alert) => {
+    const task = alertTaskById.get(alert.task_id);
+    if (!task) return [];
+    const elapsedMinutes = Math.max(0, Math.floor((Date.now() - Date.parse(task.start_time)) / 60_000));
+    const duration = `${Math.floor(elapsedMinutes / 60)}h ${String(elapsedMinutes % 60).padStart(2, "0")}m`;
+    const dashboardPath = session.role === "hk_admin" ? "/hk-admin" : session.role === "owner" ? "/owner" : "/manager";
+    return [{
+      id: alert.id,
+      task_id: task.id,
+      title: "Stale Task Alert (Overdue)",
+      task_title: task.service_name_snapshot || "Active task",
+      hotel_name: alertHotelById.get(task.hotel_id) ?? "Property",
+      assignee_name: alertUserById.get(task.assigned_to ?? task.user_id) ?? "Team member",
+      open_duration: duration,
+      created_at: alert.created_at,
+      href: `${dashboardPath}?tab=${session.role === "hk_admin" ? "operations" : "operations"}&taskId=${encodeURIComponent(task.id)}`,
+    }];
+  });
+
   return NextResponse.json({
     incoming: (incoming ?? []).map(enrichTask),
     outgoing: (outgoing ?? []).map(enrichTask),
+    overdue,
   });
 }

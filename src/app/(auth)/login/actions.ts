@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { createPrivilegedServerSupabaseClient, createServerSupabaseClient } from "@/lib/supabase/server";
 import { setSessionCookies } from "@/lib/auth";
-import type { UserRole } from "@/lib/roles";
+import { isUserRole, type UserRole } from "@/lib/roles";
 
 export type LoginMethod = "email" | "pin";
 
@@ -20,41 +20,55 @@ function dashboardForRole(role: string) {
   return "/admin";
 }
 
-async function establishUserSession(user: { id: string; email: string; role: UserRole; primary_hotel_id: string | null }): Promise<never> {
+async function establishUserSession(
+  user: { id: string; email: string; role: UserRole; primary_hotel_id: string | null },
+  rememberMe = false
+): Promise<never> {
   await setSessionCookies({
     userId: user.id,
     email: user.email,
     role: user.role,
     hotelId: user.primary_hotel_id,
-  });
+  }, { rememberMe });
 
   redirect(dashboardForRole(user.role));
 }
 
-async function loginWithEmailPassword(email: string, password: string): Promise<LoginState> {
-  const supabase = await createServerSupabaseClient();
+async function loginWithEmailPassword(email: string, password: string, rememberMe: boolean): Promise<LoginState> {
+  let supabase;
+  let data;
+  let authError;
+  try {
+    supabase = await createServerSupabaseClient();
+    ({ data, error: authError } = await supabase.auth.signInWithPassword({ email, password }));
+  } catch (error) {
+    console.error("[Auth Exception]:", error);
+    return { error: "Unable to sign in. Please check your connection and try again." };
+  }
 
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
-
-  if (error || !data.user) {
+  if (authError || !data.user) {
     return { error: INVALID_CREDENTIALS };
   }
 
-  const { data: profile, error: profileError } = await supabase
-    .from("users")
-    .select("id, email, role, primary_hotel_id")
-    .eq("id", data.user.id)
-    .maybeSingle();
-
-  if (profileError || !profile) {
-    if (profileError) console.error("Unable to load the authenticated user's profile.", profileError);
+  let profile;
+  try {
+    const result = await supabase
+      .from("users")
+      .select("id, email, role, primary_hotel_id")
+      .eq("id", data.user.id)
+      .maybeSingle();
+    profile = result.data;
+    if (result.error) console.error("[Auth Exception]:", result.error);
+  } catch (error) {
+    console.error("[Auth Exception]:", error);
     return { error: PROFILE_UNAVAILABLE };
   }
 
-  return establishUserSession(profile);
+  if (!profile || !isUserRole(profile.role)) {
+    return { error: PROFILE_UNAVAILABLE };
+  }
+
+  return establishUserSession(profile, rememberMe);
 }
 
 async function loginWithPin(email: string, pinCode: string): Promise<LoginState> {
@@ -80,7 +94,7 @@ async function loginWithPin(email: string, pinCode: string): Promise<LoginState>
     .maybeSingle();
 
   if (error) {
-    console.error("PIN authentication lookup failed.", error);
+    console.error("[Auth Exception]:", error);
     return { error: "Unable to sign in right now. Please try again." };
   }
   if (!data) return { error: "Invalid email or PIN code." };
@@ -94,12 +108,13 @@ export async function login(formData: FormData): Promise<LoginState> {
   if (method === "email") {
     const email = String(formData.get("email") ?? "").trim();
     const password = String(formData.get("password") ?? "");
+    const rememberMe = formData.get("rememberMe") === "on";
 
     if (!email || !password) {
       return { error: "Email and password are required." };
     }
 
-    return loginWithEmailPassword(email, password);
+    return loginWithEmailPassword(email, password, rememberMe);
   }
 
   if (method !== "pin") return { error: "Choose a valid sign-in method." };

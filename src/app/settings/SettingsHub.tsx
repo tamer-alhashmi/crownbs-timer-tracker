@@ -10,6 +10,7 @@ type Props = {
   role: UserRole;
   utility: ReactNode;
   profile: ReactNode;
+  billing?: ReactNode;
   payroll?: ReactNode;
   users: ReactNode;
   properties: ReactNode;
@@ -29,7 +30,7 @@ function isTabVisible(id: Tab, role: UserRole) {
     (id === "properties" && ["admin", "owner"].includes(role));
 }
 
-export default function SettingsHub({ role, utility, profile, payroll, users, properties }: Props) {
+export default function SettingsHub({ role, utility, profile, billing, payroll, users, properties }: Props) {
   const visibleTabs = tabs.filter(({ id }) => isTabVisible(id, role));
   const [activeTab, setActiveTab] = useState<Tab>("profile");
   useEffect(() => {
@@ -57,6 +58,7 @@ export default function SettingsHub({ role, utility, profile, payroll, users, pr
             </div>
             <div className="flex shrink-0 items-center gap-2">{utility}</div>
           </div>
+          {billing}
           <nav aria-label="Settings sections" role="tablist" className="flex gap-2 overflow-x-auto">
             {visibleTabs.map(({ id, label, icon: Icon }) => (
               <button
