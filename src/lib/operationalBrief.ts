@@ -1,4 +1,5 @@
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
+import { isPlatformAdmin } from "@/lib/roles";
 import type { AppUserSession } from "@/lib/auth";
 import { calculateTaskCost, resolveBillingUnit, resolveServiceRate } from "@/lib/servicePricing";
 
@@ -137,7 +138,7 @@ export async function getManagementOperationalBrief(user: AppUserSession, period
   if (hotelError) throw new Error(hotelError.message);
   if (logError) throw new Error(logError.message);
 
-  const visibleHotels = (hotels ?? []).filter((hotel) => user.role === "admin" || identityIds.has(hotel[`${user.role}_id` as "owner_id" | "manager_id"] ?? "") || hotel.id === (user.hotelId ?? null));
+  const visibleHotels = (hotels ?? []).filter((hotel) => isPlatformAdmin(user.role) || identityIds.has(hotel[`${user.role}_id` as "owner_id" | "manager_id"] ?? "") || hotel.id === (user.hotelId ?? null));
   const visibleIds = new Set(visibleHotels.map((hotel) => hotel.id));
   const grouped = new Map<string, ManagementBriefHotel>();
   for (const hotel of visibleHotels) {

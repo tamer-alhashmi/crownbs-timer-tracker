@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { setSessionCookies } from "@/lib/auth";
-import { isUserRole } from "@/lib/roles";
+import { isUserRole, normalizeUserRole } from "@/lib/roles";
 import { createPrivilegedServerSupabaseClient, createServerSupabaseClient } from "@/lib/supabase/server";
 
 function loginRedirect(requestUrl: URL, reason: "callback" | "profile") {
@@ -13,7 +13,7 @@ function dashboardForRole(role: string) {
   if (role === "cleaner") return "/dashboard";
   if (role === "manager") return "/manager";
   if (role === "owner") return "/owner";
-  if (role === "hk_admin") return "/hk-admin";
+  if (role === "housekeeping_admin" || role === "hk_admin") return "/hk-admin";
   return "/admin";
 }
 
@@ -95,14 +95,14 @@ export async function GET(request: Request) {
     await setSessionCookies({
       userId: profile.id,
       email: profile.email,
-      role: profile.role,
+      role: normalizeUserRole(profile.role),
       hotelId: profile.primary_hotel_id,
     });
 
     const requestedNext = requestUrl.searchParams.get("next");
     const safeNext = requestedNext?.startsWith("/") && !requestedNext.startsWith("//") && !requestedNext.includes("\\")
       ? requestedNext
-      : dashboardForRole(profile.role);
+      : dashboardForRole(normalizeUserRole(profile.role));
     return NextResponse.redirect(new URL(safeNext, requestUrl.origin));
   } catch (error) {
     console.error("[Auth Callback Exception]:", error);

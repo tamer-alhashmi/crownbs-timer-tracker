@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireFeatureAccess } from "@/lib/featureAccess";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
+import { isPlatformAdmin } from "@/lib/roles";
 
 export type PropertyRecord = {
   id: string;
@@ -48,7 +49,7 @@ const PROPERTY_COLUMNS = "id, name, location, owner_id, manager_id, created_at, 
 
 async function requireAdmin(action: "create" | "edit") {
   const user = await requireFeatureAccess("settings", action);
-  if (user.role !== "admin") throw new Error("Only administrators can manage properties.");
+  if (!isPlatformAdmin(user.role)) throw new Error("Only administrators can manage properties.");
   return createPrivilegedServerSupabaseClient();
 }
 

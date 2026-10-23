@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getVerifiedChatSessionUser } from "@/lib/auth";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
+import { isPlatformAdmin } from "@/lib/roles";
 import type { ChatContact, ChatRole } from "./types";
 import { USER_ROLES, isUserRole } from "@/lib/roles";
 
@@ -82,11 +83,11 @@ export async function getChatActor() {
   }
 
   const visibleIds = new Set<string>();
-  if (profile.role === "admin") {
+  if (isPlatformAdmin(profile.role)) {
     (users ?? []).forEach((candidate) => visibleIds.add(candidate.id));
   } else {
     const hotelIds = actorHotelIds;
-    (users ?? []).filter((candidate) => candidate.role === "admin").forEach((candidate) => visibleIds.add(candidate.id));
+    (users ?? []).filter((candidate) => isPlatformAdmin(candidate.role)).forEach((candidate) => visibleIds.add(candidate.id));
     (hotels ?? []).filter((hotel) => hotel.is_active && hotelIds.has(hotel.id)).forEach((hotel) => {
       if (hotel.owner_id) visibleIds.add(hotel.owner_id);
       if (hotel.manager_id) visibleIds.add(hotel.manager_id);
@@ -134,7 +135,7 @@ export function canSeeChatContact(
   actor: { id: string; role: ChatRole; visibleContactIds: Set<string> },
   contactId: string
 ): boolean {
-  return actor.id !== contactId && (actor.role === "admin" || actor.visibleContactIds.has(contactId));
+  return actor.id !== contactId && (isPlatformAdmin(actor.role) || actor.visibleContactIds.has(contactId));
 }
 
 export async function getChatContact(

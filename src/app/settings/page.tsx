@@ -15,6 +15,7 @@ import PersonalProfileSettings from "./PersonalProfileSettings";
 import SettingsHub from "./SettingsHub";
 import { PropertySettings } from "./AssetSettings";
 import { OwnerBillingSkeleton, OwnerBillingWidget } from "@/components/dashboard/OwnerBillingWidget";
+import { isHousekeepingAdmin, isPlatformAdmin } from "@/lib/roles";
 
 export default async function SettingsPage() {
   const user = await getSessionUser();
@@ -27,7 +28,7 @@ export default async function SettingsPage() {
     .maybeSingle();
   if (profileError) throw new Error(`Unable to load profile settings: ${profileError.message}`);
   const name = profile?.full_name ?? user.email;
-  const backHref = user.role === "cleaner" ? "/dashboard" : user.role === "owner" ? "/owner" : user.role === "manager" ? "/manager" : user.role === "hk_admin" ? "/hk-admin" : "/admin";
+  const backHref = user.role === "cleaner" ? "/dashboard" : user.role === "owner" ? "/owner" : user.role === "manager" ? "/manager" : isHousekeepingAdmin(user.role) ? "/hk-admin" : "/admin";
   const utility = (
     <>
       <Link href={backHref} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"><ArrowLeft className="h-4 w-4" /><span className="hidden sm:inline">Dashboard</span></Link>
@@ -62,7 +63,7 @@ export default async function SettingsPage() {
     );
   }
 
-  if (user.role === "hk_admin") {
+  if (isHousekeepingAdmin(user.role)) {
     return (
       <SettingsHub
         role={user.role}
@@ -81,7 +82,7 @@ export default async function SettingsPage() {
       utility={utility}
       billing={user.role === "owner" ? <Suspense fallback={<OwnerBillingSkeleton />}><OwnerBillingWidget ownerId={user.userId} /></Suspense> : null}
       profile={<PersonalProfileSettings fullName={profile?.full_name ?? user.email} email={profile?.email ?? user.email} phoneNumber={profile?.phone_number ?? null} avatarUrl={profile?.avatar_url ?? null} languagePreference={profile?.language_preference ?? "en"} role={user.role} />}
-      users={<><UserSettingsClient actorRole={data.actorRole} hotels={data.hotels} users={data.users} />{data.actorRole === "admin" && <SystemAccessPanel users={data.users} permissions={data.permissions} />}</>}
+      users={<><UserSettingsClient actorRole={data.actorRole} hotels={data.hotels} users={data.users} />{isPlatformAdmin(data.actorRole) && <SystemAccessPanel users={data.users} permissions={data.permissions} />}</>}
       properties={<PropertySettings properties={data.properties} managers={data.managers} />}
     />
   );

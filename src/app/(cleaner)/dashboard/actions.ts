@@ -57,6 +57,15 @@ export async function clockIn() {
   const user = await requireCleaner();
   const { supabase, shift } = await activeShiftFor(user.userId);
   if (shift) throw new Error("A master shift is already active.");
+  if (!user.hotelIds.length) throw new Error("Clock-in is unavailable because you have no assigned properties.");
+  const { data: activeHotels, error: activeHotelsError } = await supabase
+    .from("hotels")
+    .select("id")
+    .in("id", user.hotelIds)
+    .eq("is_active", true)
+    .limit(1);
+  if (activeHotelsError) throw new Error(`Unable to verify your property status: ${activeHotelsError.message}`);
+  if (!activeHotels?.length) throw new Error("Clock-in is unavailable because all assigned properties are suspended.");
   const { data, error } = await supabase.from("master_shifts").insert({ user_id: user.userId, start_time: new Date().toISOString(), status: "active" }).select("id").single();
   if (error || !data) throw new Error(error?.message ?? "Unable to start master shift.");
   revalidatePath("/dashboard");

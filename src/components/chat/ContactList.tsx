@@ -75,7 +75,7 @@ export function ContactList({ userRole }: { userRole: UserRole }) {
         </label>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-5 sm:px-4">
-        {["owner", "manager", "hk_admin"].includes(userRole) && <GroupChannelComposer userRole={userRole} />}
+        {["owner", "manager", "housekeeping_admin", "hk_admin"].includes(userRole) && <GroupChannelComposer userRole={userRole} />}
         {pinError && <p role="alert" className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{pinError}</p>}
         {isPending ? (
           <p className="px-3 py-8 text-center text-sm text-slate-600 dark:text-slate-300">Loading teammates…</p>

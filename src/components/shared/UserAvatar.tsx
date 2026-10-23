@@ -11,9 +11,11 @@ type Props = {
 };
 
 const roleColors: Record<UserRole, string> = {
+  super_admin: "bg-rose-100 text-rose-800",
   admin: "bg-violet-100 text-violet-800",
   owner: "bg-amber-100 text-amber-900",
   manager: "bg-blue-100 text-blue-800",
+  housekeeping_admin: "bg-indigo-100 text-indigo-800",
   hk_admin: "bg-indigo-100 text-indigo-800",
   cleaner: "bg-emerald-100 text-emerald-800",
 };

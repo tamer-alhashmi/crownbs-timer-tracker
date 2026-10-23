@@ -117,7 +117,7 @@ export async function GET() {
     if (!task) return [];
     const elapsedMinutes = Math.max(0, Math.floor((Date.now() - Date.parse(task.start_time)) / 60_000));
     const duration = `${Math.floor(elapsedMinutes / 60)}h ${String(elapsedMinutes % 60).padStart(2, "0")}m`;
-    const dashboardPath = session.role === "hk_admin" ? "/hk-admin" : session.role === "owner" ? "/owner" : "/manager";
+    const dashboardPath = session.role === "housekeeping_admin" || session.role === "hk_admin" ? "/hk-admin" : session.role === "owner" ? "/owner" : "/manager";
     return [{
       id: alert.id,
       task_id: task.id,
@@ -127,7 +127,7 @@ export async function GET() {
       assignee_name: alertUserById.get(task.assigned_to ?? task.user_id) ?? "Team member",
       open_duration: duration,
       created_at: alert.created_at,
-      href: `${dashboardPath}?tab=${session.role === "hk_admin" ? "operations" : "operations"}&taskId=${encodeURIComponent(task.id)}`,
+      href: `${dashboardPath}?tab=operations&taskId=${encodeURIComponent(task.id)}`,
     }];
   });
 

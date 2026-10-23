@@ -1,5 +1,6 @@
 import { getSessionUser, type AppUserSession } from "@/lib/auth";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
+import { isPlatformAdmin } from "@/lib/roles";
 import type { FeatureKey } from "@/app/settings/permissionConfig";
 
 export type FeatureAction = "view" | "create" | "edit" | "delete";
@@ -7,7 +8,7 @@ export type FeatureAction = "view" | "create" | "edit" | "delete";
 export async function requireFeatureAccess(feature: FeatureKey, action: FeatureAction = "view"): Promise<AppUserSession> {
   const user = await getSessionUser();
   if (!user) throw new Error("Authentication required.");
-  if (user.role === "admin") return user;
+  if (isPlatformAdmin(user.role)) return user;
 
   const supabase = createPrivilegedServerSupabaseClient();
   const { data: permission, error } = await supabase

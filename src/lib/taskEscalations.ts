@@ -1,6 +1,6 @@
 import "server-only";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
-import type { UserRole } from "@/lib/roles";
+import { isHousekeepingAdmin, normalizeUserRole, type UserRole } from "@/lib/roles";
 
 const STALE_AFTER_HOURS = 12;
 const PAGE_SIZE = 500;
@@ -38,7 +38,7 @@ async function readAllRows<T>(
 }
 
 export async function createOverdueTaskAlerts(actorId: string, actorRole: UserRole) {
-  if (!["owner", "manager", "hk_admin", "cleaner"].includes(actorRole)) return;
+  if (!["owner", "manager", "housekeeping_admin", "hk_admin", "cleaner"].includes(actorRole)) return;
   const supabase = createPrivilegedServerSupabaseClient();
   const cutoff = new Date(Date.now() - STALE_AFTER_HOURS * 60 * 60 * 1000).toISOString();
 
@@ -47,7 +47,7 @@ export async function createOverdueTaskAlerts(actorId: string, actorRole: UserRo
     .select("id, role")
     .eq("id", actorId)
     .maybeSingle();
-  if (actorError || !actor || actor.role !== actorRole) {
+  if (actorError || !actor || normalizeUserRole(actor.role as UserRole) !== actorRole) {
     if (actorError) console.error("[Task Escalation]: Failed to verify actor.", actorError);
     throw new Error("Unable to verify account for overdue task alerts.");
   }
@@ -142,7 +142,7 @@ export async function createOverdueTaskAlerts(actorId: string, actorRole: UserRo
   const hkAdminsByHotel = new Map<string, string[]>();
   const hkAdminIds = new Set((hkAssignments ?? []).map((assignment) => assignment.user_id));
   if (hkAdminIds.size) {
-    const { data: hkAdmins, error } = await supabase.from("users").select("id, role").in("id", [...hkAdminIds]).eq("role", "hk_admin");
+    const { data: hkAdmins, error } = await supabase.from("users").select("id, role").in("id", [...hkAdminIds]).in("role", ["housekeeping_admin", "hk_admin"]);
     if (error) {
       console.error("[Task Escalation]: Failed to resolve housekeeping administrators.", error);
       throw new Error("Unable to resolve recipients for overdue task alerts.");
@@ -167,7 +167,7 @@ export async function createOverdueTaskAlerts(actorId: string, actorRole: UserRo
       (hkAdminsByHotel.get(hotel.id) ?? []).forEach((id) => recipientIds.add(id));
       if (hotel.manager_id) recipientIds.add(hotel.manager_id);
       if (hotel.owner_id) recipientIds.add(hotel.owner_id);
-    } else if (assignee.role === "hk_admin") {
+    } else if (isHousekeepingAdmin(assignee.role)) {
       if (hotel.manager_id) recipientIds.add(hotel.manager_id);
       if (hotel.owner_id) recipientIds.add(hotel.owner_id);
     } else if (assignee.role === "manager" && hotel.owner_id) {

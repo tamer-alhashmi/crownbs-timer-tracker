@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { createPrivilegedServerSupabaseClient, createServerSupabaseClient } from "@/lib/supabase/server";
 import { setSessionCookies } from "@/lib/auth";
-import { isUserRole, type UserRole } from "@/lib/roles";
+import { isUserRole, normalizeUserRole, type UserRole } from "@/lib/roles";
 
 export type LoginMethod = "email" | "pin";
 
@@ -16,7 +16,7 @@ function dashboardForRole(role: string) {
   if (role === "cleaner") return "/dashboard";
   if (role === "manager") return "/manager";
   if (role === "owner") return "/owner";
-  if (role === "hk_admin") return "/hk-admin";
+  if (role === "housekeeping_admin" || role === "hk_admin") return "/hk-admin";
   return "/admin";
 }
 
@@ -27,11 +27,11 @@ async function establishUserSession(
   await setSessionCookies({
     userId: user.id,
     email: user.email,
-    role: user.role,
+    role: normalizeUserRole(user.role),
     hotelId: user.primary_hotel_id,
   }, { rememberMe });
 
-  redirect(dashboardForRole(user.role));
+  redirect(dashboardForRole(normalizeUserRole(user.role)));
 }
 
 async function loginWithEmailPassword(email: string, password: string, rememberMe: boolean): Promise<LoginState> {

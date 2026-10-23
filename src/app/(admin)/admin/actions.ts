@@ -6,6 +6,7 @@ import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { getManagementOperationalBrief } from "@/lib/operationalBrief";
 import type { ServicePricing } from "@/lib/servicePricing";
 import { requireFeatureAccess } from "@/lib/featureAccess";
+import { isPlatformAdmin } from "@/lib/roles";
 
 type ApprovalRole = "manager" | "owner";
 type WorkLogUpdate = {
@@ -40,7 +41,7 @@ async function fetchAllRows<T>(label: string, fetchPage: (from: number, to: numb
 
 async function requireManagement() {
   const user = await getSessionUser();
-  if (!user || !["admin", "owner", "manager"].includes(user.role)) throw new Error("Unauthorized");
+  if (!user || (!isPlatformAdmin(user.role) && !["owner", "manager"].includes(user.role))) throw new Error("Unauthorized");
   return user;
 }
 
@@ -56,13 +57,13 @@ async function assertRoleControlsLog(role: ApprovalRole, log: { user_id: string;
   if (user.userId === log.user_id) {
     throw new Error("You cannot approve or reject your own work log.");
   }
-  if (user.role === "admin") return user;
+  if (isPlatformAdmin(user.role)) return user;
   if (user.role !== role) throw new Error(`Only the ${role} can perform this approval.`);
   if (role === "manager") {
     const supabase = createPrivilegedServerSupabaseClient();
     const { data: assignee, error } = await supabase.from("users").select("role").eq("id", log.user_id).maybeSingle();
     if (error) throw new Error(`Unable to verify the assigned user's role: ${error.message}`);
-    if (!assignee || !["hk_admin", "cleaner"].includes(assignee.role)) {
+    if (!assignee || !["housekeeping_admin", "hk_admin", "cleaner"].includes(assignee.role)) {
       throw new Error("Managers can approve only work logs completed by HK Admins or Cleaners.");
     }
   }
@@ -82,20 +83,20 @@ function getFinalizationTime(startTime: string) {
 
 async function loadManagementOverview(period?: { from: string; to: string }) {
   const user = await requireFeatureAccess("dashboard");
-  if (!["admin", "owner", "manager"].includes(user.role)) throw new Error("Management access required.");
+  if (!isPlatformAdmin(user.role) && !["owner", "manager"].includes(user.role)) throw new Error("Management access required.");
   const supabase = createPrivilegedServerSupabaseClient();
   const briefPromise = getManagementOperationalBrief(user, period);
   const hotelsQuery = supabase.from("hotels").select("id, name, location, owner_id, manager_id, created_at, is_active, latitude, longitude, floors_sections, total_rooms").order("name").order("id");
   const hotels = await fetchAllRows("properties", (from, to) => hotelsQuery.range(from, to));
   const assignedHotelId = user.hotelId ?? null;
-  const visibleHotels = user.role === "admin"
+  const visibleHotels = isPlatformAdmin(user.role)
     ? hotels ?? []
     : (hotels ?? []).filter((hotel) => {
       const assignedUserId = user.role === "owner" ? hotel.owner_id : hotel.manager_id;
       return assignedUserId === user.userId || hotel.id === assignedHotelId;
     });
   const hotelIds = visibleHotels.map((hotel) => hotel.id);
-  const hotelFilter = user.role === "admin" ? null : hotelIds;
+  const hotelFilter = isPlatformAdmin(user.role) ? null : hotelIds;
   const cleanersQuery = supabase.from("users").select("id, full_name, email, role, primary_hotel_id").eq("role", "cleaner").order("full_name").order("id");
   const assigneesQuery = supabase.from("users").select("id, full_name, email, role").in("role", ["owner", "manager"]).order("full_name").order("id");
   const logsQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, shift_id, start_time, end_time, task_date, status, rooms_completed, room_ids, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, cost_override, deleted_at, cancelled_at, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, hotels(name), users!work_logs_user_id_fkey(full_name, email, role), services_config(name, description, default_rate, unit)").is("deleted_at", null).order("start_time", { ascending: false }).order("id");
@@ -126,11 +127,11 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
     fetchAllRows("audit task scope", (from, to) => taskScopeQuery.range(from, to)),
   ]);
   const tenantOwnerIds = new Set(visibleHotels.map((hotel) => hotel.owner_id).filter((id): id is string => Boolean(id)));
-  const visibleServices = user.role === "admin"
+  const visibleServices = isPlatformAdmin(user.role)
     ? services
     : services.filter((service) => service.owner_id === null || tenantOwnerIds.has(service.owner_id));
   const { data: currentUser } = await supabase.from("users").select("full_name, email, avatar_url").eq("id", user.userId).maybeSingle();
-  const [servicePermissionResult, payrollPermissionResult] = user.role === "admin"
+  const [servicePermissionResult, payrollPermissionResult] = isPlatformAdmin(user.role)
     ? [null, null]
     : await Promise.all([
       supabase.from("user_feature_permissions").select("can_view, can_create, can_edit, can_delete").eq("user_id", user.userId).eq("feature_key", "settings").maybeSingle(),
@@ -142,7 +143,7 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
   const payrollPermission = payrollPermissionResult?.data ?? null;
   const hotelsById = new Map(visibleHotels.map((hotel) => [hotel.id, hotel.name]));
   const cleanerIdsInScope = new Set(workLogs.map((log) => log.user_id));
-  const cleanersInScope = user.role === "admin"
+  const cleanersInScope = isPlatformAdmin(user.role)
     ? cleaners
     : cleaners.filter((cleaner) => Boolean(cleaner.primary_hotel_id && hotelIds.includes(cleaner.primary_hotel_id)) || cleanerIdsInScope.has(cleaner.id));
   const taskIdsInScope = new Set(auditTaskScope.map((log) => log.id));
@@ -150,17 +151,17 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
     .filter((cleaner) => Boolean(cleaner.primary_hotel_id && hotelIds.includes(cleaner.primary_hotel_id)))
     .map((cleaner) => cleaner.id));
   const shiftScopeQuery = supabase.from("master_shifts").select("id, user_id");
-  if (user.role !== "admin") {
+  if (!isPlatformAdmin(user.role)) {
     const assignedCleanerIds = [...cleanerIdsInScopeForAudit];
     if (assignedCleanerIds.length) shiftScopeQuery.in("user_id", assignedCleanerIds);
     else shiftScopeQuery.eq("user_id", "00000000-0000-0000-0000-000000000000");
   }
   const auditShiftScope = await fetchAllRows("audit shift scope", (from, to) => shiftScopeQuery.range(from, to));
   const shiftIdsInScope = new Set([
-    ...auditShiftScope.filter((shift) => user.role === "admin" || cleanerIdsInScopeForAudit.has(shift.user_id)).map((shift) => shift.id),
+    ...auditShiftScope.filter((shift) => isPlatformAdmin(user.role) || cleanerIdsInScopeForAudit.has(shift.user_id)).map((shift) => shift.id),
     ...auditTaskScope.flatMap((log) => log.shift_id ? [log.shift_id] : []),
   ]);
-  const scopedOverrideAudit = overrideAudit.filter((entry) => user.role === "admin"
+  const scopedOverrideAudit = overrideAudit.filter((entry) => isPlatformAdmin(user.role)
     || (entry.entity_type === "task" ? taskIdsInScope.has(entry.entity_id) : shiftIdsInScope.has(entry.entity_id)));
   const auditActorIds = [...new Set(scopedOverrideAudit.map((entry) => entry.actor_id))];
   const auditActors = auditActorIds.length
@@ -262,7 +263,7 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
   const activeTasks = workLogsWithNames.filter((log) => !log.cancelled_at && log.status === "active" && !log.end_time);
   const cleanerRecordsById = new Map(cleaners.map((cleaner) => [cleaner.id, cleaner]));
   const visibleActiveShifts = activeShifts.filter((shift) => {
-    if (user.role === "admin") return true;
+    if (isPlatformAdmin(user.role)) return true;
     const cleaner = cleanerRecordsById.get(shift.user_id);
     return Boolean(
       (cleaner?.primary_hotel_id && hotelIds.includes(cleaner.primary_hotel_id))
@@ -291,7 +292,7 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
     cleaners: cleanersInScope.map((cleaner) => ({ id: cleaner.id, name: cleaner.full_name || cleaner.email, primary_hotel_id: cleaner.primary_hotel_id ?? null })),
     hotels: visibleHotels,
     propertyAssignees: propertyAssignees
-      .filter((assignee) => user.role === "admin" || visibleHotels.some((hotel) => hotel.owner_id === assignee.id || hotel.manager_id === assignee.id))
+      .filter((assignee) => isPlatformAdmin(user.role) || visibleHotels.some((hotel) => hotel.owner_id === assignee.id || hotel.manager_id === assignee.id))
       .map((assignee) => ({ id: assignee.id, name: assignee.full_name || assignee.email, role: assignee.role })),
     services: visibleServices,
     rooms,
@@ -303,10 +304,10 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
     currentUserId: user.userId,
     overrideAudit: overrideAuditWithActorNames,
     userRole: user.role,
-    canViewServices: user.role === "admin" || servicePermission === null || servicePermission.can_view === true,
-    canManageServices: user.role === "admin" || servicePermission === null || (servicePermission.can_create === true && servicePermission.can_edit === true && servicePermission.can_delete === true),
-    canManagePayrollTasks: user.role === "admin" || payrollPermission === null || (payrollPermission.can_edit === true && payrollPermission.can_delete === true),
-    canManageActiveOperations: user.role === "admin" || payrollPermission === null || payrollPermission.can_edit === true,
+    canViewServices: isPlatformAdmin(user.role) || servicePermission === null || servicePermission.can_view === true,
+    canManageServices: isPlatformAdmin(user.role) || servicePermission === null || (servicePermission.can_create === true && servicePermission.can_edit === true && servicePermission.can_delete === true),
+    canManagePayrollTasks: isPlatformAdmin(user.role) || payrollPermission === null || (payrollPermission.can_edit === true && payrollPermission.can_delete === true),
+    canManageActiveOperations: isPlatformAdmin(user.role) || payrollPermission === null || payrollPermission.can_edit === true,
     userName: currentUser?.full_name ?? user.email,
     userEmail: currentUser?.email ?? user.email,
     userAvatarUrl: currentUser?.avatar_url ?? null,
@@ -337,7 +338,7 @@ export type ManagementOverrideInput = {
 };
 
 async function assertManagementControlsHotel(user: Awaited<ReturnType<typeof requireManagement>>, hotelId: string) {
-  if (user.role === "admin") return;
+  if (isPlatformAdmin(user.role)) return;
   const supabase = createPrivilegedServerSupabaseClient();
   const { data: hotel, error } = await supabase.from("hotels").select("owner_id, manager_id").eq("id", hotelId).maybeSingle();
   if (error) throw new Error(error.message);
@@ -347,7 +348,7 @@ async function assertManagementControlsHotel(user: Awaited<ReturnType<typeof req
 
 export async function overrideActiveOperation(input: ManagementOverrideInput) {
   const user = await requireFeatureAccess("work_log_approvals", "edit");
-  if (!["admin", "owner", "manager"].includes(user.role)) throw new Error("Management access required.");
+  if (!isPlatformAdmin(user.role) && !["owner", "manager"].includes(user.role)) throw new Error("Management access required.");
   if (!input || typeof input.entityId !== "string" || !input.entityId || !["shift", "task"].includes(input.entityType)) {
     throw new Error("A valid active operation is required.");
   }
@@ -368,7 +369,7 @@ export async function overrideActiveOperation(input: ManagementOverrideInput) {
     const { data: shift, error } = await supabase.from("master_shifts").select("user_id").eq("id", input.entityId).maybeSingle();
     if (error) throw new Error(error.message);
     if (!shift) throw new Error("The active shift was not found.");
-    if (user.role !== "admin") {
+    if (!isPlatformAdmin(user.role)) {
       const [{ data: cleaner }, { data: task }] = await Promise.all([
         supabase.from("users").select("primary_hotel_id").eq("id", shift.user_id).maybeSingle(),
         supabase.from("work_logs").select("hotel_id").eq("shift_id", input.entityId).eq("status", "active").is("end_time", null).is("cancelled_at", null).limit(1).maybeSingle(),
@@ -401,7 +402,7 @@ export type PayrollTaskUpdate = {
 
 async function requirePayrollTaskAccess(action: "edit" | "delete") {
   const user = await requireFeatureAccess("work_log_approvals", action);
-  if (!["admin", "manager", "owner"].includes(user.role)) throw new Error("Management access required.");
+  if (!isPlatformAdmin(user.role) && !["manager", "owner"].includes(user.role)) throw new Error("Management access required.");
   return user;
 }
 
@@ -482,12 +483,12 @@ export async function deletePayrollTask(logId: string) {
 
 export async function updateWorkLog(logId: string, changes: WorkLogUpdate) {
   const user = await requireFeatureAccess("work_log_approvals", "edit");
-  if (!["admin", "owner", "manager"].includes(user.role)) throw new Error("Management access required.");
+  if (!isPlatformAdmin(user.role) && !["owner", "manager"].includes(user.role)) throw new Error("Management access required.");
   const { supabase, log } = await getLogForAction(logId);
-  if (changes.status !== undefined && user.role !== "admin") {
+  if (changes.status !== undefined && !isPlatformAdmin(user.role)) {
     throw new Error("Only an admin can change a work log status.");
   }
-  if (user.role !== "admin") {
+  if (!isPlatformAdmin(user.role)) {
     const snapshotId = user.role === "owner" ? log.owner_id : log.manager_id;
     if (snapshotId !== user.userId) throw new Error("This work log belongs to the previous management assignment and cannot be edited.");
   }
@@ -603,7 +604,7 @@ export async function approveWorkLog(logId: string, role: ApprovalRole) {
 
 export async function finalizeWorkLogWithoutClockOut(logId: string) {
   const user = await requireFeatureAccess("work_log_approvals", "edit");
-  if (!["admin", "owner", "manager"].includes(user.role)) throw new Error("Management access required.");
+  if (!isPlatformAdmin(user.role) && !["owner", "manager"].includes(user.role)) throw new Error("Management access required.");
   if (typeof logId !== "string" || !logId) throw new Error("A work log is required.");
   const supabase = createPrivilegedServerSupabaseClient();
   const { data: previous, error: readError } = await supabase.from("work_logs")
@@ -623,10 +624,10 @@ export async function finalizeWorkLogWithoutClockOut(logId: string) {
     .maybeSingle();
   if (assigneeError) throw new Error(`Unable to verify the assigned user's role: ${assigneeError.message}`);
   if (!assignee) throw new Error("The assigned user could not be found.");
-  if (user.role === "manager" && (previous.user_id === user.userId || assignee.role !== "hk_admin")) {
+  if (user.role === "manager" && (previous.user_id === user.userId || !["housekeeping_admin", "hk_admin"].includes(assignee.role))) {
     throw new Error("Managers can only finalize unfinished HK Admin tasks assigned to their team.");
   }
-  if (user.role !== "admin" && user.role !== "owner" && assignee.role === "cleaner") {
+  if (!isPlatformAdmin(user.role) && user.role !== "owner" && assignee.role === "cleaner") {
     throw new Error("Clock-out bypass is only available for administrative tasks.");
   }
   const now = getFinalizationTime(previous.start_time);
@@ -665,7 +666,7 @@ export async function finalizeWorkLogWithoutClockOut(logId: string) {
 
 export async function forceEndAndApproveManagerTask(taskId: string) {
   const user = await requireFeatureAccess("work_log_approvals", "edit");
-  if (!["admin", "owner"].includes(user.role)) throw new Error("Only a Platform Admin or Property Owner can force-end and approve a Manager task.");
+  if (!isPlatformAdmin(user.role) && user.role !== "owner") throw new Error("Only a Platform Admin or Property Owner can force-end and approve a Manager task.");
   if (typeof taskId !== "string" || !taskId) throw new Error("A work log is required.");
   const supabase = createPrivilegedServerSupabaseClient();
   const { data: task, error: taskError } = await supabase.from("work_logs")

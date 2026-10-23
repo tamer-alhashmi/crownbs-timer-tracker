@@ -8,10 +8,11 @@ import { z } from "zod";
 import { ChevronLeft, ChevronRight, Loader2, Pencil, Plus, Search, ShieldAlert, Trash2, UserRound, X } from "lucide-react";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 import { assignManagedUserToHotel, createManagedUser, deleteManagedUser, unassignManagedUserFromHotel, updateManagedUser, type ManagedUser } from "./actions";
-import { ROLE_LABELS, USER_ROLES } from "@/lib/roles";
+import { normalizeUserRole, ROLE_LABELS, USER_ROLES } from "@/lib/roles";
 import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
 import { useWorkLogRealtimeRefresh } from "@/lib/useWorkLogRealtimeRefresh";
 import { showActionToast } from "@/components/ui/ActionToast";
+import { isPlatformAdmin } from "@/lib/roles";
 
 type Props = {
   actorRole: string;
@@ -22,7 +23,7 @@ type FormState = {
   fullName: string;
   email: string;
   phoneNumber: string;
-  role: ManagedUser["role"];
+  role: (typeof USER_ROLES)[number];
   pinCode: string;
   hotelIds: string[];
   primaryHotelId: string;
@@ -58,11 +59,11 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
   const emailRegistration = form.register("email");
   const selectedHotelIds = useWatch({ control: form.control, name: "hotelIds" });
   const primaryHotelId = useWatch({ control: form.control, name: "primaryHotelId" });
-  const roles = USER_ROLES.filter((role) =>
-    actorRole === "admin" ||
-    (actorRole === "owner" && ["manager", "hk_admin", "cleaner"].includes(role)) ||
-    (actorRole === "manager" && ["hk_admin", "cleaner"].includes(role))
-  );
+  const roles = USER_ROLES.filter((role) => (
+    (isPlatformAdmin(actorRole) && (actorRole === "super_admin" || role !== "super_admin")) ||
+    (actorRole === "owner" && ["manager", "housekeeping_admin", "cleaner"].includes(role)) ||
+    (actorRole === "manager" && ["housekeeping_admin", "cleaner"].includes(role))
+  ));
   const filteredUsers = useMemo(() => {
     const query = search.trim().toLowerCase();
     return users.filter((user) => !query || `${user.full_name} ${user.email} ${user.phone_number ?? ""} ${user.role}`.toLowerCase().includes(query));
@@ -119,7 +120,7 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
       fullName: user.full_name,
       email: user.email,
       phoneNumber: user.phone_number ?? "",
-      role: user.role,
+      role: normalizeUserRole(user.role),
       pinCode: user.pin_code ?? "",
       hotelIds: user.assignedHotels.map((hotel) => hotel.id),
       primaryHotelId: user.primary_hotel_id ?? user.assignedHotels[0]?.id ?? "",
@@ -281,7 +282,7 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
                         <button type="button" onClick={() => { setAssigningId(assigningId === user.id ? null : user.id); setAssignmentHotelId(""); }} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-sky-200 bg-white px-2.5 py-2 text-xs font-semibold text-sky-800"><Plus className="h-3.5 w-3.5" /> Assign hotel</button>
                         {user.assignedHotels.length > 0 && <button type="button" onClick={() => { setUnlinkTarget({ userId: user.id, userName: user.full_name, hotels: user.assignedHotels }); setUnlinkHotelId(user.assignedHotels[0].id); }} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-amber-200 bg-white px-2.5 py-2 text-xs font-semibold text-amber-800"><ShieldAlert className="h-3.5 w-3.5" /> Unlink</button>}
                         <button type="button" onClick={() => edit(user)} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700"><Pencil className="h-3.5 w-3.5" /> Edit</button>
-                        {actorRole === "admin" && <button type="button" onClick={() => remove(user)} disabled={isPending} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-red-200 bg-white px-2.5 py-2 text-xs font-semibold text-red-700 disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" /> Delete</button>}
+                        {actorRole === "super_admin" && <button type="button" onClick={() => remove(user)} disabled={isPending} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-red-200 bg-white px-2.5 py-2 text-xs font-semibold text-red-700 disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" /> Delete</button>}
                       </div>
                       {assigningId === user.id && <div className="mt-2 flex min-w-64 flex-col gap-2 rounded-xl border border-sky-100 bg-sky-50 p-2 sm:flex-row">
                         <select value={assignmentHotelId} onChange={(event) => setAssignmentHotelId(event.target.value)} className="min-h-10 min-w-0 flex-1 rounded-lg border border-sky-200 bg-white px-2 text-xs text-slate-900"><option value="">Select hotel</option>{hotels.filter((hotel) => !user.assignedHotels.some((assigned) => assigned.id === hotel.id)).map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select>
