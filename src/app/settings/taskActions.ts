@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getSessionUser } from "@/lib/auth";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
-import type { UserRole } from "@/lib/roles";
+import { isHousekeepingAdmin, isPlatformAdmin, normalizeUserRole, type UserRole } from "@/lib/roles";
 
 type TaskResult = { success: true; taskId?: string } | { success: false; error: string };
 type DispatchInput = {
@@ -26,11 +26,11 @@ type DispatchInput = {
 
 export async function getTaskDispatchData() {
   const { actor, supabase } = await getVerifiedActor();
-  if (!["admin", "owner", "manager", "hk_admin"].includes(actor.role)) {
+  if (!isPlatformAdmin(actor.role) && !["owner", "manager"].includes(actor.role) && !isHousekeepingAdmin(actor.role)) {
     throw new Error("Task assignment is not available for this account.");
   }
   let assignedHotelIds: string[] = [];
-  if (actor.role === "manager" || actor.role === "hk_admin") {
+  if (actor.role === "manager" || isHousekeepingAdmin(actor.role)) {
     const { data: assignments, error: assignmentError } = await supabase
       .from("user_hotel_assignments")
       .select("hotel_id")
@@ -45,7 +45,7 @@ export async function getTaskDispatchData() {
   if (hotelError) throw new Error(hotelError.message);
   const activeHotels = (hotels ?? []).filter((hotel) =>
     hotel.is_active && (
-      actor.role === "admin" ? true : actor.role === "owner" ? hotel.owner_id === actor.id :
+      isPlatformAdmin(actor.role) ? true : actor.role === "owner" ? hotel.owner_id === actor.id :
         actor.role === "manager" ? hotel.manager_id === actor.id || hotel.id === actor.primary_hotel_id || assignedHotelIds.includes(hotel.id) :
           hotel.id === actor.primary_hotel_id || assignedHotelIds.includes(hotel.id)
     )
@@ -61,7 +61,7 @@ export async function getTaskDispatchData() {
     day: "2-digit",
   }).format(new Date());
   const [{ data: users, error: usersError }, { data: assignments, error: usersAssignmentsError }, { data: services, error: servicesError }, { data: rooms, error: roomsError }, { data: taskRows, error: taskRowsError }, stats] = await Promise.all([
-    supabase.from("users").select("id, full_name, email, avatar_url, role, primary_hotel_id").in("role", ["manager", "hk_admin", "cleaner"]).order("full_name"),
+    supabase.from("users").select("id, full_name, email, avatar_url, role, primary_hotel_id").in("role", ["manager", "housekeeping_admin", "hk_admin", "cleaner"]).order("full_name"),
     supabase.from("user_hotel_assignments").select("user_id, hotel_id"),
     supabase.from("services_config").select("id, hotel_id, name, description, unit, is_active, owner_id").eq("is_active", true),
     supabase.from("rooms").select("id, hotel_id, room_name, category, floor_section").in("hotel_id", activeHotelIds).eq("status", "active").order("floor_section").order("room_name"),
@@ -165,9 +165,11 @@ export async function getTaskDispatchData() {
 }
 
 const ROLE_LEVEL: Record<UserRole, number> = {
+  super_admin: 6,
   admin: 5,
   owner: 4,
   manager: 3,
+  housekeeping_admin: 2,
   hk_admin: 2,
   cleaner: 1,
 };
@@ -188,14 +190,14 @@ async function getVerifiedActor() {
     .eq("id", session.userId)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  if (!actor || actor.role !== session.role) throw new Error("Your role could not be verified. Sign in again.");
-  return { actor: { ...actor, role: actor.role as UserRole }, supabase };
+  if (!actor || normalizeUserRole(actor.role as UserRole) !== session.role) throw new Error("Your role could not be verified. Sign in again.");
+  return { actor: { ...actor, role: normalizeUserRole(actor.role as UserRole) }, supabase };
 }
 
 export async function dispatchTask(input: DispatchInput): Promise<TaskResult> {
   try {
     const { actor, supabase } = await getVerifiedActor();
-    if (!["admin", "owner", "manager", "hk_admin"].includes(actor.role)) {
+    if (!isPlatformAdmin(actor.role) && !["owner", "manager"].includes(actor.role) && !isHousekeepingAdmin(actor.role)) {
       throw new Error("Your role cannot assign tasks.");
     }
     const { data: hotel, error: hotelError } = await supabase
@@ -206,7 +208,7 @@ export async function dispatchTask(input: DispatchInput): Promise<TaskResult> {
     if (hotelError) throw new Error(hotelError.message);
     if (!hotel || !hotel.is_active) throw new Error("Select an active property.");
     if (actor.role === "owner" && hotel.owner_id !== actor.id) throw new Error("That property is outside your account.");
-    if (actor.role === "manager" || actor.role === "hk_admin") {
+    if (actor.role === "manager" || isHousekeepingAdmin(actor.role)) {
       const { data: assignment, error: assignmentError } = await supabase
         .from("user_hotel_assignments")
         .select("hotel_id")
@@ -218,7 +220,7 @@ export async function dispatchTask(input: DispatchInput): Promise<TaskResult> {
       if (!managerPropertyMatch && actor.primary_hotel_id !== hotel.id && !assignment) {
         throw new Error("That property is outside your management scope.");
       }
-      if (actor.role === "hk_admin" && actor.primary_hotel_id !== hotel.id && !assignment) {
+      if (isHousekeepingAdmin(actor.role) && actor.primary_hotel_id !== hotel.id && !assignment) {
         throw new Error("That property is outside your hotel assignment.");
       }
     }
@@ -256,10 +258,10 @@ export async function dispatchTask(input: DispatchInput): Promise<TaskResult> {
     if (assigneeError) throw new Error(assigneeError.message);
     if (!assignee) throw new Error("The selected assignee was not found.");
     const targetRole = assignee.role as UserRole;
-    const permitted = actor.role === "admin" || actor.role === "owner"
-      ? ["manager", "hk_admin", "cleaner"].includes(targetRole)
+    const permitted = isPlatformAdmin(actor.role) || actor.role === "owner"
+      ? ["manager", "housekeeping_admin", "hk_admin", "cleaner"].includes(targetRole)
       : actor.role === "manager"
-        ? ["hk_admin", "cleaner"].includes(targetRole)
+        ? ["housekeeping_admin", "hk_admin", "cleaner"].includes(targetRole)
         : targetRole === "cleaner";
     const { data: assignment, error: assignmentError } = await supabase.from("user_hotel_assignments")
       .select("hotel_id")
@@ -344,7 +346,7 @@ export async function dispatchTask(input: DispatchInput): Promise<TaskResult> {
 
 export async function endOwnManagementTask(taskId: string) {
   const { actor, supabase } = await getVerifiedActor();
-  if (!["manager", "hk_admin"].includes(actor.role)) throw new Error("Only managers and housekeeping administrators can end their own assigned tasks here.");
+  if (actor.role !== "manager" && !isHousekeepingAdmin(actor.role)) throw new Error("Only managers and housekeeping administrators can end their own assigned tasks here.");
   if (typeof taskId !== "string" || !taskId) throw new Error("An active task is required.");
 
   const { data: task, error: taskError } = await supabase.from("work_logs")
@@ -366,7 +368,7 @@ export async function endOwnManagementTask(taskId: string) {
     .maybeSingle();
   if (hotelError) throw new Error(`Unable to verify task property: ${hotelError.message}`);
   if (!hotel) throw new Error("The task property could not be found.");
-  if (actor.role === "manager" || actor.role === "hk_admin") {
+  if (actor.role === "manager" || isHousekeepingAdmin(actor.role)) {
     const { data: assignment, error: assignmentError } = await supabase.from("user_hotel_assignments")
       .select("hotel_id")
       .eq("user_id", actor.id)
@@ -377,7 +379,7 @@ export async function endOwnManagementTask(taskId: string) {
     if (actor.role === "manager" && !managerPropertyMatch && actor.primary_hotel_id !== hotel.id && !assignment) {
       throw new Error("This task is outside your management scope.");
     }
-    if (actor.role === "hk_admin" && actor.primary_hotel_id !== hotel.id && !assignment) {
+    if (isHousekeepingAdmin(actor.role) && actor.primary_hotel_id !== hotel.id && !assignment) {
       throw new Error("This task is outside your assigned properties.");
     }
   }
@@ -424,7 +426,7 @@ export async function endOwnManagementTask(taskId: string) {
 
 async function getManagedTask(taskId: string) {
   const { actor, supabase } = await getVerifiedActor();
-  if (!["admin", "owner", "manager", "hk_admin"].includes(actor.role)) throw new Error("Task management is not available for this account.");
+  if (!isPlatformAdmin(actor.role) && !["owner", "manager"].includes(actor.role) && !isHousekeepingAdmin(actor.role)) throw new Error("Task management is not available for this account.");
   const { data: task, error } = await supabase.from("work_logs")
     .select("*").eq("id", taskId).is("deleted_at", null).is("cancelled_at", null).maybeSingle();
   if (error) throw new Error(`Unable to load task: ${error.message}`);
@@ -434,7 +436,7 @@ async function getManagedTask(taskId: string) {
   if (hotelError) throw new Error(`Unable to verify task property: ${hotelError.message}`);
   if (!hotel) throw new Error("Task property was not found.");
   if (actor.role === "owner" && hotel.owner_id !== actor.id) throw new Error("This task is outside your property scope.");
-  if (actor.role === "manager" || actor.role === "hk_admin") {
+  if (actor.role === "manager" || isHousekeepingAdmin(actor.role)) {
     const { data: assignment, error: assignmentError } = await supabase.from("user_hotel_assignments")
       .select("hotel_id").eq("user_id", actor.id).eq("hotel_id", hotel.id).maybeSingle();
     if (assignmentError) throw new Error(`Unable to verify property assignment: ${assignmentError.message}`);
@@ -442,7 +444,7 @@ async function getManagedTask(taskId: string) {
     if (actor.role === "manager" && !managerPropertyMatch && actor.primary_hotel_id !== hotel.id && !assignment) {
       throw new Error("This task is outside your management scope.");
     }
-    if (actor.role === "hk_admin" && actor.primary_hotel_id !== hotel.id && !assignment) {
+    if (isHousekeepingAdmin(actor.role) && actor.primary_hotel_id !== hotel.id && !assignment) {
       throw new Error("This task is outside your assigned properties.");
     }
   }
@@ -470,10 +472,10 @@ export async function updatePendingDispatchTask(taskId: string, input: {
   if (targetError) throw new Error(`Unable to verify the selected staff member: ${targetError.message}`);
   const targetRole = target?.role as UserRole | undefined;
   const permittedTarget = target && (
-    actor.role === "admin" ||
-    (actor.role === "owner" && ["manager", "hk_admin", "cleaner"].includes(target.role)) ||
-    (actor.role === "manager" && ["hk_admin", "cleaner"].includes(target.role)) ||
-    (actor.role === "hk_admin" && target.role === "cleaner")
+    isPlatformAdmin(actor.role) ||
+    (actor.role === "owner" && ["manager", "housekeeping_admin", "hk_admin", "cleaner"].includes(target.role)) ||
+    (actor.role === "manager" && ["housekeeping_admin", "hk_admin", "cleaner"].includes(target.role)) ||
+    (isHousekeepingAdmin(actor.role) && target.role === "cleaner")
   );
   if (!target || !targetRole || !permittedTarget) throw new Error("Choose an available team member for reassignment.");
   const { data: assignment, error: assignmentError } = await supabase.from("user_hotel_assignments")

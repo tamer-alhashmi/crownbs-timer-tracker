@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireFeatureAccess, type FeatureAction } from "@/lib/featureAccess";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
+import { isPlatformAdmin, normalizeUserRole, type UserRole } from "@/lib/roles";
 
 export type ManagedRoom = {
   id: string;
@@ -38,7 +39,7 @@ type RoomInput = {
 
 async function getRoomContext(action: FeatureAction = "view") {
   const session = await requireFeatureAccess("settings", action);
-  if (!["admin", "owner", "manager"].includes(session.role)) {
+  if (!isPlatformAdmin(session.role) && !["owner", "manager"].includes(session.role)) {
     throw new Error("Property management access is required.");
   }
   const supabase = createPrivilegedServerSupabaseClient();
@@ -47,13 +48,13 @@ async function getRoomContext(action: FeatureAction = "view") {
     .eq("id", session.userId)
     .maybeSingle();
   if (profileError) throw new Error(`Unable to verify property access: ${profileError.message}`);
-  if (!profile || profile.role !== session.role) throw new Error("Your role could not be verified. Sign in again.");
+  if (!profile || normalizeUserRole(profile.role as UserRole) !== session.role) throw new Error("Your role could not be verified. Sign in again.");
   const { data: hotels, error } = await supabase.from("hotels")
     .select("id, owner_id, manager_id")
     .order("id");
   if (error) throw new Error(`Unable to load property access: ${error.message}`);
   const visibleHotels = (hotels ?? []).filter((hotel) =>
-    profile.role === "admin" ||
+    isPlatformAdmin(session.role) ||
     (profile.role === "owner" ? hotel.owner_id === profile.id : hotel.manager_id === profile.id)
   );
   return { supabase, visibleHotels };

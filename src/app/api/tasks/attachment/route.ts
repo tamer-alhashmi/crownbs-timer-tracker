@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
+import { isHousekeepingAdmin, normalizeUserRole, type UserRole } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,7 @@ function sameOrigin(request: NextRequest) {
 export async function POST(request: NextRequest) {
   if (!sameOrigin(request)) return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
   const session = await getSessionUser();
-  if (!session || !["owner", "manager", "hk_admin"].includes(session.role)) {
+  if (!session || !["owner", "manager", "housekeeping_admin", "hk_admin"].includes(session.role)) {
     return NextResponse.json({ error: "Task dispatch access required." }, { status: 403 });
   }
 
@@ -54,7 +55,7 @@ export async function POST(request: NextRequest) {
     console.error("Task photo account lookup failed:", actorError.message);
     return NextResponse.json({ error: "Could not verify your account." }, { status: 500 });
   }
-  if (!actor || actor.role !== session.role) return NextResponse.json({ error: "Your session is no longer valid." }, { status: 403 });
+  if (!actor || normalizeUserRole(actor.role as UserRole) !== session.role) return NextResponse.json({ error: "Your session is no longer valid." }, { status: 403 });
   const { data: hotel, error: hotelError } = await supabase.from("hotels").select("id, owner_id, manager_id, is_active").eq("id", hotelId).maybeSingle();
   if (hotelError) {
     console.error("Task photo property lookup failed:", hotelError.message);
@@ -64,7 +65,7 @@ export async function POST(request: NextRequest) {
     || (actor.role === "owner" && hotel.owner_id !== actor.id)) {
     return NextResponse.json({ error: "That property is outside your assignment scope." }, { status: 403 });
   }
-  if (actor.role === "manager" || actor.role === "hk_admin") {
+  if (actor.role === "manager" || isHousekeepingAdmin(session.role)) {
     const { data: assignment, error: assignmentError } = await supabase.from("user_hotel_assignments").select("hotel_id").eq("user_id", actor.id).eq("hotel_id", hotel.id).maybeSingle();
     if (assignmentError) {
       console.error("Task photo assignment lookup failed:", assignmentError.message);
@@ -74,7 +75,7 @@ export async function POST(request: NextRequest) {
     if (actor.role === "manager" && !managerPropertyMatch && actor.primary_hotel_id !== hotel.id && !assignment) {
       return NextResponse.json({ error: "That property is outside your assignment scope." }, { status: 403 });
     }
-    if (actor.role === "hk_admin" && actor.primary_hotel_id !== hotel.id && !assignment) {
+    if (isHousekeepingAdmin(session.role) && actor.primary_hotel_id !== hotel.id && !assignment) {
       return NextResponse.json({ error: "That property is outside your assignment scope." }, { status: 403 });
     }
   }

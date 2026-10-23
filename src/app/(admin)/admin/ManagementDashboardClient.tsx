@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState, useSyncExternalStore, useTransition, type ReactNode } from "react";
-import { Activity, CalendarDays, Check, CircleDollarSign, ClipboardList, Gauge, History, Hotel, Loader2, Pencil, UsersRound, X, BookOpen, Wallet, Columns3, Filter, Search } from "lucide-react";
+import Link from "next/link";
+import { Activity, CalendarDays, Check, CircleDollarSign, ClipboardList, Gauge, History, Hotel, Loader2, Pencil, UsersRound, X, BookOpen, Wallet, Columns3, Filter, Search, CreditCard } from "lucide-react";
 import { OperationalBrief } from "@/components/dashboard/OperationalBrief";
 import { ServiceCard } from "@/components/dashboard/ServiceCard";
 import { SystemManual } from "@/components/dashboard/SystemManual";
@@ -24,6 +25,7 @@ import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
 import { ActiveAssignedTaskCard } from "@/components/dashboard/ActiveAssignedTaskCard";
 import { showActionToast } from "@/components/ui/ActionToast";
 import type { UserRole } from "@/lib/roles";
+import { isPlatformAdmin } from "@/lib/roles";
 
 const DASHBOARD_TABS = [
   { id: "overview", label: "Overview", icon: Gauge },
@@ -136,8 +138,8 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
   const [statusFilter, setStatusFilter] = useState("");
   const [sortColumn, setSortColumn] = useState<WorkLogSortColumn>("date");
   const [sortAscending, setSortAscending] = useState(false);
-  const canManager = data.userRole === "admin" || data.userRole === "manager";
-  const canOwner = data.userRole === "admin" || data.userRole === "owner";
+  const canManager = isPlatformAdmin(data.userRole) || data.userRole === "manager";
+  const canOwner = isPlatformAdmin(data.userRole) || data.userRole === "owner";
   const pageSize = RECORDS_PER_PAGE;
   const displayedWorkLogs = (Array.isArray(data.workLogs) ? data.workLogs : []).map((log) => ({ ...log, ...approvalOverrides[log.id] }));
   const displayedPayrollLogs = [...data.payroll, ...optimisticPayrollLogs.filter((optimistic) => !data.payroll.some((log) => log.id === optimistic.id))];
@@ -309,7 +311,7 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
     if (!editing || !draft) return;
     if (!draft.startTime || !draft.endTime) { setMessage("Start and end time are required."); return; }
     if (durationHours(draft.startTime, draft.endTime) <= 0) { setMessage("End time must be after start time."); return; }
-    run(() => updateWorkLog(editing.id, { hotelId: draft.hotelId, serviceId: draft.serviceId, startTime: draft.startTime, endTime: draft.endTime, roomsCompleted: Number(draft.roomsCompleted), roomNumber: draft.roomNumber, notes: draft.notes, ...(data.userRole === "admin" ? { status: draft.status } : {}) }), "Work log updated across all dashboards.");
+    run(() => updateWorkLog(editing.id, { hotelId: draft.hotelId, serviceId: draft.serviceId, startTime: draft.startTime, endTime: draft.endTime, roomsCompleted: Number(draft.roomsCompleted), roomNumber: draft.roomNumber, notes: draft.notes, ...(isPlatformAdmin(data.userRole) ? { status: draft.status } : {}) }), "Work log updated across all dashboards.");
   };
 
   const syncRooms = () => run(async () => { const result = await importRoomsFromGoogleSheet(); return result; }, "Rooms synced.");
@@ -318,7 +320,7 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="flex h-16 items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3"><span className="hidden h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-white sm:flex"><Hotel className="h-5 w-5" /></span><div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">{data.userRole} workspace</p><h1 className="text-lg font-semibold text-slate-950">Crown Operations</h1></div></div>
-          <div className="flex items-center gap-2">{data.userRole === "admin" && <button type="button" onClick={syncRooms} disabled={isPending} className="hidden min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:inline-flex">Fetch rooms</button>}<UserProfileMenu name={data.userName} email={data.userEmail} avatarUrl={data.userAvatarUrl} role={data.userRole} settingsHref="/settings" /></div>
+          <div className="flex items-center gap-2">{isPlatformAdmin(data.userRole) && <button type="button" onClick={syncRooms} disabled={isPending} className="hidden min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:inline-flex">Fetch rooms</button>}{data.userRole === "super_admin" && <Link href="/admin/tenant-accounts" className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900 hover:bg-sky-100 sm:text-sm"><CreditCard className="h-4 w-4" /><span className="hidden sm:inline">Tenant Accounts & Billing</span><span className="sm:hidden">Billing</span></Link>}<UserProfileMenu name={data.userName} email={data.userEmail} avatarUrl={data.userAvatarUrl} role={data.userRole} settingsHref="/settings" /></div>
         </div>
         <nav aria-label="Dashboard tabs" role="tablist" className="dashboard-tab-scrollbar flex min-w-0 max-w-full gap-1 overflow-x-auto border-t border-slate-100 px-3 py-2 [-webkit-overflow-scrolling:touch] sm:px-6 lg:px-8">
           {DASHBOARD_TABS.map(({ id, label, icon: Icon }) => <button key={id} id={`tab-${id}`} type="button" role="tab" aria-selected={activeTab === id} aria-controls={`panel-${id}`} onClick={() => selectTab(id)} className={`inline-flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition sm:text-sm ${activeTab === id ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"}`}><Icon aria-hidden="true" className="h-4 w-4" />{label}</button>)}
@@ -424,8 +426,8 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
               isOwnLog={isOwnLog}
               canManager={canApproveAsManager}
               canOwner={canApproveAsOwner}
-              canBypassClockOut={!isOwnLog && (data.userRole === "admin" || data.userRole === "owner" || ["manager", "hk_admin"].includes(log.assigneeRole))}
-              canForceEndAndApprove={!isOwnLog && (data.userRole === "admin" || data.userRole === "owner") && log.assigneeRole === "manager" && ["assigned", "active"].includes(log.status) && !log.is_locked}
+              canBypassClockOut={!isOwnLog && (isPlatformAdmin(data.userRole) || data.userRole === "owner" || ["manager", "housekeeping_admin", "hk_admin"].includes(log.assigneeRole))}
+              canForceEndAndApprove={!isOwnLog && (isPlatformAdmin(data.userRole) || data.userRole === "owner") && log.assigneeRole === "manager" && ["assigned", "active"].includes(log.status) && !log.is_locked}
               isPending={isPending}
               rejectionNotes={rejectionNotes}
               setRejectionNotes={setRejectionNotes}
@@ -487,8 +489,8 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
           <SystemManual role={data.userRole} />
         </section>
 
-    {selectedTask && <ServiceCard task={selectedTask} onClose={() => setSelectedTask(null)} editLabel={selectedTaskFromAudit ? "Edit Record" : "Edit"} onEdit={selectedTaskFromAudit && data.userRole !== "admin" ? undefined : () => { const logs = selectedTaskFromAudit ? data.auditLogs : data.workLogs; const log = logs.find((item) => item.id === selectedTask.id); if (log) { setSelectedTask(null); beginEdit(log); } }} />}
-    {editing && draft && <FullEditPanel draft={draft} setDraft={setDraft} services={data.services} hotels={data.hotels} rooms={data.rooms} saving={isPending} canEditStatus={data.userRole === "admin"} statusDisabled={Boolean(editing.cancelled_at)} onCancel={() => { setEditing(null); setDraft(null); }} onSave={saveEdit}/>}
+    {selectedTask && <ServiceCard task={selectedTask} onClose={() => setSelectedTask(null)} editLabel={selectedTaskFromAudit ? "Edit Record" : "Edit"} onEdit={selectedTaskFromAudit && !isPlatformAdmin(data.userRole) ? undefined : () => { const logs = selectedTaskFromAudit ? data.auditLogs : data.workLogs; const log = logs.find((item) => item.id === selectedTask.id); if (log) { setSelectedTask(null); beginEdit(log); } }} />}
+    {editing && draft && <FullEditPanel draft={draft} setDraft={setDraft} services={data.services} hotels={data.hotels} rooms={data.rooms} saving={isPending} canEditStatus={isPlatformAdmin(data.userRole)} statusDisabled={Boolean(editing.cancelled_at)} onCancel={() => { setEditing(null); setDraft(null); }} onSave={saveEdit}/>}
       </main>
   </div>;
 }

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getSessionUser } from "@/lib/auth";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
+import { isHousekeepingAdmin, normalizeUserRole, type UserRole } from "@/lib/roles";
 import type { ActiveAssignedTaskDetails } from "@/components/dashboard/ActiveAssignedTaskCard";
 
 export type HousekeepingStatus = "dirty" | "in_progress" | "inspect_ready" | "clean";
@@ -76,7 +77,7 @@ const NEXT_STATUS: Record<HousekeepingStatus, HousekeepingStatus> = {
 
 async function getHKAdminContext() {
   const session = await getSessionUser();
-  if (!session || session.role !== "hk_admin") throw new Error("Housekeeping administrator access is required.");
+  if (!session || !isHousekeepingAdmin(session.role)) throw new Error("Housekeeping administrator access is required.");
 
   const supabase = createPrivilegedServerSupabaseClient();
   const { data: actor, error: actorError } = await supabase
@@ -85,7 +86,7 @@ async function getHKAdminContext() {
     .eq("id", session.userId)
     .maybeSingle();
   if (actorError) throw new Error(`Unable to verify housekeeping administrator: ${actorError.message}`);
-  if (!actor || actor.role !== "hk_admin") throw new Error("Your role could not be verified. Sign in again.");
+  if (!actor || !isHousekeepingAdmin(normalizeUserRole(actor.role as UserRole))) throw new Error("Your role could not be verified. Sign in again.");
 
   const { data: assignments, error: assignmentsError } = await supabase
     .from("user_hotel_assignments")

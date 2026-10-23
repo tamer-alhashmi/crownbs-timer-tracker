@@ -22,6 +22,7 @@ const labels: Record<FeatureKey, string> = {
 
 const emptyAccess: Access = { can_view: false, can_create: false, can_edit: false, can_delete: false };
 const roleDefaults: Record<ManagedUser["role"], Partial<Record<FeatureKey, Access>>> = {
+  super_admin: Object.fromEntries(FEATURE_KEYS.map((feature) => [feature, { can_view: true, can_create: true, can_edit: true, can_delete: true }])) as Partial<Record<FeatureKey, Access>>,
   admin: Object.fromEntries(FEATURE_KEYS.map((feature) => [feature, { can_view: true, can_create: true, can_edit: true, can_delete: true }])) as Partial<Record<FeatureKey, Access>>,
   owner: {
     dashboard: { can_view: true, can_create: false, can_edit: false, can_delete: false },
@@ -44,11 +45,16 @@ const roleDefaults: Record<ManagedUser["role"], Partial<Record<FeatureKey, Acces
     rooms: { can_view: true, can_create: false, can_edit: false, can_delete: false },
     settings: { can_view: true, can_create: false, can_edit: false, can_delete: false },
   },
+  housekeeping_admin: {
+    dashboard: { can_view: true, can_create: false, can_edit: false, can_delete: false },
+    rooms: { can_view: true, can_create: false, can_edit: false, can_delete: false },
+    settings: { can_view: true, can_create: false, can_edit: false, can_delete: false },
+  },
   cleaner: { dashboard: { can_view: true, can_create: true, can_edit: true, can_delete: false } },
 };
 
 export default function SystemAccessPanel({ users, permissions }: Props) {
-  const managedUsers = users.filter((user) => user.role !== "admin");
+  const managedUsers = users.filter((user) => user.role !== "admin" && user.role !== "super_admin");
   const initialUser = managedUsers[0];
   const [isOpen, setIsOpen] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState(initialUser?.id ?? "");

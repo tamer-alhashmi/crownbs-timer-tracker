@@ -97,10 +97,10 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
     (service.hotel_id === hotelId || (service.hotel_id === null && (service.owner_id === null || service.owner_id === selectedHotel?.ownerId)))
   ), [hotelId, selectedHotel?.ownerId, services]);
   const allowedRoles: UserRole[] = role === "manager"
-    ? ["hk_admin", "cleaner"]
-    : role === "hk_admin"
+    ? ["housekeeping_admin", "hk_admin", "cleaner"]
+    : role === "housekeeping_admin" || role === "hk_admin"
       ? ["cleaner"]
-      : ["manager", "hk_admin", "cleaner"];
+      : ["manager", "housekeeping_admin", "hk_admin", "cleaner"];
   const assignees = users.filter((user) =>
     allowedRoles.includes(user.role) && user.assignedHotels.some((hotel) => hotel.id === hotelId)
   );

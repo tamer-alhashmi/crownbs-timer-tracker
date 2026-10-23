@@ -26,8 +26,8 @@ const tabs: { id: Tab; label: string; icon: typeof UserRound }[] = [
 function isTabVisible(id: Tab, role: UserRole) {
   return id === "profile" ||
     (id === "payroll" && role === "cleaner") ||
-    (id === "users" && ["admin", "owner", "manager"].includes(role)) ||
-    (id === "properties" && ["admin", "owner"].includes(role));
+    (id === "users" && ["super_admin", "admin", "owner", "manager"].includes(role)) ||
+    (id === "properties" && ["super_admin", "admin", "owner"].includes(role));
 }
 
 export default function SettingsHub({ role, utility, profile, billing, payroll, users, properties }: Props) {

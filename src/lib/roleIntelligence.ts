@@ -1,10 +1,11 @@
 import "server-only";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import type { UserRole } from "@/lib/roles";
+import { isPlatformAdmin } from "@/lib/roles";
 
 export type IntelligenceViewer = {
   userId: string;
-  role: Extract<UserRole, "admin" | "owner" | "manager" | "hk_admin">;
+  role: Extract<UserRole, "super_admin" | "admin" | "owner" | "manager" | "housekeeping_admin" | "hk_admin">;
   assignedHotelIds: string[];
 };
 
@@ -80,7 +81,7 @@ async function readAllRows<T>(
 }
 
 function rolePresentation(role: IntelligenceViewer["role"]) {
-  if (role === "admin") {
+  if (isPlatformAdmin(role)) {
     return {
       title: "Platform & Tenant Intelligence",
       subtitle: "A global view of tenant setup, workforce, and operational activity.",
@@ -112,9 +113,10 @@ export async function getRoleScopedIntelligenceData(
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 86_400_000).toISOString();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
   const presentation = rolePresentation(viewer.role);
+  const platformViewer = isPlatformAdmin(viewer.role);
 
   let hotels: Hotel[];
-  if (viewer.role === "admin") {
+  if (platformViewer) {
     hotels = await readAllRows<Hotel>("all properties", (from, to) =>
       supabase.from("hotels")
         .select("id, name, owner_id, manager_id, room_count, floors_sections, is_active")
@@ -169,12 +171,12 @@ export async function getRoleScopedIntelligenceData(
   for (const hotel of hotels) {
     if (hotel.manager_id) assignedTeamIds.add(hotel.manager_id);
   }
-  const userIds = viewer.role === "admin" ? null : [...assignedTeamIds];
-  const users = viewer.role === "admin"
+  const userIds = platformViewer ? null : [...assignedTeamIds];
+  const users = platformViewer
     ? await readAllRows<User>("platform users", (from, to) =>
         supabase.from("users")
           .select("id, full_name, role")
-          .in("role", ["owner", "admin", "manager", "hk_admin", "cleaner"])
+          .in("role", ["owner", "super_admin", "admin", "manager", "housekeeping_admin", "hk_admin", "cleaner"])
           .order("id")
           .range(from, to)
       )
@@ -189,12 +191,12 @@ export async function getRoleScopedIntelligenceData(
       : [];
   const scopedWorkerIds = users
     .filter((user) => user.id !== viewer.userId && (
-      viewer.role === "admin"
-        ? ["manager", "hk_admin", "cleaner"].includes(user.role)
+      platformViewer
+        ? ["manager", "housekeeping_admin", "hk_admin", "cleaner"].includes(user.role)
         : viewer.role === "owner"
-          ? ["manager", "hk_admin", "cleaner"].includes(user.role)
+          ? ["manager", "housekeeping_admin", "hk_admin", "cleaner"].includes(user.role)
           : viewer.role === "manager"
-            ? ["hk_admin", "cleaner"].includes(user.role)
+            ? ["housekeeping_admin", "hk_admin", "cleaner"].includes(user.role)
             : user.role === "cleaner"
     ))
     .map((user) => user.id);
@@ -223,7 +225,7 @@ export async function getRoleScopedIntelligenceData(
       : Promise.resolve([] as Shift[]),
   ]);
 
-  const tenants = viewer.role === "admin"
+  const tenants = platformViewer
     ? await readAllRows<TenantUser>("platform tenants", (from, to) =>
         supabase.from("users")
           .select("id, full_name, email")
@@ -236,9 +238,9 @@ export async function getRoleScopedIntelligenceData(
   const usersById = new Map(users.map((user) => [user.id, user]));
   const scopedTeam = users.filter((user) => {
     if (user.id === viewer.userId) return false;
-    if (viewer.role === "admin") return ["manager", "hk_admin", "cleaner"].includes(user.role) && assignedTeamIds.has(user.id);
-    if (viewer.role === "owner") return ["manager", "hk_admin", "cleaner"].includes(user.role) && assignedTeamIds.has(user.id);
-    if (viewer.role === "manager") return ["hk_admin", "cleaner"].includes(user.role) && assignedTeamIds.has(user.id);
+    if (platformViewer) return ["manager", "housekeeping_admin", "hk_admin", "cleaner"].includes(user.role) && assignedTeamIds.has(user.id);
+    if (viewer.role === "owner") return ["manager", "housekeeping_admin", "hk_admin", "cleaner"].includes(user.role) && assignedTeamIds.has(user.id);
+    if (viewer.role === "manager") return ["housekeeping_admin", "hk_admin", "cleaner"].includes(user.role) && assignedTeamIds.has(user.id);
     return user.role === "cleaner" && assignedTeamIds.has(user.id);
   });
   const teamIds = new Set(scopedTeam.map((user) => user.id));
@@ -320,14 +322,14 @@ export async function getRoleScopedIntelligenceData(
   const roomTotal = hotels.reduce((total, hotel) => total + (hotel.room_count ?? 0), 0);
   const completedTasks = scopedLogs.filter((log) => log.status === "completed").length;
   const activeShifts = scopedShifts.filter((shift) => shift.status === "active" && !shift.end_time).length;
-  const activeBusinesses = viewer.role === "admin"
+  const activeBusinesses = platformViewer
     ? tenantRows.filter((tenant) => tenant.isActive).length
     : 0;
-  const workforce = viewer.role === "admin"
+  const workforce = platformViewer
     ? scopedTeam.filter((user) => user.role === "manager" || user.role === "cleaner").length
     : scopedTeam.length;
   const floorCount = hotels.reduce((total, hotel) => total + (hotel.floors_sections?.length ?? 0), 0);
-  const labels = viewer.role === "admin"
+  const labels = platformViewer
     ? [
         { label: "Active Client Businesses", value: String(activeBusinesses), detail: "Owner or admin tenants with active properties, assigned team members, and recent operational logs." },
         { label: "Global Portfolio", value: `${hotelIds.length} properties`, detail: `${roomTotal.toLocaleString()} rooms across the platform.` },
@@ -360,6 +362,6 @@ export async function getRoleScopedIntelligenceData(
     periodLabel: "Last 30 days",
     kpis: labels,
     performers,
-    ...(viewer.role === "admin" ? { tenants: tenantRows } : {}),
+    ...(platformViewer ? { tenants: tenantRows } : {}),
   };
 }

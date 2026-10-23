@@ -12,7 +12,9 @@ const DASHBOARD_BY_ROLE: Record<UserRole, string> = {
   admin: "/admin",
   owner: "/owner",
   manager: "/manager",
+  housekeeping_admin: "/hk-admin",
   hk_admin: "/hk-admin",
+  super_admin: "/admin",
   cleaner: "/dashboard",
 };
 

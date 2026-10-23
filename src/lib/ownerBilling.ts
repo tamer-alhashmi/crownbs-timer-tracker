@@ -1,5 +1,6 @@
 import "server-only";
 import { getSessionUser } from "@/lib/auth";
+import { isPlatformAdmin } from "@/lib/roles";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 
 export const RATE_PER_COMPLETED_TASK = 0.08;
@@ -12,16 +13,25 @@ export type OwnerBillingUsage = {
   currency: "USD";
 };
 
+export function getCurrentBillingCycle(now = new Date()) {
+  const cycleStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const cycleEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  return {
+    cycleStart: cycleStart.toISOString(),
+    cycleEnd: cycleEnd.toISOString(),
+    monthLabel: new Intl.DateTimeFormat("en", { month: "long", year: "numeric" }).format(now),
+  };
+}
+
 export async function getOwnerBillingUsage(ownerId: string): Promise<OwnerBillingUsage> {
   const session = await getSessionUser();
-  if (!session || (session.role !== "admin" && (session.role !== "owner" || session.userId !== ownerId))) {
+  if (!session || (!isPlatformAdmin(session.role) && (session.role !== "owner" || session.userId !== ownerId))) {
     throw new Error("You are not authorized to view this owner billing usage.");
   }
 
   const supabase = createPrivilegedServerSupabaseClient();
   const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString();
+  const { cycleStart: monthStart, cycleEnd: nextMonth, monthLabel } = getCurrentBillingCycle(now);
   const { data: hotels, error: hotelsError } = await supabase
     .from("hotels")
     .select("id")
@@ -62,7 +72,7 @@ export async function getOwnerBillingUsage(ownerId: string): Promise<OwnerBillin
 
   const taskCount = completedTasks.count ?? 0;
   return {
-    monthLabel: new Intl.DateTimeFormat("en", { month: "long", year: "numeric" }).format(now),
+    monthLabel,
     completedTasks: taskCount,
     activeShifts: activeShifts.count ?? 0,
     amountDue: Number((taskCount * RATE_PER_COMPLETED_TASK).toFixed(2)),
@@ -77,7 +87,7 @@ async function getOwnerWorkerIds(
   if (!hotelIds.length) return [];
   const [{ data: assigned, error: assignmentsError }, { data: primaryAssignments, error: primaryError }, { data: managers, error: managersError }] = await Promise.all([
     supabase.from("user_hotel_assignments").select("user_id").in("hotel_id", hotelIds),
-    supabase.from("users").select("id").in("primary_hotel_id", hotelIds).in("role", ["manager", "hk_admin", "cleaner"]),
+    supabase.from("users").select("id").in("primary_hotel_id", hotelIds).in("role", ["manager", "housekeeping_admin", "hk_admin", "cleaner"]),
     supabase.from("hotels").select("manager_id").in("id", hotelIds).not("manager_id", "is", null),
   ]);
   if (assignmentsError || primaryError || managersError) {

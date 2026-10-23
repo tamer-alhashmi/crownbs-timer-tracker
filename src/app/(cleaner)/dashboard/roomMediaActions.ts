@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getSessionUser } from "@/lib/auth";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
+import { isPlatformAdmin } from "@/lib/roles";
 
 const BUCKET = "room-media";
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
@@ -141,7 +142,7 @@ export async function getWorkLogRoomMedia(workLogId: string): Promise<RoomMediaG
   const { data: log, error: logError } = await supabase.from("work_logs").select("id, hotel_id, user_id, owner_id, manager_id").eq("id", workLogId).maybeSingle();
   if (logError || !log) throw new Error("Work log was not found.");
 
-  let authorized = user.role === "admin" || (user.role === "cleaner" && log.user_id === user.userId);
+  let authorized = isPlatformAdmin(user.role) || (user.role === "cleaner" && log.user_id === user.userId);
   if (!authorized && (user.role === "owner" || user.role === "manager")) {
     const responsibilityId = user.role === "owner" ? log.owner_id : log.manager_id;
     const assignmentColumn = user.role === "owner" ? "owner_id" : "manager_id";

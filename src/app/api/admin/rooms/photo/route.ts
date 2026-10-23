@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getVerifiedChatSessionUser } from "@/lib/auth";
 import { hasSameOrigin } from "@/lib/chat/server";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
+import { isPlatformAdmin, normalizeUserRole, type UserRole } from "@/lib/roles";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,14 +19,14 @@ const MIME_EXTENSIONS: Record<string, string> = {
 export async function POST(request: NextRequest) {
   if (!hasSameOrigin(request)) return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
   const session = await getVerifiedChatSessionUser();
-  if (!session || !["admin", "owner", "manager"].includes(session.role)) return NextResponse.json({ error: "Property management access required." }, { status: 403 });
+  if (!session || (!isPlatformAdmin(session.role) && !["owner", "manager"].includes(session.role))) return NextResponse.json({ error: "Property management access required." }, { status: 403 });
 
   const supabase = createPrivilegedServerSupabaseClient();
   const { data: profile, error: profileError } = await supabase.from("users")
     .select("role")
     .eq("id", session.userId)
     .maybeSingle();
-  if (profileError || profile?.role !== session.role) return NextResponse.json({ error: "Property management access could not be verified." }, { status: 403 });
+  if (profileError || !profile || normalizeUserRole(profile.role as UserRole) !== session.role) return NextResponse.json({ error: "Property management access could not be verified." }, { status: 403 });
 
   let formData: FormData;
   try {

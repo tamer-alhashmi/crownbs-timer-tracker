@@ -9,18 +9,18 @@ import type { UserRole } from "@/lib/roles";
 
 type Guide = { title: string; description: string; href: string; roles: UserRole[] };
 const guides: Guide[] = [
-  { title: "Set up facilities and named zones", description: "Create properties, branches, locations, and the floors or service areas within them.", href: "/settings?tab=properties", roles: ["admin", "owner"] },
-  { title: "Manage units and rooms", description: "Add or update rooms, suites, stations, units, capacities, availability, and floor assignments.", href: "/settings?tab=properties", roles: ["admin", "owner"] },
-  { title: "Configure service catalogs", description: "Set up per-unit, hourly, maintenance, delivery, and fixed-rate work types.", href: "/settings?tab=properties", roles: ["admin", "owner"] },
-  { title: "Manage team and facility assignments", description: "Maintain the team directory and assign staff across authorized facilities.", href: "/settings?tab=users", roles: ["admin", "owner"] },
-  { title: "Review financials and work-log audits", description: "Review payroll summaries, approvals, costs, and operational audit history.", href: "/admin?tab=financials", roles: ["admin", "owner"] },
+  { title: "Set up facilities and named zones", description: "Create properties, branches, locations, and the floors or service areas within them.", href: "/settings?tab=properties", roles: ["super_admin", "admin", "owner"] },
+  { title: "Manage units and rooms", description: "Add or update rooms, suites, stations, units, capacities, availability, and floor assignments.", href: "/settings?tab=properties", roles: ["super_admin", "admin", "owner"] },
+  { title: "Configure service catalogs", description: "Set up per-unit, hourly, maintenance, delivery, and fixed-rate work types.", href: "/settings?tab=properties", roles: ["super_admin", "admin", "owner"] },
+  { title: "Manage team and facility assignments", description: "Maintain the team directory and assign staff across authorized facilities.", href: "/settings?tab=users", roles: ["super_admin", "admin", "owner"] },
+  { title: "Review financials and work-log audits", description: "Review payroll summaries, approvals, costs, and operational audit history.", href: "/admin?tab=financials", roles: ["super_admin", "admin", "owner"] },
   { title: "Dispatch a task", description: "Choose a facility, task type, rooms or zone, and an available team member.", href: "?tab=overview&dispatch=1", roles: ["owner", "manager", "hk_admin"] },
-  { title: "Monitor live operations", description: "Track active shifts and tasks, inspect duration, and use authorized management controls.", href: "?tab=operations", roles: ["manager", "hk_admin", "admin", "owner"] },
+  { title: "Monitor live operations", description: "Track active shifts and tasks, inspect duration, and use authorized management controls.", href: "?tab=operations", roles: ["super_admin", "manager", "hk_admin", "housekeeping_admin", "admin", "owner"] },
   { title: "Inspect units and approve quality", description: "Review readiness, inspection notes, and evidence, then move units through their workflow.", href: "/hk-admin?tab=rooms", roles: ["manager", "hk_admin"] },
   { title: "Clock in and manage your shift", description: "Start a master shift before work and clock out after ending active tasks.", href: "/dashboard", roles: ["cleaner"] },
   { title: "Complete assigned tasks", description: "Review incoming assignments, start a task, follow the single-active-task rule, and end work when complete.", href: "/dashboard", roles: ["cleaner"] },
   { title: "Use team chat and review earnings", description: "Contact your team and review completed work and verified earnings.", href: "/dashboard", roles: ["cleaner"] },
-  { title: "Open profile and security settings", description: "Update your personal profile, security options, and notification preferences.", href: "/settings?tab=profile", roles: ["admin", "owner", "manager", "hk_admin", "cleaner"] },
+  { title: "Open profile and security settings", description: "Update your personal profile, security options, and notification preferences.", href: "/settings?tab=profile", roles: ["super_admin", "admin", "owner", "manager", "housekeeping_admin", "hk_admin", "cleaner"] },
 ];
 
 export function HelpCenterButton({ role }: { role: UserRole }) {
@@ -30,7 +30,7 @@ export function HelpCenterButton({ role }: { role: UserRole }) {
   const visibleGuides = useMemo(() => guides.filter((guide) =>
     guide.roles.includes(role) && `${guide.title} ${guide.description}`.toLowerCase().includes(query.trim().toLowerCase())
   ), [query, role]);
-  const dashboardHref = role === "manager" ? "/manager" : role === "hk_admin" ? "/hk-admin" : role === "owner" ? "/owner" : role === "admin" ? "/admin" : "/dashboard";
+  const dashboardHref = role === "manager" ? "/manager" : role === "hk_admin" || role === "housekeeping_admin" ? "/hk-admin" : role === "owner" ? "/owner" : role === "admin" || role === "super_admin" ? "/admin" : "/dashboard";
   const hrefFor = (href: string) => href.startsWith("?") ? `${dashboardHref}${href}` : href;
 
   return <>

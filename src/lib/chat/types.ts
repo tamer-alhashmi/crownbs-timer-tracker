@@ -1,4 +1,5 @@
 import type { UserRole } from "@/lib/roles";
+import { isPlatformAdmin } from "@/lib/roles";
 
 export type ChatRole = UserRole;
 export type AttachmentType = "image" | "pdf" | "doc" | "voice";
@@ -45,9 +46,9 @@ export type UnreadMessage = ChatMessage & {
 };
 
 export function roleLabel(role: ChatRole): string {
-  return role === "hk_admin" ? "Housekeeping Admin" : role[0].toUpperCase() + role.slice(1);
+  return role === "hk_admin" || role === "housekeeping_admin" ? "Housekeeping Admin" : role.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 export function canMessageRole(sender: ChatRole, recipient: ChatRole): boolean {
-  return sender === "admin" || recipient !== "admin";
+  return isPlatformAdmin(sender) || !isPlatformAdmin(recipient);
 }

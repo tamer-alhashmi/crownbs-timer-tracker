@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { apiError, getChatActor, hasSameOrigin, isUuid } from "@/lib/chat/server";
+import { isHousekeepingAdmin } from "@/lib/roles";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -162,7 +163,7 @@ export async function POST(request: NextRequest) {
     if (context.actor.role === "manager" && (selectedProperty?.manager_id === context.actor.id || context.actor.primaryHotelId === propertyId)) {
       propertyUsers.add(context.actor.id);
     }
-    if (context.actor.role === "hk_admin" && context.actor.primaryHotelId === propertyId) {
+    if (isHousekeepingAdmin(context.actor.role) && context.actor.primaryHotelId === propertyId) {
       propertyUsers.add(context.actor.id);
     }
   }
@@ -176,7 +177,7 @@ export async function POST(request: NextRequest) {
       !(assignments ?? []).some((item) => item.user_id === context.actor.id && item.hotel_id === propertyId)) {
       return apiError("You can only create groups for your assigned property.", 403);
     }
-    if (context.actor.role === "hk_admin" && context.actor.primaryHotelId !== propertyId &&
+    if (isHousekeepingAdmin(context.actor.role) && context.actor.primaryHotelId !== propertyId &&
       !(assignments ?? []).some((item) => item.user_id === context.actor.id && item.hotel_id === propertyId)) {
       return apiError("You can only create groups for your assigned property.", 403);
     }
@@ -193,8 +194,8 @@ export async function POST(request: NextRequest) {
     return apiError("Could not verify the selected group members.", 500);
   }
   const roleAllowed = (role: string) => {
-    if (context.actor.role === "owner") return ["admin", "owner", "manager", "hk_admin", "cleaner"].includes(role);
-    if (context.actor.role === "manager") return ["hk_admin", "cleaner"].includes(role);
+    if (context.actor.role === "owner") return ["super_admin", "admin", "owner", "manager", "housekeeping_admin", "hk_admin", "cleaner"].includes(role);
+    if (context.actor.role === "manager") return ["housekeeping_admin", "hk_admin", "cleaner"].includes(role);
     return role === "cleaner";
   };
   if ((members ?? []).some((member) => !roleAllowed(member.role))) {

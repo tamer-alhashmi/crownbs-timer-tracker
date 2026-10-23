@@ -3,9 +3,10 @@ import { Activity, Building2, CircleHelp, UsersRound } from "lucide-react";
 import { getSessionUser } from "@/lib/auth";
 import { getRoleScopedIntelligenceData, type IntelligenceViewer } from "@/lib/roleIntelligence";
 import type { UserRole } from "@/lib/roles";
+import { isHousekeepingAdmin, isPlatformAdmin } from "@/lib/roles";
 
 function isIntelligenceRole(role: UserRole): role is IntelligenceViewer["role"] {
-  return role === "admin" || role === "owner" || role === "manager" || role === "hk_admin";
+  return isPlatformAdmin(role) || role === "owner" || role === "manager" || isHousekeepingAdmin(role);
 }
 
 function IntelligenceSkeleton() {
@@ -42,7 +43,7 @@ async function IntelligenceContent() {
     assignedHotelIds: [],
   };
   const data = await getRoleScopedIntelligenceData(viewer);
-  const isAdmin = session.role === "admin";
+  const isAdmin = isPlatformAdmin(session.role);
   const maximumActivity = Math.max(
     1,
     ...(isAdmin
