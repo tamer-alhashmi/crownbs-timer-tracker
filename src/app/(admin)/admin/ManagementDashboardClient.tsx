@@ -204,7 +204,7 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
   const selectTab = (tab: DashboardTab) => {
     const url = new URL(window.location.href);
     url.searchParams.set("tab", tab);
-    window.history.pushState(null, "", url);
+    window.history.replaceState(window.history.state, "", url);
     window.dispatchEvent(new Event(DASHBOARD_TAB_CHANGE));
   };
   const run = (operation: () => Promise<unknown>, success = "Saved.") => startTransition(async () => {

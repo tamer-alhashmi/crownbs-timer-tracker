@@ -53,7 +53,7 @@ export function HelpCenterButton({ role }: { role: UserRole }) {
               if (guide.href.startsWith("?")) {
                 event.preventDefault();
                 const target = new URL(hrefFor(guide.href), window.location.origin);
-                window.history.pushState(null, "", `${target.pathname}${target.search}`);
+                window.history.replaceState(window.history.state, "", `${target.pathname}${target.search}`);
                 window.dispatchEvent(new Event("management-dashboard-tab-change"));
                 router.refresh();
               }

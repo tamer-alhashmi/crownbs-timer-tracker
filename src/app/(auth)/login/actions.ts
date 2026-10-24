@@ -1,13 +1,12 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { createPrivilegedServerSupabaseClient, createServerSupabaseClient } from "@/lib/supabase/server";
 import { setSessionCookies } from "@/lib/auth";
 import { isUserRole, normalizeUserRole, type UserRole } from "@/lib/roles";
 
 export type LoginMethod = "email" | "pin";
 
-export type LoginState = { error: string };
+export type LoginState = { error?: string; redirectTo?: string };
 
 const INVALID_CREDENTIALS = "Invalid email and password.";
 const PROFILE_UNAVAILABLE = "Your account profile could not be loaded. Contact your administrator.";
@@ -23,7 +22,7 @@ function dashboardForRole(role: string) {
 async function establishUserSession(
   user: { id: string; email: string; role: UserRole; primary_hotel_id: string | null },
   rememberMe = false
-): Promise<never> {
+): Promise<LoginState> {
   await setSessionCookies({
     userId: user.id,
     email: user.email,
@@ -31,7 +30,7 @@ async function establishUserSession(
     hotelId: user.primary_hotel_id,
   }, { rememberMe });
 
-  redirect(dashboardForRole(normalizeUserRole(user.role)));
+  return { redirectTo: dashboardForRole(normalizeUserRole(user.role)) };
 }
 
 async function loginWithEmailPassword(email: string, password: string, rememberMe: boolean): Promise<LoginState> {
