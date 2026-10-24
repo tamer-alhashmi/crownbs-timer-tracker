@@ -99,6 +99,21 @@ export async function GET() {
   const activeAlertRecords = (alertRecords ?? []).filter((alert) =>
     (alertTasks ?? []).some((task) => task.id === alert.task_id && task.start_time === alert.incident_started_at)
   );
+  const visibleTaskIds = [...new Set([
+    ...(incoming ?? []).map((task) => task.id),
+    ...activeAlertRecords.map((alert) => alert.task_id),
+  ])];
+  const { data: readMarkers, error: readError } = visibleTaskIds.length
+    ? await supabase.from("task_notification_reads")
+        .select("task_id")
+        .eq("user_id", actor.id)
+        .in("task_id", visibleTaskIds)
+    : { data: [], error: null };
+  if (readError) {
+    console.error("Task notification read-state lookup failed:", readError.message);
+    return NextResponse.json({ error: "Could not load task notifications." }, { status: 500 });
+  }
+  const readTaskIds = new Set((readMarkers ?? []).map((marker) => marker.task_id));
   const alertAssigneeIds = [...new Set((alertTasks ?? []).map((task) => task.assigned_to ?? task.user_id))];
   const alertHotelIds = [...new Set((alertTasks ?? []).map((task) => task.hotel_id))];
   const [{ data: alertUsers, error: alertUsersError }, { data: alertHotels, error: alertHotelsError }] = await Promise.all([
@@ -121,6 +136,7 @@ export async function GET() {
     return [{
       id: alert.id,
       task_id: task.id,
+      is_read: readTaskIds.has(task.id),
       title: "Stale Task Alert (Overdue)",
       task_title: task.service_name_snapshot || "Active task",
       hotel_name: alertHotelById.get(task.hotel_id) ?? "Property",
@@ -132,7 +148,7 @@ export async function GET() {
   });
 
   return NextResponse.json({
-    incoming: (incoming ?? []).map(enrichTask),
+    incoming: (incoming ?? []).map((task) => ({ ...enrichTask(task), is_read: readTaskIds.has(task.id) })),
     outgoing: (outgoing ?? []).map(enrichTask),
     overdue,
   });

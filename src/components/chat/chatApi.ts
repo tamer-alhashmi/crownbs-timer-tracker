@@ -49,6 +49,7 @@ export const fetchUnread = () =>
 
 export type TaskNotice = {
   id: string;
+  is_read: boolean;
   hotel_id: string;
   service_name_snapshot: string | null;
   notes: string | null;
@@ -79,6 +80,7 @@ export type TaskNotice = {
 export type OverdueTaskNotice = {
   id: string;
   task_id: string;
+  is_read: boolean;
   title: string;
   task_title: string;
   hotel_name: string;
@@ -95,6 +97,12 @@ export const fetchTaskNotifications = () =>
   ).then(() =>
     request<{ incoming: TaskNotice[]; outgoing: TaskNotice[]; overdue: OverdueTaskNotice[] }>("/api/tasks/notifications")
   );
+
+export const markTaskNotificationRead = (taskId: string) =>
+  request<{ success: true }>("/api/tasks/notifications/read", {
+    method: "PATCH",
+    body: JSON.stringify({ taskId }),
+  });
 
 export const fetchConversation = (contactId: string, channelId?: string) =>
   request<{ messages: ChatMessage[] }>(

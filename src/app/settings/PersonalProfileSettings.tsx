@@ -13,7 +13,6 @@ import { savePersonalProfile, saveSoundNotificationsPreference } from "./profile
 import { useSoundSettings } from "@/components/chat/ChatProviders";
 import { showActionToast } from "@/components/ui/ActionToast";
 import { EmailVerificationSettings } from "./EmailVerificationSettings";
-import { PushNotificationSettings } from "./PushNotificationSettings";
 
 const profileSchema = z.object({
   fullName: z.string().trim().min(1, "Enter your name.").max(120),
@@ -293,8 +292,8 @@ export default function PersonalProfileSettings({
         emailVerified={emailVerified}
         weeklyDigestEnabled={weeklyDigestEnabled}
         monthlyDigestEnabled={monthlyDigestEnabled}
+        pushPublicKey={pushPublicKey}
       />
-      <PushNotificationSettings publicKey={pushPublicKey} />
     </section>
   );
 }
