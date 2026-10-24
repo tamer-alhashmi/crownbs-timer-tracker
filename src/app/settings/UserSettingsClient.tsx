@@ -32,6 +32,15 @@ type FormState = {
 type UnlinkTarget = { userId: string; userName: string; hotels: { id: string; name: string }[] };
 const PAGE_SIZE = 10;
 const emptyForm: FormState = { fullName: "", email: "", phoneNumber: "", role: "cleaner", pinCode: "", hotelIds: [], primaryHotelId: "", password: "" };
+function getAssignmentErrorMessage(error: unknown): string {
+  if (typeof error === "string") return error;
+  if (typeof error === "object" && error !== null) {
+    if ("message" in error && typeof error.message === "string" && error.message) return error.message;
+    if ("error" in error && typeof error.error === "string" && error.error) return error.error;
+  }
+  return "Failed to assign property.";
+}
+
 const userSchema = z.object({
   fullName: z.string().trim().min(1, "Enter a full name.").max(120),
   email: z.string().trim().email("Enter a valid email address."),
@@ -146,19 +155,30 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
 
   const assignHotel = (userId: string) => startTransition(async () => {
     try {
-      if (!assignmentHotelId) throw new Error("Select a hotel first.");
-      await assignManagedUserToHotel(userId, assignmentHotelId);
+      if (!assignmentHotelId) {
+        const errorMessage = "Select a property first.";
+        setMessage(errorMessage);
+        showActionToast("error", errorMessage);
+        return;
+      }
+      const result = await assignManagedUserToHotel(userId, assignmentHotelId);
+      if (!result.success) {
+        const errorMessage = getAssignmentErrorMessage(result.error);
+        setMessage(errorMessage);
+        showActionToast("error", errorMessage);
+        return;
+      }
       const user = users.find((item) => item.id === userId);
       const hotel = hotels.find((item) => item.id === assignmentHotelId);
-      setMessage("Hotel assignment updated.");
+      setMessage("Property assignment updated.");
       showActionToast("success", `${hotel?.name ?? "Property"} assigned to ${user?.full_name ?? "user"}.`);
       setAssigningId(null);
       setAssignmentHotelId("");
       router.refresh();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to assign hotel.";
-      setMessage(message);
-      showActionToast("error", message);
+      const errorMessage = getAssignmentErrorMessage(error);
+      setMessage(errorMessage);
+      showActionToast("error", errorMessage);
     }
   });
 
