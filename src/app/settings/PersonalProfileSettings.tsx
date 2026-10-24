@@ -12,6 +12,8 @@ import type { UserRole } from "@/lib/roles";
 import { savePersonalProfile, saveSoundNotificationsPreference } from "./profileActions";
 import { useSoundSettings } from "@/components/chat/ChatProviders";
 import { showActionToast } from "@/components/ui/ActionToast";
+import { EmailVerificationSettings } from "./EmailVerificationSettings";
+import { PushNotificationSettings } from "./PushNotificationSettings";
 
 const profileSchema = z.object({
   fullName: z.string().trim().min(1, "Enter your name.").max(120),
@@ -28,9 +30,24 @@ type Props = {
   avatarUrl: string | null;
   languagePreference: string;
   role: UserRole;
+  emailVerified: boolean;
+  weeklyDigestEnabled: boolean;
+  monthlyDigestEnabled: boolean;
+  pushPublicKey: string | null;
 };
 
-export default function PersonalProfileSettings({ fullName, email, phoneNumber, avatarUrl, languagePreference, role }: Props) {
+export default function PersonalProfileSettings({
+  fullName,
+  email,
+  phoneNumber,
+  avatarUrl,
+  languagePreference,
+  role,
+  emailVerified,
+  weeklyDigestEnabled,
+  monthlyDigestEnabled,
+  pushPublicKey,
+}: Props) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { soundNotificationsEnabled, setSoundNotificationsEnabled } = useSoundSettings();
@@ -214,8 +231,11 @@ export default function PersonalProfileSettings({ fullName, email, phoneNumber, 
                 type="email"
                 {...form.register("email")}
                 autoComplete="email"
-                className="mt-1.5 min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+                readOnly
+                aria-readonly="true"
+                className="mt-1.5 min-h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 sm:max-w-md"
               />
+              <span className="mt-1 block text-xs text-slate-500">Use email verification below to change this address.</span>
               {form.formState.errors.email?.message && <span role="alert" className="mt-1 block text-xs text-rose-700">{form.formState.errors.email.message}</span>}
             </label>
             <label className="text-sm font-medium text-slate-700 sm:col-span-2">
@@ -268,6 +288,13 @@ export default function PersonalProfileSettings({ fullName, email, phoneNumber, 
           <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${soundNotificationsEnabled ? "translate-x-6" : "translate-x-1"}`} />
         </button>
       </div>
+      <EmailVerificationSettings
+        email={email}
+        emailVerified={emailVerified}
+        weeklyDigestEnabled={weeklyDigestEnabled}
+        monthlyDigestEnabled={monthlyDigestEnabled}
+      />
+      <PushNotificationSettings publicKey={pushPublicKey} />
     </section>
   );
 }

@@ -10,14 +10,25 @@ export async function GET() {
   const encoder = new TextEncoder();
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let stopped = false;
+  let cleanupStarted = false;
   let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
   let channelCleanup: Promise<unknown> | null = null;
   const stop = () => {
-    if (!stopped) {
-      stopped = true;
-      if (heartbeat) clearInterval(heartbeat);
+    stopped = true;
+    if (heartbeat) {
+      clearInterval(heartbeat);
+      heartbeat = undefined;
     }
-    channelCleanup ??= context.supabase.removeChannel(channel);
+    if (cleanupStarted) return channelCleanup ?? Promise.resolve("ok");
+    cleanupStarted = true;
+    if (channel.state === "closed" || channel.state === "leaving") {
+      channelCleanup = Promise.resolve("ok");
+      return channelCleanup;
+    }
+    channelCleanup = context.supabase.removeChannel(channel).catch((error: unknown) => {
+      console.error("[Chat System Error]: Unable to remove the realtime channel.", error);
+      return "error";
+    });
     return channelCleanup;
   };
 
@@ -192,8 +203,7 @@ export async function GET() {
             try {
               controller?.close();
             } catch {
-              void stop();
-              return;
+              // The stream may already have been closed by a concurrent cancellation.
             }
           }
           void stop();

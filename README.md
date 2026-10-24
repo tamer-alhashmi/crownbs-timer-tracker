@@ -12,13 +12,13 @@ From automated shift logging and room cleaning tracking to granular piece-rate/h
 
 ## Key Business Capabilities & Features
 
-### 1. Multi-Tenant Enterprise Architecture & Five-Tier Role Hierarchy
+### 1. Multi-Tenant Enterprise Architecture & Six-Role Access Hierarchy
 The platform enforces strict, role-scoped data isolation across all organizational levels:
-* **Super Admin**: Complete portfolio oversight, system-wide analytics, comprehensive audit logging, and global operational governance.
+* **Super Admin and Platform Admin**: Global portfolio oversight and support operations, with destructive platform controls reserved for Super Admin.
 * **Property Owner**: Multi-property asset control, customized service catalog configurations, room pricing models, executive financials, and staff assignments.
 * **Property Manager**: Day-to-day property orchestration, shift approvals, emergency managerial overrides, and real-time cleaner attendance tracking.
-* **Housekeeping Admin (HK Admin)**: A dedicated, property-scoped operations dashboard for room readiness, live cleaner shifts, floor inspections, task interventions, photo evidence review, and non-financial work history.
-* **Field Cleaners & Staff**: Intuitive, high-speed mobile interface for clocking in/out, picking up tasks, tracking room completions, and reviewing verified earnings.
+* **Housekeeping Admin**: A dedicated, property-scoped operations dashboard for room readiness, live cleaner shifts, floor inspections, task interventions, photo evidence review, and non-financial work history.
+* **Field Cleaners**: Intuitive, high-speed mobile interface for clocking in/out, picking up tasks, tracking room completions, and reviewing verified earnings.
 
 ---
 
@@ -71,8 +71,12 @@ A fully integrated, enterprise-grade communication system embedded directly into
 ### 6. Unified Settings Hub
 Consolidated, clean, and centralized settings management:
 * **Profile & Identity**: Update contact credentials, phone numbers, language preferences, and personal avatar photos.
-* **Workforce Directory**: Add, modify, or unlink team members across all 5 operational roles with quick 4-digit PIN generation.
+* **Workforce Directory**: Add, modify, or unlink team members across the operational roles with quick 4-digit PIN generation.
 * **Property & Facility Portfolio**: Manage hotels, named floor tiers, and custom service rates in one unified tabbed view.
+* **Verified Executive Email**: Link an email address using a rate-limited, expiring one-time code and choose weekly or monthly role-scoped operations summaries.
+* **Device Push Alerts**: Subscribe a device to task assignment alerts and manage notification permission recovery from profile settings.
+
+Digest delivery is triggered by `POST /api/cron/digests?cadence=weekly` or `cadence=monthly` with `Authorization: Bearer $CRON_SECRET`. Schedule weekly calls on Mondays and monthly calls on the first day of the month. Configure `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, and `CRON_SECRET`; set `EMAIL_OTP_SECRET` to a high-entropy secret for OTP hashing. Configure Web Push with `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` (`mailto:...`). Apply `supabase/migrations/20261027_email_digests_and_web_push.sql` before enabling these features.
 
 ---
 

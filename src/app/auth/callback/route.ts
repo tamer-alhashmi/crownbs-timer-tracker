@@ -92,6 +92,22 @@ export async function GET(request: Request) {
       return loginRedirect(requestUrl, "profile");
     }
 
+    const provider = authData.user.app_metadata.provider;
+    const authenticatedGoogleEmailMatchesProfile = provider === "google"
+      && authData.user.email_confirmed_at !== null
+      && profile.email.toLowerCase() === email;
+    if (authenticatedGoogleEmailMatchesProfile) {
+      const { error: verificationError } = await privilegedSupabase.from("users").update({
+        email_verified: true,
+        email_verified_at: authData.user.email_confirmed_at,
+        auth_provider: "google",
+      }).eq("id", profile.id).eq("email", profile.email).eq("email_verified", false);
+      if (verificationError) {
+        console.error("[Auth Callback Exception]: Unable to mark the Google account email as verified.", verificationError);
+        return loginRedirect(requestUrl, "profile");
+      }
+    }
+
     await setSessionCookies({
       userId: profile.id,
       email: profile.email,

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getSessionUser } from "@/lib/auth";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { isHousekeepingAdmin, isPlatformAdmin, normalizeUserRole, type UserRole } from "@/lib/roles";
+import { sendTaskAssignmentPush } from "@/lib/push";
 
 type TaskResult = { success: true; taskId?: string } | { success: false; error: string };
 type DispatchInput = {
@@ -186,7 +187,7 @@ async function getVerifiedActor() {
   const supabase = createPrivilegedServerSupabaseClient();
   const { data: actor, error } = await supabase
     .from("users")
-    .select("id, role, primary_hotel_id")
+    .select("id, full_name, role, primary_hotel_id")
     .eq("id", session.userId)
     .maybeSingle();
   if (error) throw new Error(error.message);
@@ -202,7 +203,7 @@ export async function dispatchTask(input: DispatchInput): Promise<TaskResult> {
     }
     const { data: hotel, error: hotelError } = await supabase
       .from("hotels")
-      .select("id, owner_id, manager_id, is_active")
+      .select("id, name, owner_id, manager_id, is_active")
       .eq("id", input.hotelId)
       .maybeSingle();
     if (hotelError) throw new Error(hotelError.message);
@@ -252,7 +253,7 @@ export async function dispatchTask(input: DispatchInput): Promise<TaskResult> {
 
     const { data: assignee, error: assigneeError } = await supabase
       .from("users")
-      .select("id, role, primary_hotel_id")
+      .select("id, full_name, role, primary_hotel_id")
       .eq("id", input.assignedTo)
       .maybeSingle();
     if (assigneeError) throw new Error(assigneeError.message);
@@ -333,6 +334,20 @@ export async function dispatchTask(input: DispatchInput): Promise<TaskResult> {
       .select("id")
       .single();
     if (insertError) throw new Error(insertError.message);
+    try {
+      await sendTaskAssignmentPush({
+        taskId: task.id,
+        userId: assignee.id,
+        hotelName: hotel.name,
+        priority: input.priority,
+        roomLabel: metadata.floorSection?.trim() || (roomIds.length ? `${roomIds.length} selected room${roomIds.length === 1 ? "" : "s"}` : "General area"),
+        taskTitle: service.name,
+        scheduledStart: assignedAt.toISOString(),
+        assignerName: actor.full_name,
+      });
+    } catch (pushError) {
+      console.error("Task was assigned, but push notification delivery could not be completed:", pushError);
+    }
     revalidatePath("/settings");
     revalidatePath("/dashboard");
     revalidatePath("/owner");
@@ -432,7 +447,7 @@ async function getManagedTask(taskId: string) {
   if (error) throw new Error(`Unable to load task: ${error.message}`);
   if (!task) throw new Error("Task was not found.");
   const { data: hotel, error: hotelError } = await supabase.from("hotels")
-    .select("id, owner_id, manager_id").eq("id", task.hotel_id).maybeSingle();
+    .select("id, name, owner_id, manager_id").eq("id", task.hotel_id).maybeSingle();
   if (hotelError) throw new Error(`Unable to verify task property: ${hotelError.message}`);
   if (!hotel) throw new Error("Task property was not found.");
   if (actor.role === "owner" && hotel.owner_id !== actor.id) throw new Error("This task is outside your property scope.");
@@ -468,7 +483,7 @@ export async function updatePendingDispatchTask(taskId: string, input: {
   if (!Array.isArray(input.roomIds) || input.roomIds.length > 100 || input.roomIds.some((id) => typeof id !== "string")) throw new Error("Choose up to 100 valid rooms or units.");
 
   const { data: target, error: targetError } = await supabase.from("users")
-    .select("id, role, primary_hotel_id").eq("id", input.assignedTo).maybeSingle();
+    .select("id, full_name, role, primary_hotel_id").eq("id", input.assignedTo).maybeSingle();
   if (targetError) throw new Error(`Unable to verify the selected staff member: ${targetError.message}`);
   const targetRole = target?.role as UserRole | undefined;
   const permittedTarget = target && (
@@ -484,11 +499,13 @@ export async function updatePendingDispatchTask(taskId: string, input: {
   const assignmentMatches = target.primary_hotel_id === hotel.id || hotel.manager_id === target.id || Boolean(assignment);
   if (!assignmentMatches) throw new Error("That staff member is not assigned to this property.");
   const roomIds = [...new Set(input.roomIds)];
+  let roomLabel = input.floorSection.trim() || "General area";
   if (roomIds.length) {
     const { data: validRooms, error: roomError } = await supabase.from("rooms")
-      .select("id").eq("hotel_id", task.hotel_id).eq("status", "active").in("id", roomIds);
+      .select("id, room_name").eq("hotel_id", task.hotel_id).eq("status", "active").in("id", roomIds);
     if (roomError) throw new Error(`Unable to verify selected rooms: ${roomError.message}`);
     if ((validRooms ?? []).length !== roomIds.length) throw new Error("Every selected room must be active and belong to this property.");
+    roomLabel = (validRooms ?? []).map((room) => room.room_name).join(", ");
   }
   const metadata = task.dispatch_metadata && typeof task.dispatch_metadata === "object" ? task.dispatch_metadata : {};
   const { data: updated, error: updateError } = await supabase.from("work_logs").update({
@@ -501,6 +518,22 @@ export async function updatePendingDispatchTask(taskId: string, input: {
   }).eq("id", task.id).eq("status", "assigned").select("id").maybeSingle();
   if (updateError) throw new Error(`Unable to update pending task: ${updateError.message}`);
   if (!updated) throw new Error("This task is no longer pending.");
+  if ((task.assigned_to ?? task.user_id) !== target.id) {
+    try {
+      await sendTaskAssignmentPush({
+        taskId: task.id,
+        userId: target.id,
+        hotelName: hotel.name,
+        priority: task.priority ?? "normal",
+        roomLabel,
+        taskTitle: task.service_name_snapshot ?? "Operations task",
+        scheduledStart: task.start_time,
+        assignerName: actor.full_name,
+      });
+    } catch (pushError) {
+      console.error("Task was reassigned, but push notification delivery could not be completed:", pushError);
+    }
+  }
   revalidateTaskViews();
 }
 
@@ -546,10 +579,17 @@ export async function completeDispatchTask(taskId: string, reason: string) {
 }
 
 export async function reopenCompletedDispatchTask(taskId: string) {
-  const { actor, supabase, task } = await getManagedTask(taskId);
+  const { actor, supabase, task, hotel } = await getManagedTask(taskId);
   if (task.status !== "completed" || task.task_date !== new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London" }).format(new Date())) {
     throw new Error("Only tasks completed today can be reopened from this view.");
   }
+  const assigneeId = task.assigned_to ?? task.user_id;
+  const { data: assignee, error: assigneeError } = await supabase.from("users")
+    .select("id")
+    .eq("id", assigneeId)
+    .maybeSingle();
+  if (assigneeError) throw new Error(`Unable to verify the task assignee: ${assigneeError.message}`);
+  if (!assignee) throw new Error("The task assignee could not be found.");
   const now = new Date().toISOString();
   const { data: updated, error } = await supabase.from("work_logs").update({
     status: "assigned",
@@ -566,6 +606,20 @@ export async function reopenCompletedDispatchTask(taskId: string) {
   }).eq("id", task.id).eq("status", "completed").select("id").maybeSingle();
   if (error) throw new Error(`Unable to reopen task: ${error.message}`);
   if (!updated) throw new Error("This completed task could not be reopened.");
+  try {
+    await sendTaskAssignmentPush({
+      taskId: task.id,
+      userId: assignee.id,
+      hotelName: hotel.name,
+      priority: task.priority ?? "normal",
+      roomLabel: task.room_numbers?.join(", ") || task.room_number || "General area",
+      taskTitle: task.service_name_snapshot ?? "Operations task",
+      scheduledStart: now,
+      assignerName: actor.full_name,
+    });
+  } catch (pushError) {
+    console.error("Task was reopened, but push notification delivery could not be completed:", pushError);
+  }
   revalidateTaskViews();
 }
 

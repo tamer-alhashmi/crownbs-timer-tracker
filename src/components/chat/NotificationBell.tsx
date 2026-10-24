@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, Bell, Clock, Loader2, MapPin, MessageCircle, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { fetchTaskNotifications, fetchUnread, type OverdueTaskNotice, type TaskNotice } from "./chatApi";
 import { useChatStore } from "./chatStore";
 import { roleLabel } from "@/lib/chat/types";
@@ -12,6 +13,7 @@ import { useSoundSettings } from "./ChatProviders";
 import { playChatSound } from "./chatSound";
 import { showActionToast } from "@/components/ui/ActionToast";
 import { safeChatError } from "./chatErrors";
+import { usePushPermission } from "@/lib/pushPermission";
 
 function relativeDispatchTime(value: string | null) {
   if (!value) return "Time unavailable";
@@ -44,6 +46,8 @@ export function NotificationBell() {
   const [taskError, setTaskError] = useState("");
   const [activeTaskWarning, setActiveTaskWarning] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
+  const [showPushHelp, setShowPushHelp] = useState(false);
+  const pushPermission = usePushPermission();
   const { soundNotificationsEnabled } = useSoundSettings();
   const { data, error } = useQuery({
     queryKey: ["chat", "unread"],
@@ -160,6 +164,16 @@ export function NotificationBell() {
             </div>
             <MessageCircle className="h-4 w-4 text-emerald-700" />
           </div>
+          {pushPermission === "denied" && (
+            <div className="border-b border-amber-200 bg-amber-50 px-4 py-3">
+              <p className="text-xs leading-5 text-amber-950">⚠️ Push notifications are turned off on your device. Turn them on to get instant task alerts directly on your lock screen.</p>
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <button type="button" onClick={() => setShowPushHelp((visible) => !visible)} className="text-xs font-bold text-amber-900 underline underline-offset-2">How to turn them on</button>
+                <Link href="/settings" className="text-xs font-bold text-amber-900 underline underline-offset-2">Notification settings</Link>
+              </div>
+              {showPushHelp && <p className="mt-2 text-xs leading-5 text-amber-900">Open this site&apos;s permissions from your browser&apos;s address-bar or site-settings menu, allow notifications, then return to Settings and enable push alerts.</p>}
+            </div>
+          )}
           {error ? (
             <p role="alert" className="px-4 py-5 text-sm text-rose-600">
               {safeChatError(error, "Notifications could not be loaded. Please try again.")}

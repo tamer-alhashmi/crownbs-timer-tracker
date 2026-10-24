@@ -68,6 +68,18 @@ async function loginWithEmailPassword(email: string, password: string, rememberM
     return { error: PROFILE_UNAVAILABLE };
   }
 
+  const { error: providerError } = await supabase.from("users").update({
+    auth_provider: "email",
+    ...(data.user.email_confirmed_at ? {
+      email_verified: true,
+      email_verified_at: data.user.email_confirmed_at,
+    } : {}),
+  }).eq("id", profile.id);
+  if (providerError) {
+    console.error("[Auth Exception]: Unable to update account authentication metadata.", providerError);
+    return { error: PROFILE_UNAVAILABLE };
+  }
+
   return establishUserSession(profile, rememberMe);
 }
 
@@ -98,6 +110,14 @@ async function loginWithPin(email: string, pinCode: string): Promise<LoginState>
     return { error: "Unable to sign in right now. Please try again." };
   }
   if (!data) return { error: "Invalid email or PIN code." };
+
+  const { error: providerError } = await supabase.from("users")
+    .update({ auth_provider: "pin" })
+    .eq("id", data.id);
+  if (providerError) {
+    console.error("[Auth Exception]: Unable to update account authentication metadata.", providerError);
+    return { error: PROFILE_UNAVAILABLE };
+  }
 
   return establishUserSession(data);
 }
