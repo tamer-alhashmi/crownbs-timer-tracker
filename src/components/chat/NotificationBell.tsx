@@ -1,10 +1,11 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, Bell, Clock, Loader2, MapPin, MessageCircle, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { fetchTaskNotifications, fetchUnread, type OverdueTaskNotice, type TaskNotice } from "./chatApi";
+import { useRouter } from "next/navigation";
+import { fetchTaskNotifications, fetchUnread, markTaskNotificationRead, type OverdueTaskNotice, type TaskNotice } from "./chatApi";
 import { useChatStore } from "./chatStore";
 import { roleLabel } from "@/lib/chat/types";
 import { UserAvatar } from "@/components/shared/UserAvatar";
@@ -29,6 +30,12 @@ function relativeDispatchTime(value: string | null) {
   return new Date(timestamp).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 }
 
+function scheduledTime(value: string) {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return "Scheduled time unavailable";
+  return new Intl.DateTimeFormat([], { dateStyle: "medium", timeStyle: "short" }).format(new Date(timestamp));
+}
+
 function priorityStyle(priority: TaskNotice["priority"]) {
   if (priority === "urgent") return "bg-red-50 text-red-800";
   if (priority === "high") return "bg-amber-50 text-amber-900";
@@ -47,6 +54,8 @@ export function NotificationBell() {
   const [activeTaskWarning, setActiveTaskWarning] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [showPushHelp, setShowPushHelp] = useState(false);
+  const queryClient = useQueryClient();
+  const router = useRouter();
   const pushPermission = usePushPermission();
   const { soundNotificationsEnabled } = useSoundSettings();
   const { data, error } = useQuery({
@@ -66,7 +75,9 @@ export function NotificationBell() {
   const incoming = taskQuery.data?.incoming ?? [];
   const outgoing = taskQuery.data?.outgoing ?? [];
   const overdue = taskQuery.data?.overdue ?? [];
-  const unreadCount = (data?.count ?? 0) + incoming.length + overdue.length;
+  const unreadAssignments = incoming.filter((task) => !task.is_read);
+  const unreadOverdue = overdue.filter((alert) => !alert.is_read);
+  const unreadCount = (data?.count ?? 0) + unreadAssignments.length + unreadOverdue.length;
 
   useEffect(() => {
     if (!isOpen) return;
@@ -127,6 +138,31 @@ export function NotificationBell() {
     }
   };
 
+  const markTaskRead = async (taskId: string) => {
+    try {
+      await markTaskNotificationRead(taskId);
+      await queryClient.invalidateQueries({ queryKey: ["tasks", "notifications"] });
+      setTaskError("");
+    } catch (error) {
+      const message = safeChatError(error, "Unable to mark this task notification as read.");
+      setTaskError(message);
+      showActionToast("error", message);
+    }
+  };
+
+  const openAssignedTask = async (taskId: string) => {
+    const task = incoming.find((item) => item.id === taskId);
+    if (task && !task.is_read) await markTaskRead(taskId);
+    setIsOpen(false);
+    router.push(`/tasks/${encodeURIComponent(taskId)}`);
+  };
+
+  const openOverdueTask = async (href: string, taskId: string, isRead: boolean) => {
+    if (!isRead) await markTaskRead(taskId);
+    setIsOpen(false);
+    router.push(href);
+  };
+
   return (
     <div ref={containerRef} className="relative">
       {taskToast && (
@@ -149,7 +185,7 @@ export function NotificationBell() {
         <Bell className="h-5 w-5" />
         {unreadCount > 0 && (
           <span className="chat-unread-badge absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-bold text-white ring-2 ring-white">
-            {unreadCount > 99 ? "99+" : unreadCount}
+            {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
       </button>
@@ -159,7 +195,7 @@ export function NotificationBell() {
             <div>
               <p className="text-sm font-semibold text-slate-900">Notifications</p>
               <p className="text-xs text-slate-500">
-                {unreadCount} pending {unreadCount === 1 ? "notification" : "notifications"}
+                {unreadCount} unread {unreadCount === 1 ? "notification" : "notifications"}
               </p>
             </div>
             <MessageCircle className="h-4 w-4 text-emerald-700" />
@@ -186,13 +222,14 @@ export function NotificationBell() {
               <div className="border-b border-rose-100 bg-rose-50/40 p-2">
                 <p className="px-2 py-1 text-xs font-bold uppercase tracking-wide text-rose-800">Overdue task alerts</p>
                 {overdue.map((alert: OverdueTaskNotice) => (
-                  <article key={alert.id} className="mb-2 rounded-lg border border-rose-200 bg-white p-3 shadow-sm">
+                  <article key={alert.id} className={`mb-2 rounded-lg border bg-white p-3 shadow-sm ${alert.is_read ? "border-rose-100" : "border-rose-300"}`}>
                     <h3 className="text-sm font-bold text-rose-800">⚠️ {alert.title}</h3>
                     <p className="mt-1 text-xs font-semibold text-slate-900">{alert.hotel_name} · {alert.task_title}</p>
                     <p className="mt-1 text-xs text-slate-600">Assigned staff: {alert.assignee_name}</p>
                     <p className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-rose-700"><Clock className="h-3.5 w-3.5" />Open for {alert.open_duration}</p>
-                    <div className="mt-2 flex justify-end">
-                      <a href={alert.href} className="inline-flex min-h-9 items-center rounded-lg bg-rose-700 px-3 text-xs font-semibold text-white hover:bg-rose-800">View task · {alert.task_id.slice(0, 8)}</a>
+                    <div className="mt-2 flex justify-end gap-2">
+                      {!alert.is_read && <button type="button" onClick={() => void markTaskRead(alert.task_id)} className="inline-flex min-h-9 items-center rounded-lg border border-rose-200 px-3 text-xs font-semibold text-rose-800 hover:bg-rose-50">Mark read</button>}
+                      <button type="button" onClick={() => void openOverdueTask(alert.href, alert.task_id, alert.is_read)} className="inline-flex min-h-9 items-center rounded-lg bg-rose-700 px-3 text-xs font-semibold text-white hover:bg-rose-800">View task · {alert.task_id.slice(0, 8)}</button>
                     </div>
                   </article>
                 ))}
@@ -202,17 +239,19 @@ export function NotificationBell() {
               <div className="border-b border-slate-100 p-2">
                 <p className="px-2 py-1 text-xs font-bold uppercase tracking-wide text-slate-500">Assigned tasks</p>
                 {incoming.map((task) => (
-                  <article key={task.id} className="mb-2 rounded-lg border border-slate-100 bg-white p-3 transition hover:bg-slate-50">
+                  <article key={task.id} className={`mb-2 rounded-lg border bg-white p-3 transition hover:bg-slate-50 ${task.is_read ? "border-slate-100" : "border-sky-200"}`}>
                     <div className="flex items-start justify-between gap-2">
                       <h3 className="min-w-0 text-sm font-semibold text-slate-900">{task.service_name_snapshot ?? "Assigned task"}</h3>
                       <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold capitalize ${priorityStyle(task.priority)}`}><AlertCircle className="h-3.5 w-3.5" />{task.priority === "low" ? "Standard" : task.priority}</span>
                     </div>
                     <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-600"><User className="h-3.5 w-3.5 shrink-0 text-slate-400" /><span className="min-w-0 truncate">From: {task.sender_name ?? "Team member"}{task.sender_role ? ` · ${roleLabel(task.sender_role)}` : ""}</span></p>
                     <p className="mt-1 flex items-start gap-1.5 text-xs text-slate-600"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" /><span>{task.hotel_name ?? "Property"}{task.room_label ? ` · ${task.room_label}` : task.floor_section ? ` · ${task.floor_section}` : ""}</span></p>
-                    <p className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500"><Clock className="h-3.5 w-3.5 text-slate-400" />{relativeDispatchTime(task.assigned_at)}</p>
+                    <p className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500"><Clock className="h-3.5 w-3.5 text-slate-400" />Scheduled {scheduledTime(task.start_time)}</p>
                     {(task.notes || task.dispatch_metadata?.issueDescription) && <p className="mt-2 rounded-md border border-slate-100 bg-slate-50 px-2.5 py-2 text-xs leading-5 text-slate-700">{task.notes || task.dispatch_metadata?.issueDescription}</p>}
-                    <div className="mt-3 flex items-center justify-end gap-2">
-                      <button type="button" aria-expanded={selectedTaskId === task.id} onClick={() => { setSelectedTaskId(selectedTaskId === task.id ? null : task.id); setTaskError(""); }} className="min-h-9 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-white">{selectedTaskId === task.id ? "Hide details" : "View task"}</button>
+                    <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                      {!task.is_read && <button type="button" onClick={() => void markTaskRead(task.id)} className="min-h-9 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-white">Mark read</button>}
+                      <button type="button" aria-expanded={selectedTaskId === task.id} onClick={() => { setSelectedTaskId(selectedTaskId === task.id ? null : task.id); setTaskError(""); }} className="min-h-9 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-white">{selectedTaskId === task.id ? "Hide details" : "Details"}</button>
+                      <button type="button" onClick={() => void openAssignedTask(task.id)} className="min-h-9 rounded-lg border border-sky-700 bg-sky-700 px-3 text-xs font-semibold text-white hover:bg-sky-800">Open task</button>
                       <button type="button" onClick={() => void startTask(task.id)} disabled={isStarting} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-emerald-700 px-3 text-xs font-semibold text-white disabled:opacity-50">
                         {isStarting ? <><Loader2 className="h-4 w-4 animate-spin" />Starting...</> : "Accept / Start"}
                       </button>

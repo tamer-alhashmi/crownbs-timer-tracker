@@ -8,12 +8,14 @@ import {
   saveDigestPreferences,
   verifyEmailAddress,
 } from "./profileActions";
+import { PushNotificationSettings } from "./PushNotificationSettings";
 
 type Props = {
   email: string;
   emailVerified: boolean;
   weeklyDigestEnabled: boolean;
   monthlyDigestEnabled: boolean;
+  pushPublicKey: string | null;
 };
 
 export function EmailVerificationSettings({
@@ -21,6 +23,7 @@ export function EmailVerificationSettings({
   emailVerified,
   weeklyDigestEnabled,
   monthlyDigestEnabled,
+  pushPublicKey,
 }: Props) {
   const [requestedEmail, setRequestedEmail] = useState(email);
   const [weekly, setWeekly] = useState(weeklyDigestEnabled);
@@ -145,6 +148,8 @@ export function EmailVerificationSettings({
         )}
         {notice && <p role="status" className="mt-3 text-sm text-slate-700">{notice}</p>}
       </section>
+
+      <PushNotificationSettings publicKey={pushPublicKey} />
 
       {modalOpen && (
         <div className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/55 p-0 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget && !isPending) setModalOpen(false); }}>
