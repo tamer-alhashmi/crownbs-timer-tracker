@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Clock3, Eye, EyeOff, KeyRound, LoaderCircle, Mail, ShieldCheck } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { login } from "./actions";
@@ -16,6 +16,7 @@ export default function LoginPage() {
 
 function LoginContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [method, setMethod] = useState<"email" | "pin">("email");
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
@@ -36,7 +37,11 @@ function LoginContent() {
       setError("");
       setNotice("");
       const result = await login(formData);
-      setError(result.error);
+      if (result.redirectTo) {
+        router.replace(result.redirectTo);
+        return;
+      }
+      setError(result.error ?? "");
     } catch (err) {
       if (
         typeof err === "object" &&

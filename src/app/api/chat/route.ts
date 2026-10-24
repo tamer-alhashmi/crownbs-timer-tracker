@@ -83,6 +83,7 @@ export async function GET(request: NextRequest) {
           .select("id", { count: "exact", head: true })
           .eq("sender_id", contact.id)
           .eq("receiver_id", actor.id)
+          .neq("sender_id", actor.id)
           .eq("is_read", false);
 
         if (countError) {
@@ -182,6 +183,7 @@ export async function GET(request: NextRequest) {
             count: "exact",
           })
           .eq("receiver_id", actor.id)
+          .neq("sender_id", actor.id)
           .eq("is_read", false)
           .in("sender_id", visibleContactIds)
           .order("created_at", { ascending: false })

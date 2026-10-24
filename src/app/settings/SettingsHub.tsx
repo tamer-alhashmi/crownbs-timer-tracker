@@ -38,7 +38,7 @@ export default function SettingsHub({ role, utility, profile, billing, payroll, 
     const requestedTab = url.searchParams.get("tab");
     if (requestedTab === "overview") {
       url.searchParams.set("tab", "profile");
-      window.history.replaceState(null, "", url);
+      window.history.replaceState(window.history.state, "", url);
       return;
     }
     if (requestedTab && tabs.some(({ id }) => id === requestedTab && isTabVisible(id, role))) {
@@ -47,18 +47,24 @@ export default function SettingsHub({ role, utility, profile, billing, payroll, 
   }, [role]);
   const content: Record<Tab, ReactNode> = { profile, payroll: payroll ?? null, users, properties };
 
+  const selectTab = (tab: Tab) => {
+    setActiveTab(tab);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", tab);
+    window.history.replaceState(window.history.state, "", url);
+  };
+
   return (
-    <main className="min-h-screen bg-slate-50 px-3 py-5 text-slate-900 sm:px-6 sm:py-8">
+    <main className="min-h-screen overflow-y-auto bg-slate-50 px-3 py-5 text-slate-900 sm:px-6 sm:py-8">
       <div className="mx-auto max-w-7xl">
-        <header className="sticky top-0 z-20 mb-5 border-b border-slate-200 bg-slate-50/95 pb-3 pt-2 backdrop-blur">
+        <header className="mb-5 border-b border-slate-200 pb-3 pt-2">
           <div className="mb-4 flex items-center justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Account settings</p>
               <h1 className="mt-1 text-2xl font-bold text-slate-950">Settings</h1>
             </div>
-            <div className="flex shrink-0 items-center gap-2">{utility}</div>
+            <div className="flex shrink-0 items-center gap-2">{billing}{utility}</div>
           </div>
-          {billing}
           <nav aria-label="Settings sections" role="tablist" className="flex gap-2 overflow-x-auto">
             {visibleTabs.map(({ id, label, icon: Icon }) => (
               <button
@@ -68,7 +74,7 @@ export default function SettingsHub({ role, utility, profile, billing, payroll, 
                 role="tab"
                 aria-selected={activeTab === id}
                 aria-controls={`settings-panel-${id}`}
-                onClick={() => setActiveTab(id)}
+                onClick={() => selectTab(id)}
                 className={`inline-flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${
                   activeTab === id
                     ? "bg-slate-900 text-white shadow-sm"

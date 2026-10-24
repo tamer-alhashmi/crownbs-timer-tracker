@@ -75,10 +75,22 @@ function getTopOverlay() {
   }).at(-1);
 }
 
-function closeTopOverlay() {
-  const overlay = getTopOverlay();
-  if (!overlay) return false;
+function getTopBrowserOverlay() {
+  const overlays = Array.from(document.querySelectorAll<HTMLElement>(
+    '[data-back-button-overlay="true"], [role="dialog"], [role="alertdialog"], dialog[open]'
+  )).filter((overlay) =>
+    overlay.getClientRects().length > 0 &&
+    window.getComputedStyle(overlay).visibility !== "hidden" &&
+    !overlay.closest(".chat-panel")
+  );
+  return overlays.sort((left, right) => {
+    const leftZIndex = Number.parseInt(window.getComputedStyle(left).zIndex, 10) || 0;
+    const rightZIndex = Number.parseInt(window.getComputedStyle(right).zIndex, 10) || 0;
+    return leftZIndex - rightZIndex;
+  }).at(-1);
+}
 
+function closeOverlay(overlay: HTMLElement) {
   const closeButton = overlay.querySelector<HTMLButtonElement>(
     'button[aria-label*="close" i], button[aria-label*="cancel" i]'
   );
@@ -92,6 +104,11 @@ function closeTopOverlay() {
   return true;
 }
 
+function closeTopOverlay() {
+  const overlay = getTopOverlay();
+  return overlay ? closeOverlay(overlay) : false;
+}
+
 export function BackButtonHandler({ userRole }: { userRole: UserRole | null }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -99,6 +116,50 @@ export function BackButtonHandler({ userRole }: { userRole: UserRole | null }) {
   const lastBackAt = useRef(0);
   const hintTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showExitHint, setShowExitHint] = useState(false);
+
+  useEffect(() => {
+    if (Capacitor.isNativePlatform()) return;
+
+    let overlayHistoryEntryActive = false;
+    const syncOverlayHistory = () => {
+      const overlay = getTopBrowserOverlay();
+      if (overlay && !overlayHistoryEntryActive) {
+        window.history.pushState(
+          { ...(window.history.state && typeof window.history.state === "object" ? window.history.state : {}), backButtonOverlay: true },
+          "",
+          window.location.href
+        );
+        overlayHistoryEntryActive = true;
+      } else if (!overlay) {
+        overlayHistoryEntryActive = false;
+      }
+    };
+    const closeOverlayOnBack = () => {
+      const overlay = getTopBrowserOverlay();
+      if (!overlay) {
+        overlayHistoryEntryActive = false;
+        return;
+      }
+      closeOverlay(overlay);
+      window.history.pushState(window.history.state, "", window.location.href);
+      overlayHistoryEntryActive = true;
+    };
+
+    const observer = new MutationObserver(syncOverlayHistory);
+    observer.observe(document.body, {
+      attributes: true,
+      childList: true,
+      subtree: true,
+      attributeFilter: ["class", "style", "open", "aria-hidden"],
+    });
+    window.addEventListener("popstate", closeOverlayOnBack, true);
+    syncOverlayHistory();
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("popstate", closeOverlayOnBack, true);
+    };
+  }, []);
 
   useEffect(() => {
     if (!userRole || pathname === "/login" || pathname.startsWith("/auth")) {
