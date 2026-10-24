@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition, type ReactNode } from "react";
 import Link from "next/link";
-import { Activity, CalendarDays, Check, CircleDollarSign, ClipboardList, Gauge, History, Hotel, Loader2, Pencil, UsersRound, X, BookOpen, Wallet, Columns3, Filter, Search, CreditCard } from "lucide-react";
+import { Activity, Building2, CalendarDays, Check, CircleDollarSign, ClipboardList, Gauge, History, Hotel, Loader2, Pencil, UsersRound, X, BookOpen, Wallet, Columns3, Filter, Search, CreditCard, ShieldAlert } from "lucide-react";
 import { OperationalBrief } from "@/components/dashboard/OperationalBrief";
 import { ServiceCard } from "@/components/dashboard/ServiceCard";
 import { SystemManual } from "@/components/dashboard/SystemManual";
@@ -26,6 +26,7 @@ import { ActiveAssignedTaskCard } from "@/components/dashboard/ActiveAssignedTas
 import { showActionToast } from "@/components/ui/ActionToast";
 import type { UserRole } from "@/lib/roles";
 import { isPlatformAdmin } from "@/lib/roles";
+import { formatUserMessage } from "@/lib/userMessages";
 
 const DASHBOARD_TABS = [
   { id: "overview", label: "Overview", icon: Gauge },
@@ -79,21 +80,12 @@ function durationHours(startTime: string, endTime: string) {
   return Math.max(0, (new Date(endTime).getTime() - new Date(startTime).getTime()) / 3_600_000);
 }
 
+function formatGBP(value: number) {
+  return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(value);
+}
+
 function getActionErrorMessage(error: unknown, fallback: string) {
-  if (typeof error === "string" && error.trim()) return error;
-  if (error instanceof Error && error.message) return error.message;
-  if (error && typeof error === "object" && "message" in error && typeof error.message === "string" && error.message) {
-    return error.message;
-  }
-  if (error && typeof error === "object") {
-    try {
-      const serialized = JSON.stringify(error);
-      if (serialized && serialized !== "{}") return serialized;
-    } catch {
-      return fallback;
-    }
-  }
-  return fallback;
+  return formatUserMessage(error, fallback);
 }
 
 function getLogLaborCost(log: Log) {
@@ -388,15 +380,15 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
           {dispatchData && <TaskDispatchClient role={data.userRole as UserRole} {...dispatchData} />}
           {tenantIntelligence}
           <DashboardHeading title="Executive overview" description="Portfolio performance, approvals, and operating costs at a glance." />
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <Metric label="Properties" value={data.hotels.length} icon={Hotel} />
-            <Metric label="Completed work logs" value={completedLogs.length} icon={ClipboardList} />
-            <Metric label="Awaiting approval" value={data.workLogs.filter((log) => !log.is_locked && log.status === "completed").length} icon={Activity} />
-            <Metric label="Active cleaners" value={activeCleanerCount} icon={UsersRound} />
-            <Metric label="Operational labor cost" value={`GBP ${totalLaborCost.toFixed(2)}`} icon={CircleDollarSign} />
-            <Metric label="Cost per cleaned room" value={`GBP ${completedRooms ? (totalLaborCost / completedRooms).toFixed(2) : "0.00"}`} icon={CircleDollarSign} />
-            <Metric label="Locked payroll liability*" value={`GBP ${lockedPayrollLiability.toFixed(2)}`} icon={Wallet} />
-            <Metric label="Service costs · brief period" value={`GBP ${periodServiceCost.toFixed(2)}`} icon={CircleDollarSign} />
+          <section className="grid grid-cols-2 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Metric label="Properties" value={data.hotels.length} icon={Building2} tone="sky" />
+            <Metric label="Completed work logs" value={completedLogs.length} icon={ClipboardList} tone="emerald" />
+            <Metric label="Awaiting approval" value={data.workLogs.filter((log) => !log.is_locked && log.status === "completed").length} icon={ShieldAlert} tone="amber" />
+            <Metric label="Active cleaners" value={activeCleanerCount} icon={UsersRound} tone="violet" />
+            <Metric label="Operational labor cost" value={formatGBP(totalLaborCost)} icon={CircleDollarSign} tone="violet" />
+            <Metric label="Cost per cleaned room" value={formatGBP(completedRooms ? totalLaborCost / completedRooms : 0)} icon={CircleDollarSign} tone="sky" />
+            <Metric label="Locked payroll liability*" value={formatGBP(lockedPayrollLiability)} icon={Wallet} tone="amber" />
+            <Metric label="Service costs · brief period" value={formatGBP(periodServiceCost)} icon={CircleDollarSign} tone="emerald" />
           </section>
           <section aria-label="Live staff activity" className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-center gap-2">
@@ -456,8 +448,8 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
       setToDate={(value) => { setToDate(value); setWorkLogPage(1); }}
     />
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-      <div className="admin-config-scroll max-h-[65vh] overflow-auto rounded-lg border border-slate-200 [-webkit-overflow-scrolling:touch]">
-        <table className="min-w-[760px] w-full text-left text-sm">
+      <div className="admin-config-scroll mobile-card-table-wrapper max-h-[65vh] overflow-auto rounded-lg border border-slate-200 [-webkit-overflow-scrolling:touch]">
+        <table className="mobile-card-table min-w-[760px] w-full text-left text-sm">
           <thead className="sticky top-0 z-10 bg-white/95 text-slate-600 shadow-sm backdrop-blur"><tr><th className="px-3 py-3">Cleaner</th><th className="px-3 py-3">Hotel / service</th><th className="px-3 py-3 text-right">Shift</th><th className="px-3 py-3">Approvals</th><th className="px-3 py-3">Actions</th></tr></thead>
           <tbody className="divide-y divide-slate-100">{visibleWorkLogs.map((log) => {
             const isOwnLog = log.user_id === data.currentUserId;
@@ -489,10 +481,10 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
 
         <section id="panel-financials" role="tabpanel" aria-labelledby="tab-financials" hidden={activeTab !== "financials"} className="space-y-5">
           <DashboardHeading title="Financials & payroll" description="Approved payroll records, configurable task overrides, and cost reporting." />
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            <Metric label="Operational labor cost" value={`GBP ${totalLaborCost.toFixed(2)}`} icon={CircleDollarSign} />
-            <Metric label="Cost per completed room" value={`GBP ${completedRooms ? (totalLaborCost / completedRooms).toFixed(2) : "0.00"}`} icon={Activity} />
-            <Metric label="Locked payroll liability*" value={`GBP ${lockedPayrollLiability.toFixed(2)}`} icon={Wallet} />
+          <section className="grid grid-cols-2 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <Metric label="Operational labor cost" value={formatGBP(totalLaborCost)} icon={CircleDollarSign} tone="violet" />
+            <Metric label="Cost per completed room" value={formatGBP(completedRooms ? totalLaborCost / completedRooms : 0)} icon={Activity} tone="sky" />
+            <Metric label="Locked payroll liability*" value={formatGBP(lockedPayrollLiability)} icon={Wallet} tone="amber" />
           </section>
           <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-950">*This is the total value of locked payroll records. The current schema does not track payment/settlement, so it cannot confirm unpaid balances.</p>
           <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/70">
@@ -559,10 +551,49 @@ function WorkLogFilters({ hotels, cleaners, services, needsActionOnly, setNeedsA
   setFromDate: (value: string) => void;
   setToDate: (value: string) => void;
 }) {
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const statuses = ["Active", "Approved", "Pending approval", "Rejected"];
   const selectClass = "mt-1 h-9 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-normal text-slate-800 md:text-sm";
   const compactButtonClass = "h-9 min-w-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold md:text-sm";
+  const activeFilterCount = [
+    needsActionOnly,
+    Boolean(cleaner),
+    Boolean(hotel),
+    Boolean(service),
+    Boolean(status),
+    Boolean(fromDate),
+    Boolean(toDate),
+  ].filter(Boolean).length;
+  const clearAll = () => {
+    setNeedsActionOnly(false);
+    setCleaner("");
+    setHotel("");
+    setService("");
+    setStatus("");
+    setFromDate("");
+    setToDate("");
+    setSortColumn("date");
+    setSortAscending(true);
+  };
   return <section className="mb-4 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200" aria-label="Work log filters">
+    <button
+      type="button"
+      aria-expanded={filtersOpen}
+      onClick={() => setFiltersOpen((open) => !open)}
+      className="mb-2 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 md:hidden"
+    >
+      <Filter className="h-4 w-4" />Filter & Search (Active: {activeFilterCount})
+    </button>
+    <div
+      role={filtersOpen ? "dialog" : undefined}
+      aria-modal={filtersOpen ? true : undefined}
+      aria-label={filtersOpen ? "Filter and search work logs" : undefined}
+      className={`${filtersOpen ? "fixed inset-0 z-[80] flex items-end bg-slate-950/40 md:static md:block md:bg-transparent" : "hidden md:block"}`}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) setFiltersOpen(false);
+      }}
+    >
+    <div className="w-full rounded-t-2xl bg-white p-3 shadow-2xl md:contents">
     <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
       <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Work log filters</p><p className="mt-0.5 text-xs text-slate-500">Filter by column or sort the current results.</p></div>
       <button type="button" aria-pressed={needsActionOnly} onClick={() => setNeedsActionOnly(!needsActionOnly)} className={`${compactButtonClass} ${needsActionOnly ? "bg-amber-700 text-white" : "border border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100"}`}>Needs Action / Pending Approval</button>
@@ -580,6 +611,12 @@ function WorkLogFilters({ hotels, cleaners, services, needsActionOnly, setNeedsA
         <button type="button" onClick={() => { setFromDate(""); setToDate(""); }} className={`${compactButtonClass} border border-slate-200 bg-white text-slate-700 hover:bg-slate-50`}>Clear dates</button>
       </div>
     </div>
+    <div className="mt-3 flex justify-end gap-2 md:hidden">
+      <button type="button" onClick={clearAll} className="min-h-10 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700">Clear All</button>
+      <button type="button" onClick={() => setFiltersOpen(false)} className="min-h-10 rounded-lg bg-slate-900 px-4 text-sm font-semibold text-white">Apply</button>
+    </div>
+    </div>
+    </div>
   </section>;
 }
 
@@ -588,15 +625,15 @@ const WorkLogRow = memo(function WorkLogRow({ log, isOwnLog, canManager, canOwne
   const isPending = feedback?.kind === "pending";
   const hours = log.end_time ? durationHours(log.start_time, log.end_time) : 0;
   return <tr className="align-top">
-    <td className="px-3 py-4 font-medium text-slate-900">{log.cleanerName}</td>
-    <td className="px-3 py-4 text-slate-600">{log.hotelName}<br /><span className="text-xs">{log.services_config?.[0]?.name ?? "Service"} - {log.rooms_completed} rooms</span></td>
-    <td className="px-3 py-4 text-slate-600">{new Date(log.start_time).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}<br /><span className="text-xs">{log.end_time ? `${hours.toFixed(2)} hours` : "Active"}</span></td>
-    <td className="px-3 py-4 text-xs">
+    <td data-label="Cleaner" className="px-3 py-4 font-medium text-slate-900">{log.cleanerName}</td>
+    <td data-label="Hotel / service" className="px-3 py-4 text-slate-600">{log.hotelName}<br /><span className="text-xs">{log.services_config?.[0]?.name ?? "Service"} - {log.rooms_completed} rooms</span></td>
+    <td data-label="Shift" className="px-3 py-4 text-slate-600">{new Date(log.start_time).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}<br /><span className="text-xs">{log.end_time ? `${hours.toFixed(2)} hours` : "Active"}</span></td>
+    <td data-label="Approvals" className="px-3 py-4 text-xs">
       <div className={log.manager_approved ? "font-semibold text-emerald-700" : "text-amber-700"}>Manager: {log.manager_approved ? "Approved" : log.manager_rejected ? "Rejected" : "Pending"}</div>
       <div className={log.owner_approved ? "font-semibold text-emerald-700" : "text-amber-700"}>Owner: {log.owner_approved ? "Approved" : log.owner_rejected ? "Rejected" : "Pending"}</div>
       {log.is_locked && <div className="mt-1 font-semibold text-slate-900">Locked for payroll</div>}
     </td>
-    <td className="px-3 py-4">
+    <td data-label="Actions" className="px-3 py-4">
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" onClick={() => onEdit(log.id)} className="flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 text-slate-700" title="Open full work-log details"><Pencil className="h-4 w-4" /></button>
         {isOwnLog ? <span className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700">
@@ -663,9 +700,15 @@ function PayrollFilteredLegacy({ logs }: { logs: PayrollLog[] }) {
   return <section className="mt-6 rounded-3xl bg-white p-4 text-slate-900 shadow-sm ring-1 ring-slate-200"><div className="flex flex-col gap-4 border-b border-slate-100 pb-4 lg:flex-row lg:items-end lg:justify-between"><div><h2 className="text-xl font-bold">Payroll</h2><p className="mt-1 text-sm text-slate-500">{isMonthToDate ? "Month to date" : "Selected period"} · newest records first</p></div><div className="grid grid-cols-2 items-end gap-3"><label className="text-xs font-semibold uppercase tracking-wide text-slate-500">From<input type="date" value={from} max={to} onChange={(event) => setFrom(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900" /></label><label className="text-xs font-semibold uppercase tracking-wide text-slate-500">To<input type="date" value={to} min={from} max={today} onChange={(event) => setTo(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900" /></label></div></div><div className="my-4 grid gap-3 sm:grid-cols-3"><div className="rounded-2xl bg-slate-900 p-4 text-white"><p className="text-xs uppercase tracking-wide text-slate-300">Gross service costs</p><p className="mt-1 text-2xl font-bold">GBP {total.toFixed(2)}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs text-slate-500">Payroll records</p><p className="mt-1 text-2xl font-bold text-slate-900">{filteredLogs.length}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs text-slate-500">Date range</p><p className="mt-1 text-sm font-semibold text-slate-900">{from} to {to}</p></div></div><div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead className="border-b border-slate-200 text-slate-500"><tr><th className="px-3 py-3">Task date/time</th><th className="px-3 py-3">Cleaner</th><th className="px-3 py-3">Hotel / service</th><th className="px-3 py-3">Hours</th><th className="px-3 py-3">Rooms</th><th className="px-3 py-3">Calculated cost</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredLogs.map((log) => { const hours = log.end_time ? durationHours(log.start_time, log.end_time) : 0; const service = log.services_config?.[0] ?? {}; const rate = resolveServiceRate(service); const unit = resolveBillingUnit(service.unit, service.name ?? ""); const wage = calculateTaskCost(hours, log.rooms_completed, { ...service, default_rate: rate, unit }, log.cost_override); return <tr key={log.id}><td className="px-3 py-3 text-slate-700">{new Date(log.start_time).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}</td><td className="px-3 py-3 font-medium text-slate-900">{log.cleanerName}</td><td className="px-3 py-3 text-slate-700">{log.hotelName}<br /><span className="text-xs">{service.name ?? "Service"} · GBP {rate.toFixed(2)} {unit === "hourly" ? "/hr" : unit === "per_room" ? "/room" : "fixed"}</span></td><td className="px-3 py-3 text-slate-700">{hours.toFixed(2)}</td><td className="px-3 py-3 text-slate-700">{log.rooms_completed}</td><td className="px-3 py-3 font-semibold text-slate-900">GBP {wage.toFixed(2)}</td></tr>; })}{filteredLogs.length === 0 && <tr><td colSpan={6} className="px-3 py-8 text-center text-slate-500">No locked payroll records in this date range.</td></tr>}</tbody></table></div></section>;
 }
 function Payroll({ logs }: { logs: PayrollLog[] }) { return <section className="mt-6 rounded-3xl bg-white p-4 text-slate-900 shadow-sm ring-1 ring-slate-200"><div className="mb-4 flex items-center justify-between"><h2 className="text-xl font-bold text-slate-900">Payroll</h2><span className="text-sm text-slate-500">Locked logs only</span></div><div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead className="border-b border-slate-200 text-slate-500"><tr><th className="px-3 py-3">Cleaner</th><th className="px-3 py-3">Hotel</th><th className="px-3 py-3">Service</th><th className="px-3 py-3">Hours</th><th className="px-3 py-3">Rooms</th><th className="px-3 py-3">Calculated wage</th></tr></thead><tbody className="divide-y divide-slate-100">{logs.map((log) => { const hours = log.end_time ? durationHours(log.start_time, log.end_time) : 0; const rate = Number(log.services_config?.[0]?.default_rate ?? 0); const wage = /per room/i.test(log.services_config?.[0]?.name ?? "") ? log.rooms_completed * rate : hours * rate; return <tr key={log.id}><td className="px-3 py-3 font-medium text-slate-900">{log.cleanerName}</td><td className="px-3 py-3 text-slate-700">{log.hotelName}</td><td className="px-3 py-3 text-slate-700">{log.services_config?.[0]?.name ?? "Service"} - GBP {rate.toFixed(2)}</td><td className="px-3 py-3 text-slate-700">{hours.toFixed(2)}</td><td className="px-3 py-3 text-slate-700">{log.rooms_completed}</td><td className="px-3 py-3 font-semibold text-slate-900">GBP {wage.toFixed(2)}</td></tr>; })}{logs.length === 0 && <tr><td colSpan={6} className="px-3 py-8 text-center text-slate-500">No locked logs are available for payroll.</td></tr>}</tbody></table></div></section>; }
-function Metric({ label, value, icon: Icon }: { label: string; value: number | string; icon: LucideIcon }) {
-  return <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-    <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-sm font-medium text-slate-500">{label}</p><p className="mt-2 truncate text-2xl font-semibold tabular-nums text-slate-950">{value}</p></div><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600"><Icon className="h-4 w-4" /></span></div>
+function Metric({ label, value, icon: Icon, tone }: { label: string; value: number | string; icon: LucideIcon; tone: "sky" | "emerald" | "amber" | "violet" }) {
+  const iconTone = {
+    sky: "bg-sky-50 text-sky-700",
+    emerald: "bg-emerald-50 text-emerald-700",
+    amber: "bg-amber-50 text-amber-700",
+    violet: "bg-violet-50 text-violet-700",
+  }[tone];
+  return <article className="min-w-0 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:p-5">
+    <div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="text-xs font-medium text-slate-500 sm:text-sm">{label}</p><p className="mt-2 truncate text-lg font-semibold tabular-nums text-slate-950 sm:text-2xl">{value}</p></div><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg sm:h-9 sm:w-9 ${iconTone}`}><Icon className="h-4 w-4" /></span></div>
   </article>;
 }
 type AuditColumnId = "date" | "workerFacility" | "owner" | "manager" | "snapshot" | "service" | "status" | "hours" | "value" | "approvals" | "room";
@@ -768,6 +811,7 @@ function SnapshotTransparency({ logs, onOpen }: { logs: Log[]; onOpen: (log: Log
   const [page, setPage] = useState(1);
   const [preferencesMessage, setPreferencesMessage] = useState("");
   const [filters, setFilters] = useState<Record<string, AuditFilter>>({});
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const storedColumns = useSyncExternalStore(subscribeAuditColumns, getAuditColumnsSnapshot, getAuditColumnsServerSnapshot);
   const storedPreference = useMemo(() => {
     if (!storedColumns) return { columns: DEFAULT_AUDIT_COLUMNS, message: "" };
@@ -779,7 +823,7 @@ function SnapshotTransparency({ logs, onOpen }: { logs: Log[]; onOpen: (log: Log
       }
       return { columns: parsed.length ? parsed : DEFAULT_AUDIT_COLUMNS, message: "" };
     } catch (error) {
-      return { columns: DEFAULT_AUDIT_COLUMNS, message: error instanceof Error ? error.message : "Unable to load saved column preferences." };
+      return { columns: DEFAULT_AUDIT_COLUMNS, message: formatUserMessage(error, "Unable to load saved column preferences.") };
     }
   }, [storedColumns]);
   const visibleColumnIds = storedPreference.columns;
@@ -803,6 +847,7 @@ function SnapshotTransparency({ logs, onOpen }: { logs: Log[]; onOpen: (log: Log
     const filter = filters[key];
     return Boolean(filter && ((filter.selected?.length ?? 0) > 0 || filter.from || filter.to || filter.min || filter.max));
   };
+  const activeFilterCount = Object.keys(filters).filter(hasFilter).length;
   const allValues = (key: string) => {
     switch (key) {
       case "worker": return uniqueValues((log) => log.cleanerName);
@@ -887,24 +932,52 @@ function SnapshotTransparency({ logs, onOpen }: { logs: Log[]; onOpen: (log: Log
       setPreferencesMessage("");
       window.dispatchEvent(new Event(AUDIT_COLUMNS_CHANGE_EVENT));
     } catch (error) {
-      setPreferencesMessage(error instanceof Error ? error.message : "Unable to save column preferences.");
+      setPreferencesMessage(formatUserMessage(error, "Unable to save column preferences."));
     }
   };
 
   return <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-200/50 sm:p-5">
     <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
       <div><h3 className="text-base font-semibold text-slate-950">Responsibility history</h3><p className="mt-1 text-sm text-slate-500">Historical task, responsibility, approval, and financial details.</p></div>
+      <button type="button" onClick={() => setFiltersOpen(true)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 md:hidden"><Filter className="h-4 w-4" />Filter & Search (Active: {activeFilterCount})</button>
       <details className="relative">
         <summary className="flex min-h-10 cursor-pointer list-none items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"><Columns3 className="h-4 w-4" />Columns</summary>
         <div className="absolute right-0 z-30 mt-1 w-64 rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
           <p className="mb-2 text-xs font-semibold text-slate-700">Visible columns</p>
           <div className="max-h-72 space-y-1 overflow-y-auto">{AUDIT_COLUMNS.map((column) => <label key={column.id} className="flex items-center gap-2 rounded px-1 py-1.5 text-xs text-slate-700 hover:bg-slate-50"><input type="checkbox" checked={visibleColumnIds.includes(column.id)} onChange={(event) => toggleColumn(column.id, event.target.checked)} />{column.label}</label>)}</div>
         </div>
+        {filtersOpen && <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Filter audit records"
+          data-back-button-overlay="true"
+          className="fixed inset-0 z-[80] flex items-end bg-slate-950/40 md:hidden"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setFiltersOpen(false);
+          }}
+        >
+          <section className="max-h-[85dvh] w-full overflow-y-auto rounded-t-3xl bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl">
+            <header className="sticky top-0 mb-3 flex items-center justify-between bg-white pb-3">
+              <h4 className="text-base font-bold text-slate-950">Filter audit records</h4>
+              <button type="button" aria-label="Close filters" onClick={() => setFiltersOpen(false)} className="grid h-9 w-9 place-items-center rounded-lg text-slate-500 hover:bg-slate-100"><X className="h-4 w-4" /></button>
+            </header>
+            <div className="space-y-2">
+              {visibleColumns.map((column) => <div key={column.id} className="mobile-audit-filter flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2">
+                <span className="text-sm font-medium text-slate-700">{column.label}{hasFilter(column.id === "workerFacility" ? "worker" : column.id) || (column.id === "workerFacility" && hasFilter("facility")) ? " · Active" : ""}</span>
+                {renderFilter(column)}
+              </div>)}
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => { setFilters({}); setPage(1); }} className="min-h-11 rounded-lg border border-slate-200 px-4 text-sm font-semibold text-slate-700">Clear All</button>
+              <button type="button" onClick={() => setFiltersOpen(false)} className="min-h-11 rounded-lg bg-slate-900 px-5 text-sm font-semibold text-white">Apply</button>
+            </div>
+          </section>
+        </div>}
       </details>
     </div>
     {(preferencesMessage || storedPreference.message) && <p role="status" className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">{preferencesMessage || storedPreference.message}</p>}
-    <div className="admin-config-scroll max-h-[65vh] overflow-auto rounded-lg border border-slate-200 [-webkit-overflow-scrolling:touch]">
-      <table className="min-w-max w-full text-left text-sm">
+    <div className="admin-config-scroll mobile-card-table-wrapper max-h-[65vh] overflow-auto rounded-lg border border-slate-200 [-webkit-overflow-scrolling:touch]">
+      <table className="mobile-card-table min-w-max w-full text-left text-sm">
         <thead className="sticky top-0 z-10 bg-white/95 text-slate-600 shadow-sm backdrop-blur"><tr>{visibleColumns.map((column) => <th key={column.id} className="whitespace-nowrap px-3 py-2"><div className="flex items-center gap-1"><span>{column.label}</span>{renderFilter(column)}</div></th>)}</tr></thead>
         <tbody className="divide-y divide-slate-100">{visibleLogs.map((log) => {
           const service = log.service_name_snapshot ?? log.services_config?.[0]?.name ?? "Service";
@@ -922,7 +995,7 @@ function SnapshotTransparency({ logs, onOpen }: { logs: Log[]; onOpen: (log: Log
             approvals: approvalSummary(log),
             room: logRoomReference(log),
           };
-          return <tr key={log.id} className="align-top hover:bg-slate-50">{visibleColumns.map((column) => <td key={column.id} className="max-w-64 whitespace-nowrap px-3 py-3 text-slate-700">{cells[column.id]}</td>)}</tr>;
+          return <tr key={log.id} className="align-top hover:bg-slate-50">{visibleColumns.map((column) => <td key={column.id} data-label={column.label} className="max-w-64 whitespace-nowrap px-3 py-3 text-slate-700">{cells[column.id]}</td>)}</tr>;
         })}{filteredLogs.length === 0 && <tr><td colSpan={visibleColumns.length} className="px-3 py-8 text-center text-slate-500">No work-log snapshots match these filters.</td></tr>}</tbody>
         <tfoot><tr className="font-semibold text-slate-900"><td colSpan={visibleColumns.length} className="px-3 py-3">Filtered audit records <span className="float-right tabular-nums">{filteredLogs.length}</span></td></tr></tfoot>
       </table>
@@ -961,18 +1034,18 @@ function OverrideAuditTable({ entries }: { entries: OverrideAuditRecord[] }) {
   return <>
   <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-200/50 sm:p-5">
     <div className="mb-4"><h3 className="text-base font-semibold text-slate-950">Operational intervention audit</h3><p className="mt-1 text-sm text-slate-500">Force clock-outs and task overrides, including the actor, reason, and recorded change.</p></div>
-    <div className="admin-config-scroll max-h-[65vh] overflow-auto rounded-lg border border-slate-200 [-webkit-overflow-scrolling:touch]">
-      <table className="min-w-[900px] w-full text-left text-sm">
+    <div className="admin-config-scroll mobile-card-table-wrapper max-h-[65vh] overflow-auto rounded-lg border border-slate-200 [-webkit-overflow-scrolling:touch]">
+      <table className="mobile-card-table min-w-[900px] w-full text-left text-sm">
         <thead className="sticky top-0 z-10 bg-white/95 text-slate-600 shadow-sm backdrop-blur"><tr><th className="px-3 py-3">When</th><th className="px-3 py-3">Entity / action</th><th className="px-3 py-3">Actor</th><th className="px-3 py-3">Reason</th><th className="px-3 py-3">Recorded change</th></tr></thead>
         <tbody className="divide-y divide-slate-100">
           {visibleEntries.map((entry) => {
             const changes = getAuditChanges(entry);
             return <tr key={entry.id} className="align-top hover:bg-slate-50">
-            <td className="whitespace-nowrap px-3 py-3 text-slate-600">{new Date(entry.created_at).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}</td>
-            <td className="px-3 py-3"><span className="font-semibold capitalize text-slate-900">{entry.entity_type}</span><span className="block text-xs capitalize text-slate-500">{entry.action.replaceAll("_", " ")}</span><span className="mt-1 block max-w-48 text-xs text-slate-600">{entry.target_label}</span></td>
-            <td className="max-w-40 px-3 py-3 text-slate-700"><span className="block truncate font-medium">{entry.actor_name}</span></td>
-            <td className="max-w-sm whitespace-normal px-3 py-3 text-slate-700">{entry.override_reason}</td>
-            <td className="px-3 py-3 text-xs text-slate-600">
+            <td data-label="When" className="whitespace-nowrap px-3 py-3 text-slate-600">{new Date(entry.created_at).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}</td>
+            <td data-label="Entity / action" className="px-3 py-3"><span className="font-semibold capitalize text-slate-900">{entry.entity_type}</span><span className="block text-xs capitalize text-slate-500">{entry.action.replaceAll("_", " ")}</span><span className="mt-1 block max-w-48 text-xs text-slate-600">{entry.target_label}</span></td>
+            <td data-label="Actor" className="max-w-40 px-3 py-3 text-slate-700"><span className="block truncate font-medium">{entry.actor_name}</span></td>
+            <td data-label="Reason" className="max-w-sm whitespace-normal px-3 py-3 text-slate-700">{entry.override_reason}</td>
+            <td data-label="Recorded change" className="px-3 py-3 text-xs text-slate-600">
               <div className="space-y-1.5">{changes.length ? changes.map((change) => <p key={change.label}><span className="font-semibold text-slate-800">{change.label}:</span> {change.label === "Cancelled" && change.after === "Yes" ? "Yes" : <>{change.before} <span aria-label="changed to" className="px-1 text-slate-400">→</span> {change.after}</>}</p>) : <span className="text-slate-500">No tracked fields changed</span>}</div>
               <button type="button" onClick={() => setRawEntry(entry)} className="mt-2 min-h-11 rounded-lg border border-slate-200 px-2.5 py-1.5 font-medium text-slate-700 hover:bg-slate-50">View details</button>
             </td>

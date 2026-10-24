@@ -51,18 +51,6 @@ export async function POST(request: Request) {
   }
 
   const supabase = createPrivilegedServerSupabaseClient();
-  const { data: existing, error: lookupError } = await supabase.from("user_push_subscriptions")
-    .select("user_id")
-    .eq("endpoint", payload.endpoint)
-    .maybeSingle();
-  if (lookupError) {
-    console.error("Unable to inspect the existing browser push subscription:", lookupError.message);
-    return NextResponse.json({ error: "Unable to save this device for push notifications." }, { status: 500 });
-  }
-  if (existing && existing.user_id !== user.userId) {
-    return NextResponse.json({ error: "This push endpoint is already linked to another account." }, { status: 409 });
-  }
-
   const values = {
     user_id: user.userId,
     endpoint: payload.endpoint,
@@ -70,13 +58,9 @@ export async function POST(request: Request) {
     auth: payload.keys.auth,
     updated_at: new Date().toISOString(),
   };
-  const { error } = existing
-    ? await supabase.from("user_push_subscriptions").update(values).eq("endpoint", payload.endpoint).eq("user_id", user.userId)
-    : await supabase.from("user_push_subscriptions").insert(values);
+  const { error } = await supabase.from("user_push_subscriptions")
+    .upsert(values, { onConflict: "endpoint" });
   if (error) {
-    if (error.code === "23505") {
-      return NextResponse.json({ error: "This push endpoint is already linked to another account." }, { status: 409 });
-    }
     console.error("Unable to save browser push subscription:", error.message);
     return NextResponse.json({ error: "Unable to save this device for push notifications." }, { status: 500 });
   }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { BellRing, LoaderCircle, Smartphone } from "lucide-react";
 import { showActionToast } from "@/components/ui/ActionToast";
 import { usePushPermission } from "@/lib/pushPermission";
+import { formatUserMessage } from "@/lib/userMessages";
 
 type Props = { publicKey: string | null };
 
@@ -84,7 +85,7 @@ export function PushNotificationSettings({ publicKey }: Props) {
         return syncSubscription();
       })
       .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : "Unable to enable push notifications.";
+        const message = formatUserMessage(error, "Unable to enable push notifications.");
         setNotice(message);
         showActionToast("error", message);
       })
@@ -127,7 +128,7 @@ export function PushNotificationSettings({ publicKey }: Props) {
       window.dispatchEvent(new Event("focus"));
       showActionToast("success", "Push alerts are enabled on this device.");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to enable push notifications.";
+      const message = formatUserMessage(error, "Unable to update push notification settings.");
       setNotice(message);
       showActionToast("error", message);
     } finally {

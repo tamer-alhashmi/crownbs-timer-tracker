@@ -1675,3 +1675,119 @@ html {
   fill: white;
   stroke: white;
 }
+
+:root {
+  color-scheme: light dark;
+}
+
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+button:not(:disabled),
+[role="button"],
+a[href] {
+  cursor: pointer;
+  user-select: none;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+
+button:not(:disabled):active,
+[role="button"]:active,
+a[href]:active {
+  transform: scale(0.97);
+}
+
+@media (max-width: 767px) {
+  .mobile-card-table-wrapper {
+    max-height: none;
+    overflow: visible;
+    border: 0;
+  }
+
+  .mobile-card-table {
+    width: 100%;
+    min-width: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  .mobile-card-table > thead,
+  .mobile-card-table > tfoot {
+    display: none;
+  }
+
+  .mobile-card-table > tbody {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .mobile-card-table > tbody > tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.875rem;
+    background: white;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.06);
+  }
+
+  .mobile-card-table > tbody > tr:has(> td[colspan]) {
+    display: block;
+  }
+
+  .mobile-card-table > tbody > tr > td {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.25rem;
+    padding: 0.75rem;
+    border: 0;
+    white-space: normal;
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+
+  .mobile-card-table > tbody > tr > td::before {
+    content: attr(data-label);
+    color: #64748b;
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    line-height: 1rem;
+    text-transform: uppercase;
+  }
+
+  .mobile-card-table > tbody > tr > td[colspan]::before {
+    content: none;
+  }
+
+  .mobile-card-table > tbody > tr > td[data-label="Actions"],
+  .mobile-card-table > tbody > tr > td[data-label="Manage"] {
+    grid-column: 1 / -1;
+    border-top: 1px solid #f1f5f9;
+  }
+
+  .mobile-card-table > tbody > tr > td[data-label="Actions"] > div,
+  .mobile-card-table > tbody > tr > td[data-label="Manage"] > div {
+    justify-content: flex-start;
+  }
+
+  .mobile-card-table > tbody > tr > td[data-label="Actions"]::before,
+  .mobile-card-table > tbody > tr > td[data-label="Manage"]::before {
+    margin-bottom: 0.25rem;
+  }
+
+  .mobile-audit-filter details {
+    display: block;
+  }
+
+  .mobile-audit-filter details > div {
+    position: static;
+    width: 100%;
+  }
+}

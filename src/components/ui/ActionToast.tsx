@@ -2,6 +2,7 @@
 
 import { CircleCheck, CircleX, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { formatUserMessage } from "@/lib/userMessages";
 
 type ActionToastKind = "success" | "error";
 type ActionToastDetail = { kind: ActionToastKind; message: string };
@@ -11,7 +12,9 @@ const ACTION_TOAST_EVENT = "crown-action-toast";
 
 export function showActionToast(kind: ActionToastKind, message: string) {
   if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent<ActionToastDetail>(ACTION_TOAST_EVENT, { detail: { kind, message } }));
+  window.dispatchEvent(new CustomEvent<ActionToastDetail>(ACTION_TOAST_EVENT, {
+    detail: { kind, message: kind === "error" ? formatUserMessage(message) : message },
+  }));
 }
 
 export function ActionToastViewport() {
