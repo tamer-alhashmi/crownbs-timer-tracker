@@ -438,41 +438,104 @@ export async function deleteManagedUser(userId: string) {
   revalidatePath("/settings");
 }
 
-export async function assignManagedUserToHotel(userId: string, hotelId: string) {
-  const context = await requireSettingsAccess("edit");
-  const { data: target, error: targetError } = await context.supabase.from("users").select("id, role, primary_hotel_id").eq("id", userId).maybeSingle();
-  if (targetError || !target) throw new Error("User was not found.");
-  const targetRole = target.role as ManagedUser["role"];
-  await assertTargetScope(userId, targetRole, [hotelId], context);
-  const hotel = context.visibleHotels.find((item) => item.id === hotelId);
-  if (!hotel) throw new Error("That hotel is outside your management scope.");
-  if (!hotel.is_active) throw new Error("You cannot assign staff to an archived property.");
-  assertHotelSlotsAvailable(targetRole, [hotelId], context, userId);
-  if (["manager", "hk_admin", "cleaner"].includes(targetRole)) {
-    const { error } = await context.supabase
-      .from("user_hotel_assignments")
-      .upsert({ user_id: userId, hotel_id: hotelId, is_primary: !target.primary_hotel_id, assigned_by: context.actor.userId }, { onConflict: "user_id,hotel_id" });
-    if (error) throw new Error(error.message);
-    if (!target.primary_hotel_id) {
-      const { error: primaryError } = await context.supabase.from("users").update({ primary_hotel_id: hotelId }).eq("id", userId);
-      if (primaryError) throw new Error(primaryError.message);
+export async function assignManagedUserToHotel(userId: string, hotelId: string): Promise<ActionResult> {
+  try {
+    const context = await requireSettingsAccess("edit");
+    const { data: target, error: targetError } = await context.supabase
+      .from("users")
+      .select("id, role, primary_hotel_id")
+      .eq("id", userId)
+      .maybeSingle();
+    if (targetError) throw new Error(targetError.message);
+    if (!target) throw new Error("User was not found.");
+
+    const targetRole = normalizeUserRole(target.role as ManagedUser["role"]);
+    if (!["owner", "manager", "housekeeping_admin", "hk_admin", "cleaner"].includes(targetRole)) {
+      throw new Error("This account type cannot be assigned to a property.");
     }
-    if (targetRole === "manager") {
-      const { error: managerError } = await context.supabase.from("hotels").update({ manager_id: userId }).eq("id", hotelId);
-      if (managerError) throw new Error(managerError.message);
+    await assertTargetScope(userId, targetRole, [hotelId], context);
+    const hotel = context.visibleHotels.find((item) => item.id === hotelId);
+    if (!hotel) throw new Error("That hotel is outside your management scope.");
+    if (!hotel.is_active) throw new Error("You cannot assign staff to an archived property.");
+    assertHotelSlotsAvailable(targetRole, [hotelId], context, userId);
+
+    if (["manager", "hk_admin", "housekeeping_admin", "cleaner"].includes(targetRole)) {
+      const { error } = await context.supabase
+        .from("user_hotel_assignments")
+        .upsert({
+          user_id: userId,
+          hotel_id: hotelId,
+          is_primary: !target.primary_hotel_id,
+          assigned_by: context.actor.userId,
+        }, { onConflict: "user_id,hotel_id" });
+      if (error) {
+        if (error.code !== "23505") throw new Error(error.message);
+        const { data: existing } = await context.supabase.from("user_hotel_assignments")
+          .select("hotel_id")
+          .eq("user_id", userId)
+          .eq("hotel_id", hotelId)
+          .maybeSingle();
+        if (!existing) throw new Error("This property could not be assigned to the user.");
+      }
+      if (!target.primary_hotel_id) {
+        const { error: primaryError } = await context.supabase.from("users")
+          .update({ primary_hotel_id: hotelId })
+          .eq("id", userId);
+        if (primaryError) throw new Error(primaryError.message);
+      }
+      if (targetRole === "manager" && hotel.manager_id !== userId) {
+        const { data: updated, error: managerError } = await context.supabase.from("hotels")
+          .update({ manager_id: userId })
+          .eq("id", hotelId)
+          .is("manager_id", null)
+          .select("id")
+          .maybeSingle();
+        if (managerError) throw new Error(managerError.message);
+        if (!updated) {
+          const { data: current, error: currentError } = await context.supabase.from("hotels")
+            .select("manager_id")
+            .eq("id", hotelId)
+            .maybeSingle();
+          if (currentError) throw new Error(currentError.message);
+          if (current?.manager_id !== userId) throw new Error(`${hotel.name} is already assigned to another manager.`);
+        }
+      }
+    } else {
+      if (hotel.owner_id !== userId) {
+        const { data: updated, error } = await context.supabase.from("hotels")
+          .update({ owner_id: userId })
+          .eq("id", hotelId)
+          .is("owner_id", null)
+          .select("id")
+          .maybeSingle();
+        if (error) {
+          if (error.code !== "23505") throw new Error(error.message);
+          const { data: current } = await context.supabase.from("hotels")
+            .select("owner_id")
+            .eq("id", hotelId)
+            .maybeSingle();
+          if (current?.owner_id !== userId) throw new Error(`${hotel.name} is already assigned to another owner.`);
+        } else if (!updated) {
+          throw new Error(`${hotel.name} is already assigned to another owner.`);
+        }
+      }
+      if (!target.primary_hotel_id) {
+        const { error: primaryError } = await context.supabase.from("users")
+          .update({ primary_hotel_id: hotelId, updated_at: new Date().toISOString() })
+          .eq("id", userId);
+        if (primaryError) throw new Error(primaryError.message);
+      }
     }
-  } else {
-    const column = targetRole === "owner" ? "owner_id" : "manager_id";
-    const currentAssignee = column === "owner_id" ? hotel.owner_id : hotel.manager_id;
-    if (currentAssignee && currentAssignee !== userId) throw new Error(`${hotel.name} is already assigned to another ${targetRole}.`);
-    const { error } = await context.supabase.from("hotels").update({ [column]: userId }).eq("id", hotelId);
-    if (error) throw new Error(error.message);
-    if (!target.primary_hotel_id) await context.supabase.from("users").update({ primary_hotel_id: hotelId, updated_at: new Date().toISOString() }).eq("id", userId);
+
+    revalidatePath("/settings");
+    revalidatePath("/admin");
+    revalidatePath("/owner");
+    revalidatePath("/manager");
+    return { success: true };
+  } catch (error) {
+    console.error("Managed user property assignment failed:", error);
+    return { success: false, error: errorMessage(error, "Unable to assign property.") };
   }
-  revalidatePath("/settings");
-  revalidatePath("/admin");
-  revalidatePath("/owner");
-  revalidatePath("/manager");
 }
 
 export async function unassignManagedUserFromHotel(userId: string, hotelId: string) {
