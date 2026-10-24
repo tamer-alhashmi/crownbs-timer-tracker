@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition, type FormEvent } from "react";
-import { ChevronDown, Download, FileSpreadsheet, FileText, Loader2, Pencil, Trash2, X } from "lucide-react";
+import { ChevronDown, Download, FileSpreadsheet, FileText, Filter, Loader2, Pencil, Trash2, X } from "lucide-react";
 import { strToU8, zipSync } from "fflate";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -10,6 +10,7 @@ import type { ServiceRecord } from "./serviceActions";
 import { deletePayrollTask, updatePayrollTask } from "./actions";
 import { DashboardPagination } from "@/components/dashboard/DashboardPagination";
 import { showActionToast } from "@/components/ui/ActionToast";
+import { formatUserMessage } from "@/lib/userMessages";
 
 type PayrollService = { name?: string | null; description?: string | null; default_rate?: number | string | null; unit?: string | null };
 const EXPORT_COLUMNS = [
@@ -109,6 +110,7 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
   const [selectedHotelId, setSelectedHotelId] = useState("");
   const [selectedCleanerId, setSelectedCleanerId] = useState("");
   const [page, setPage] = useState(1);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<PayrollLog | null>(null);
   const [taskForm, setTaskForm] = useState<TaskForm>({ serviceId: "", roomsCompleted: "0", notes: "", cost: "0" });
@@ -212,6 +214,19 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
   exportSummary["Cost (GBP)"] = Number(totals.cost.toFixed(2));
   const filterSuffix = [from, to, hotelNames.get(selectedHotelId), cleanerNames.get(selectedCleanerId)].filter(Boolean).join("-").replace(/[^a-z0-9-]/gi, "-");
   const filename = `payroll-${filterSuffix || "all-records"}`;
+  const activeFilterCount = [
+    from !== monthStart,
+    to !== today,
+    Boolean(selectedHotelId),
+    Boolean(selectedCleanerId),
+  ].filter(Boolean).length;
+  const clearFilters = () => {
+    setFrom(monthStart);
+    setTo(today);
+    setSelectedHotelId("");
+    setSelectedCleanerId("");
+    setPage(1);
+  };
   const startEditingTask = (log: PayrollLog) => {
     const service = log.services_config[0] ?? {};
     const hours = durationHours(log);
@@ -241,7 +256,7 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
         setTaskMessage({ text: "Payroll task updated.", error: false });
         showActionToast("success", "Payroll task updated.");
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unable to update task.";
+        const message = formatUserMessage(error, "Unable to update task.");
         setTaskMessage({ text: message, error: true });
         showActionToast("error", message);
       }
@@ -257,7 +272,7 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
         setTaskMessage({ text: "Task removed from payroll. Its audit history is retained.", error: false });
         showActionToast("success", "Task removed from payroll. Its audit history is retained.");
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unable to remove task.";
+        const message = formatUserMessage(error, "Unable to remove task.");
         setTaskMessage({ text: message, error: true });
         showActionToast("error", message);
       }
@@ -333,7 +348,8 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
     {taskMessage && <p role={taskMessage.error ? "alert" : "status"} className={`mb-4 rounded-lg border px-3 py-2 text-sm ${taskMessage.error ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>{taskMessage.text}</p>}
     <div className="flex flex-col gap-4 border-b border-slate-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
       <div><h3 className="text-lg font-semibold text-slate-950">Payroll</h3><p className="mt-1 text-sm text-slate-500">Configured service costs · {filteredLogs.length} records</p></div>
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      <button type="button" onClick={() => setFiltersOpen(true)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 md:hidden"><Filter className="h-4 w-4" />Filter & Search (Active: {activeFilterCount})</button>
+      <div className="hidden grid-cols-2 gap-3 xl:grid-cols-4 md:grid">
         <label className="text-xs font-medium text-slate-600">From<input type="date" value={from} max={to} onChange={(event) => { setFrom(event.target.value); setPage(1); }} className="mt-1 block min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" /></label>
         <label className="text-xs font-medium text-slate-600">To<input type="date" value={to} min={from} max={today} onChange={(event) => { setTo(event.target.value); setPage(1); }} className="mt-1 block min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" /></label>
         <label className="text-xs font-medium text-slate-600">Hotel<select value={selectedHotelId} onChange={(event) => { setSelectedHotelId(event.target.value); setSelectedCleanerId(""); setPage(1); }} className="mt-1 block min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"><option value="">All hotels</option>{hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select></label>
@@ -348,6 +364,33 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
             <button type="button" role="menuitem" onClick={() => { exportPdf(); setExportMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"><FileText className="h-4 w-4 text-slate-400" />PDF</button>
           </div>}
         </div>
+        {filtersOpen && <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Filter payroll records"
+          data-back-button-overlay="true"
+          className="fixed inset-0 z-[80] flex items-end bg-slate-950/40 md:hidden"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setFiltersOpen(false);
+          }}
+        >
+          <section className="w-full rounded-t-3xl bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl">
+            <header className="mb-4 flex items-center justify-between">
+              <h4 className="text-base font-bold text-slate-950">Filter payroll records</h4>
+              <button type="button" aria-label="Close filters" onClick={() => setFiltersOpen(false)} className="grid h-9 w-9 place-items-center rounded-lg text-slate-500 hover:bg-slate-100"><X className="h-4 w-4" /></button>
+            </header>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-xs font-medium text-slate-600">From<input type="date" value={from} max={to} onChange={(event) => { setFrom(event.target.value); setPage(1); }} className="mt-1 block min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" /></label>
+              <label className="text-xs font-medium text-slate-600">To<input type="date" value={to} min={from} max={today} onChange={(event) => { setTo(event.target.value); setPage(1); }} className="mt-1 block min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" /></label>
+              <label className="text-xs font-medium text-slate-600">Hotel<select value={selectedHotelId} onChange={(event) => { setSelectedHotelId(event.target.value); setSelectedCleanerId(""); setPage(1); }} className="mt-1 block min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"><option value="">All hotels</option>{hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select></label>
+              <label className="text-xs font-medium text-slate-600">Cleaner<select value={selectedCleanerId} onChange={(event) => { setSelectedCleanerId(event.target.value); setPage(1); }} className="mt-1 block min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"><option value="">All cleaners</option>{scopedCleaners.map((cleaner) => <option key={cleaner.id} value={cleaner.id}>{cleaner.name}</option>)}</select></label>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={clearFilters} className="min-h-11 rounded-lg border border-slate-200 px-4 text-sm font-semibold text-slate-700">Clear All</button>
+              <button type="button" onClick={() => setFiltersOpen(false)} className="min-h-11 rounded-lg bg-slate-900 px-5 text-sm font-semibold text-white">Apply</button>
+            </div>
+          </section>
+        </div>}
       </div>
     </div>
     {earningsByCleanerAndHotel.size > 0 && <section aria-label="Earnings by cleaner and property" className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
@@ -359,8 +402,8 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
         </div>)}
       </div>
     </section>}
-    <div className="admin-config-scroll mt-4 max-h-[65vh] overflow-auto rounded-lg border border-slate-200 [-webkit-overflow-scrolling:touch]">
-      <table className="min-w-[760px] w-full text-left text-sm">
+    <div className="admin-config-scroll mobile-card-table-wrapper mt-4 max-h-[65vh] overflow-auto rounded-lg border border-slate-200 [-webkit-overflow-scrolling:touch]">
+      <table className="mobile-card-table min-w-[760px] w-full text-left text-sm">
         <thead className="sticky top-0 z-10 bg-white/95 text-slate-600 shadow-sm backdrop-blur"><tr><th className="px-3 py-3">Task date/time</th><th className="px-3 py-3">Cleaner</th><th className="px-3 py-3">Hotel / service</th><th className="px-3 py-3 text-right">Hours</th><th className="px-3 py-3 text-right">Rooms</th><th className="px-3 py-3 text-right">Cost (GBP)</th>{canManageTasks && <th className="px-3 py-3 text-right">Manage</th>}</tr></thead>
         <tbody className="divide-y divide-slate-100">
           {visibleLogs.map((log) => {
@@ -371,13 +414,13 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
             const cost = calculateTaskCost(hours, log.rooms_completed, { ...service, default_rate: rate, unit }, log.cost_override);
             const unitLabel = unit === "hourly" ? "/hr" : unit === "per_room" ? "/room" : "fixed";
             return <tr key={log.id} className="hover:bg-slate-50">
-              <td className="whitespace-nowrap px-3 py-3 text-slate-600">{new Date(log.start_time).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}</td>
-              <td className="px-3 py-3 font-medium text-slate-900">{log.cleanerName}</td>
-              <td className="px-3 py-3 text-slate-700">{log.hotelName}<span className="mt-0.5 block text-xs text-slate-500">{service.name ?? log.service_name_snapshot ?? "Service"} · GBP {rate.toFixed(2)} {unitLabel}</span></td>
-              <td className="px-3 py-3 text-right tabular-nums text-slate-700">{hours.toFixed(2)}</td>
-              <td className="px-3 py-3 text-right tabular-nums text-slate-700">{log.rooms_completed}</td>
-              <td className="px-3 py-3 text-right font-semibold tabular-nums text-slate-900">{cost.toFixed(2)}</td>
-              {canManageTasks && <td className="px-3 py-3"><div className="flex justify-end gap-1"><button type="button" onClick={() => startEditingTask(log)} aria-label={`Edit payroll task for ${log.cleanerName}`} title="Edit task" className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-950"><Pencil className="h-4 w-4" /></button><button type="button" onClick={() => setDeletingTask(log)} aria-label={`Remove payroll task for ${log.cleanerName}`} title="Remove task from payroll" className="flex h-11 w-11 items-center justify-center rounded-lg text-rose-700 hover:bg-rose-50"><Trash2 className="h-4 w-4" /></button></div></td>}
+              <td data-label="Task date/time" className="whitespace-nowrap px-3 py-3 text-slate-600">{new Date(log.start_time).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}</td>
+              <td data-label="Cleaner" className="px-3 py-3 font-medium text-slate-900">{log.cleanerName}</td>
+              <td data-label="Hotel / service" className="px-3 py-3 text-slate-700">{log.hotelName}<span className="mt-0.5 block text-xs text-slate-500">{service.name ?? log.service_name_snapshot ?? "Service"} · GBP {rate.toFixed(2)} {unitLabel}</span></td>
+              <td data-label="Hours" className="px-3 py-3 text-right tabular-nums text-slate-700">{hours.toFixed(2)}</td>
+              <td data-label="Rooms" className="px-3 py-3 text-right tabular-nums text-slate-700">{log.rooms_completed}</td>
+              <td data-label="Cost (GBP)" className="px-3 py-3 text-right font-semibold tabular-nums text-slate-900">{cost.toFixed(2)}</td>
+              {canManageTasks && <td data-label="Manage" className="px-3 py-3"><div className="flex justify-end gap-1"><button type="button" onClick={() => startEditingTask(log)} aria-label={`Edit payroll task for ${log.cleanerName}`} title="Edit task" className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-950"><Pencil className="h-4 w-4" /></button><button type="button" onClick={() => setDeletingTask(log)} aria-label={`Remove payroll task for ${log.cleanerName}`} title="Remove task from payroll" className="flex h-11 w-11 items-center justify-center rounded-lg text-rose-700 hover:bg-rose-50"><Trash2 className="h-4 w-4" /></button></div></td>}
             </tr>;
           })}
           {filteredLogs.length === 0 && <tr><td colSpan={canManageTasks ? 7 : 6} className="px-3 py-8 text-center text-slate-500">No locked payroll records in this date range.</td></tr>}

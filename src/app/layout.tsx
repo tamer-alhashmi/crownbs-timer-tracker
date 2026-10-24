@@ -39,7 +39,6 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  colorScheme: "light",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f1f5f9" },
     { media: "(prefers-color-scheme: dark)", color: "#020617" },
@@ -64,9 +63,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full min-h-dvh antialiased`}
+    className={`${geistSans.variable} ${geistMono.variable} h-full min-h-dvh overflow-x-hidden antialiased`}
     >
-      <body suppressHydrationWarning className="min-h-dvh flex flex-col bg-slate-100 pb-[env(safe-area-inset-bottom,1rem)] text-slate-900">
+      <body suppressHydrationWarning className="min-h-dvh flex flex-col overflow-x-hidden bg-slate-100 pb-[env(safe-area-inset-bottom,16px)] text-slate-900">
         <ModalScrollLock />
         <ActionToastViewport />
         {user ? (

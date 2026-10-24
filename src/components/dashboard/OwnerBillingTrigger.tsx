@@ -25,12 +25,13 @@ export function OwnerBillingTrigger({ usage }: { usage: OwnerBillingUsage }) {
         aria-haspopup="dialog"
         aria-expanded={isOpen}
         onClick={() => setIsOpen(true)}
-        className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-sky-200 bg-white px-3 text-sm font-semibold text-sky-900 shadow-sm transition hover:bg-sky-50"
+        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-sky-200 bg-white text-sm font-semibold text-sky-900 shadow-sm transition hover:bg-sky-50 sm:w-auto sm:gap-2 sm:px-3"
       >
-        <span className="grid h-7 w-7 place-items-center rounded-lg bg-sky-100 text-sky-800">
+        <span className="relative grid h-7 w-7 place-items-center rounded-lg bg-sky-100 text-sky-800">
           <Receipt aria-hidden="true" className="h-4 w-4" />
+          <span aria-hidden="true" className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-white" />
         </span>
-        <span>{amount}</span>
+        <span className="hidden sm:inline">{amount}</span>
       </button>
       {isOpen && (
         <div
