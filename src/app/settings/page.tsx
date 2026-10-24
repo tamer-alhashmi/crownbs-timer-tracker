@@ -23,11 +23,17 @@ export default async function SettingsPage() {
   const supabase = createPrivilegedServerSupabaseClient();
   const { data: profile, error: profileError } = await supabase
     .from("users")
-    .select("full_name, email, phone_number, avatar_url, language_preference")
+    .select("full_name, email, phone_number, avatar_url, language_preference, email_verified, weekly_digest_enabled, monthly_digest_enabled")
     .eq("id", user.userId)
     .maybeSingle();
   if (profileError) throw new Error(`Unable to load profile settings: ${profileError.message}`);
   const name = profile?.full_name ?? user.email;
+  const emailSettings = {
+    emailVerified: profile?.email_verified ?? false,
+    weeklyDigestEnabled: profile?.weekly_digest_enabled ?? true,
+    monthlyDigestEnabled: profile?.monthly_digest_enabled ?? true,
+    pushPublicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? null,
+  };
   const backHref = user.role === "cleaner" ? "/dashboard" : user.role === "owner" ? "/owner" : user.role === "manager" ? "/manager" : isHousekeepingAdmin(user.role) ? "/hk-admin" : "/admin";
   const utility = (
     <>
@@ -46,7 +52,7 @@ export default async function SettingsPage() {
         role={user.role}
         utility={utility}
         profile={<div className="mx-auto max-w-5xl">
-          <PersonalProfileSettings fullName={name} email={profile?.email ?? user.email} phoneNumber={profile?.phone_number ?? null} avatarUrl={profile?.avatar_url ?? null} languagePreference={profile?.language_preference ?? "en"} role={user.role} />
+          <PersonalProfileSettings fullName={name} email={profile?.email ?? user.email} phoneNumber={profile?.phone_number ?? null} avatarUrl={profile?.avatar_url ?? null} languagePreference={profile?.language_preference ?? "en"} role={user.role} {...emailSettings} />
           <section className="mt-5 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
             <div className="mb-4"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">Quick reference</p><h2 className="mt-1 text-lg font-bold text-slate-950">Cleaner system manual</h2><p className="mt-1 text-sm text-slate-600">Quick guidance for shift and task workflows.</p></div>
             <SystemManual role="cleaner" />
@@ -68,7 +74,7 @@ export default async function SettingsPage() {
       <SettingsHub
         role={user.role}
         utility={utility}
-        profile={<PersonalProfileSettings fullName={name} email={profile?.email ?? user.email} phoneNumber={profile?.phone_number ?? null} avatarUrl={profile?.avatar_url ?? null} languagePreference={profile?.language_preference ?? "en"} role={user.role} />}
+        profile={<PersonalProfileSettings fullName={name} email={profile?.email ?? user.email} phoneNumber={profile?.phone_number ?? null} avatarUrl={profile?.avatar_url ?? null} languagePreference={profile?.language_preference ?? "en"} role={user.role} {...emailSettings} />}
         users={null}
         properties={null}
       />
@@ -81,7 +87,7 @@ export default async function SettingsPage() {
       role={data.actorRole}
       utility={utility}
       billing={user.role === "owner" ? <Suspense fallback={<OwnerBillingSkeleton />}><OwnerBillingWidget ownerId={user.userId} /></Suspense> : null}
-      profile={<PersonalProfileSettings fullName={profile?.full_name ?? user.email} email={profile?.email ?? user.email} phoneNumber={profile?.phone_number ?? null} avatarUrl={profile?.avatar_url ?? null} languagePreference={profile?.language_preference ?? "en"} role={user.role} />}
+      profile={<PersonalProfileSettings fullName={profile?.full_name ?? user.email} email={profile?.email ?? user.email} phoneNumber={profile?.phone_number ?? null} avatarUrl={profile?.avatar_url ?? null} languagePreference={profile?.language_preference ?? "en"} role={user.role} {...emailSettings} />}
       users={<><UserSettingsClient actorRole={data.actorRole} hotels={data.hotels} users={data.users} />{isPlatformAdmin(data.actorRole) && <SystemAccessPanel users={data.users} permissions={data.permissions} />}</>}
       properties={<PropertySettings properties={data.properties} managers={data.managers} />}
     />
