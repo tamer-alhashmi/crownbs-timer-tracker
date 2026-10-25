@@ -175,6 +175,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (view === "unread") {
+    const currentUserId = actor.id;
     const visibleContactIds = [...actor.visibleContactIds];
     const { data, count, error } = visibleContactIds.length
       ? await supabase
@@ -182,8 +183,8 @@ export async function GET(request: NextRequest) {
           .select("id, sender_id, receiver_id, content, attachment_url, attachment_type, is_read, sent_at, delivered_at, read_at, created_at", {
             count: "exact",
           })
-          .eq("receiver_id", actor.id)
-          .neq("sender_id", actor.id)
+          .eq("receiver_id", currentUserId)
+          .neq("sender_id", currentUserId)
           .eq("is_read", false)
           .in("sender_id", visibleContactIds)
           .order("created_at", { ascending: false })
@@ -206,6 +207,7 @@ export async function GET(request: NextRequest) {
     );
     const messages = (data ?? [])
       .map((message) => {
+        if (message.sender_id === currentUserId || message.is_read) return null;
         const sender = senderMap.get(message.sender_id);
         return sender && isChatRole(sender.role) && canSeeChatContact(actor, sender.id)
           ? { ...message, sender }
@@ -224,7 +226,7 @@ export async function GET(request: NextRequest) {
       let query = supabase.from("messages")
         .select("id", { count: "exact", head: true })
         .eq("channel_id", membership.channel_id)
-        .neq("sender_id", actor.id);
+        .neq("sender_id", currentUserId);
       if (membership.last_read_at) query = query.gt("created_at", membership.last_read_at);
       const { count: groupCount, error: groupCountError } = await query;
       if (groupCountError) {
@@ -235,7 +237,7 @@ export async function GET(request: NextRequest) {
     }));
     if (groupUnreadCounts.some((item) => item === null)) return apiError("Could not load group notifications.", 500);
     const groupUnreadCount = groupUnreadCounts.reduce<number>((total, value) => total + (value ?? 0), 0);
-    return NextResponse.json({ count: (count ?? 0) + groupUnreadCount, messages });
+    return NextResponse.json({ currentUserId, count: (count ?? 0) + groupUnreadCount, messages });
   }
 
   if (view === "history") {

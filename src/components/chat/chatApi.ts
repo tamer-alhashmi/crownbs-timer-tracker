@@ -45,7 +45,7 @@ export const fetchContacts = () =>
   request<{ contacts: ChatContact[] }>("/api/chat?view=contacts");
 
 export const fetchUnread = () =>
-  request<{ count: number; messages: UnreadMessage[] }>("/api/chat?view=unread");
+  request<{ currentUserId: string; count: number; messages: UnreadMessage[] }>("/api/chat?view=unread");
 
 export type TaskNotice = {
   id: string;
