@@ -5,6 +5,7 @@ import { AlertCircle, Bell, Clock, Loader2, MapPin, MessageCircle, User } from "
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import { fetchTaskNotifications, fetchUnread, markTaskNotificationRead, type OverdueTaskNotice, type TaskNotice } from "./chatApi";
 import { useChatStore } from "./chatStore";
 import { roleLabel } from "@/lib/chat/types";
@@ -45,6 +46,7 @@ function priorityStyle(priority: TaskNotice["priority"]) {
 
 export function NotificationBell() {
   const containerRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const seenTaskIds = useRef<Set<string> | null>(null);
   const taskToastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isOpen, setIsOpen] = useState(false);
@@ -54,6 +56,7 @@ export function NotificationBell() {
   const [activeTaskWarning, setActiveTaskWarning] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [showPushHelp, setShowPushHelp] = useState(false);
+  const [popoverTop, setPopoverTop] = useState(0);
   const queryClient = useQueryClient();
   const router = useRouter();
   const pushPermission = usePushPermission();
@@ -77,21 +80,29 @@ export function NotificationBell() {
   const overdue = taskQuery.data?.overdue ?? [];
   const unreadAssignments = incoming.filter((task) => !task.is_read);
   const unreadOverdue = overdue.filter((alert) => !alert.is_read);
+  const unreadMessages = data?.messages.filter((message) =>
+    message.sender_id !== data.currentUserId && !message.is_read
+  ) ?? [];
   const unreadCount = (data?.count ?? 0) + unreadAssignments.length + unreadOverdue.length;
 
   useEffect(() => {
     if (!isOpen) return;
     const dismissOutside = (event: PointerEvent) => {
-      if (!containerRef.current?.contains(event.target as Node)) setIsOpen(false);
+      if (!containerRef.current?.contains(event.target as Node) && !dropdownRef.current?.contains(event.target as Node)) setIsOpen(false);
     };
     const dismissEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setIsOpen(false);
     };
+    const dismissOnViewportChange = () => setIsOpen(false);
     document.addEventListener("pointerdown", dismissOutside);
     document.addEventListener("keydown", dismissEscape);
+    window.addEventListener("resize", dismissOnViewportChange);
+    window.addEventListener("scroll", dismissOnViewportChange, true);
     return () => {
       document.removeEventListener("pointerdown", dismissOutside);
       document.removeEventListener("keydown", dismissEscape);
+      window.removeEventListener("resize", dismissOnViewportChange);
+      window.removeEventListener("scroll", dismissOnViewportChange, true);
     };
   }, [isOpen]);
 
@@ -179,7 +190,10 @@ export function NotificationBell() {
         aria-label={`Notifications${unreadCount ? `, ${unreadCount} pending notifications` : ""}`}
         aria-expanded={isOpen}
         title={error ? "Notifications could not be loaded" : undefined}
-        onClick={() => setIsOpen((open) => !open)}
+        onClick={(event) => {
+          if (!isOpen) setPopoverTop(event.currentTarget.getBoundingClientRect().bottom);
+          setIsOpen((open) => !open);
+        }}
         className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
       >
         <Bell className="h-5 w-5" />
@@ -190,7 +204,8 @@ export function NotificationBell() {
         )}
       </button>
       {isOpen && (
-        <div data-back-button-overlay="true" style={{ right: 0, left: "auto" }} className="absolute right-0 top-full mt-2 w-[calc(100vw-24px)] max-w-sm sm:w-96 z-50 origin-top-right overflow-hidden shadow-2xl rounded-2xl border max-h-[calc(85dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-1rem)] overflow-y-auto overscroll-contain bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700">
+        createPortal(
+        <div ref={dropdownRef} data-back-button-overlay="true" style={{ position: "fixed", right: 12, left: "auto", maxWidth: "calc(100vw - 24px)", top: popoverTop }} className="absolute right-0 top-full mt-2 w-[calc(100vw-1.5rem)] max-w-sm z-50 origin-top-right rounded-2xl border shadow-2xl bg-white dark:bg-slate-900 overflow-hidden sm:w-96 max-h-[calc(85dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-1rem)] overflow-y-auto overscroll-contain border-slate-200 dark:border-slate-700">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-slate-900">Notifications</p>
@@ -292,9 +307,9 @@ export function NotificationBell() {
                 ))}
               </div>
             )}
-            {data?.messages.length ? (
+            {unreadMessages.length ? (
             <div className="max-h-80 overflow-y-auto p-2">
-              {data.messages.map((message) => (
+              {unreadMessages.map((message) => (
                 <button
                   type="button"
                   key={message.id}
@@ -330,7 +345,9 @@ export function NotificationBell() {
             ) : null}
             </>
           )}
-        </div>
+        </div>,
+        document.body
+        )
       )}
     </div>
   );

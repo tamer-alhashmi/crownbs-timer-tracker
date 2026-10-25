@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
-import { ChevronLeft, ChevronRight, Loader2, Pencil, Plus, Search, ShieldAlert, Trash2, UserRound, X } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Loader2, Pencil, Plus, Search, ShieldAlert, Trash2, UserPlus, X } from "lucide-react";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 import { assignManagedUserToHotel, createManagedUser, deleteManagedUser, unassignManagedUserFromHotel, updateManagedUser, type ManagedUser } from "./actions";
 import { normalizeUserRole, ROLE_LABELS, USER_ROLES } from "@/lib/roles";
@@ -56,6 +56,8 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
   useWorkLogRealtimeRefresh();
   const router = useRouter();
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isAccordionOpen, setIsAccordionOpen] = useState(false);
+  const [propertySearch, setPropertySearch] = useState("");
   const [message, setMessage] = useState("");
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [assignmentHotelId, setAssignmentHotelId] = useState("");
@@ -84,15 +86,21 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
     try {
       setMessage("");
       if (values.hotelIds.length && !values.hotelIds.includes(values.primaryHotelId)) {
-        setMessage("Choose a primary property from the assigned properties.");
+        const errorMessage = "Choose a primary property from the assigned properties.";
+        setMessage(errorMessage);
+        showActionToast("error", errorMessage);
         return;
       }
       if (values.hotelIds.length > 1 && !values.primaryHotelId) {
-        setMessage("Choose one assigned property as the primary property.");
+        const errorMessage = "Choose one assigned property as the primary property.";
+        setMessage(errorMessage);
+        showActionToast("error", errorMessage);
         return;
       }
       if (!editingId && !values.password.trim() && !values.pinCode) {
-        setMessage("Provide a password or a 4-digit PIN.");
+        const errorMessage = "Provide a password or a 4-digit PIN.";
+        setMessage(errorMessage);
+        showActionToast("error", errorMessage);
         return;
       }
       const wasEditing = Boolean(editingId);
@@ -105,26 +113,38 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
             type: "server",
             message: "This email address is already registered. Please choose another one.",
           });
-          setMessage("");
+          setMessage("This email address is already registered. Please choose another one.");
+          showActionToast("error", "This email address is already registered.");
           return;
         }
-        setMessage(result.error);
+        const errorMessage = wasEditing
+          ? "Unable to update user. Please review the details and try again."
+          : "Unable to create user. Please review the details and try again.";
+        setMessage(errorMessage);
+        showActionToast("error", errorMessage);
         return;
       }
       form.reset(emptyForm);
       setEditingId(null);
-      setMessage(wasEditing ? "User updated." : "User created.");
-      showActionToast("success", wasEditing ? "User record updated." : "User account created.");
+      setIsAccordionOpen(false);
+      setPropertySearch("");
+      setMessage("");
+      showActionToast("success", wasEditing ? "User updated successfully." : "User account created successfully.");
       router.refresh();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to save user.";
-      setMessage(message);
-      showActionToast("error", message);
+      console.error("Managed user save failed:", error);
+      const errorMessage = editingId
+        ? "Unable to update user. Please review the details and try again."
+        : "Unable to create user. Please review the details and try again.";
+      setMessage(errorMessage);
+      showActionToast("error", errorMessage);
     }
   }));
 
   const edit = (user: ManagedUser) => {
     setEditingId(user.id);
+    setPropertySearch("");
+    setMessage("");
     form.reset({
       fullName: user.full_name,
       email: user.email,
@@ -135,6 +155,48 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
       primaryHotelId: user.primary_hotel_id ?? user.assignedHotels[0]?.id ?? "",
       password: "",
     });
+    setIsAccordionOpen(true);
+  };
+
+  const closeUserForm = () => {
+    if (isPending) return;
+    setIsAccordionOpen(false);
+    setEditingId(null);
+    setPropertySearch("");
+    setMessage("");
+    form.reset(emptyForm);
+  };
+
+  const openCreateUserForm = () => {
+    setEditingId(null);
+    setMessage("");
+    setPropertySearch("");
+    form.reset(emptyForm);
+    setIsAccordionOpen(true);
+  };
+
+  const toggleCreateUserForm = () => {
+    if (isAccordionOpen) {
+      closeUserForm();
+      return;
+    }
+    openCreateUserForm();
+  };
+
+  const setHotelSelection = (hotelIds: string[]) => {
+    const uniqueHotelIds = [...new Set(hotelIds)];
+    const currentPrimaryHotelId = form.getValues("primaryHotelId");
+    form.setValue("hotelIds", uniqueHotelIds, { shouldDirty: true, shouldValidate: true });
+    if (!uniqueHotelIds.includes(currentPrimaryHotelId)) {
+      form.setValue("primaryHotelId", uniqueHotelIds[0] ?? "", { shouldDirty: true, shouldValidate: true });
+    }
+  };
+
+  const toggleHotelSelection = (hotelId: string) => {
+    const currentHotelIds = form.getValues("hotelIds");
+    setHotelSelection(currentHotelIds.includes(hotelId)
+      ? currentHotelIds.filter((id) => id !== hotelId)
+      : [...currentHotelIds, hotelId]);
   };
 
   const remove = (user: ManagedUser) => {
@@ -205,75 +267,101 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
   return (
     <section className="space-y-5 p-1 text-slate-900 sm:p-2">
       <div className="mx-auto max-w-7xl">
-        <form onSubmit={save} noValidate className="mb-6 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-6">
-          <div className="mb-4 flex items-center gap-3">
-            <div className="rounded-xl bg-sky-100 p-2 text-sky-700"><UserRound className="h-5 w-5" /></div>
-            <div>
-              <h2 className="text-lg font-bold text-slate-900">{editingId ? "Edit user" : "Add user"}</h2>
-              <p className="text-sm text-slate-500">Set contact details, account role, and hotel assignment.</p>
-            </div>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <Field label="Full name" error={form.formState.errors.fullName?.message}><input {...form.register("fullName")} placeholder="Full name" autoComplete="name" className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" /></Field>
-            <Field label="Email" error={form.formState.errors.email?.message}><input {...emailRegistration} onChange={(event) => { form.clearErrors("email"); void emailRegistration.onChange(event); }} type="email" placeholder="Email" autoComplete="email" aria-invalid={Boolean(form.formState.errors.email)} className={`min-h-11 rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-900 ${form.formState.errors.email ? "border-rose-500 focus:border-rose-500 focus:outline-rose-500" : "border-slate-200"}`} /></Field>
-            <Field label="Phone number" error={form.formState.errors.phoneNumber?.message}><input {...form.register("phoneNumber")} type="tel" placeholder="Phone number" autoComplete="tel" className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" /></Field>
-            <Field label="Role" error={form.formState.errors.role?.message}><select {...form.register("role")} className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900">{roles.map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}</select></Field>
-            <fieldset className="rounded-xl border border-slate-200 p-3 sm:col-span-2 lg:col-span-3">
-              <legend className="px-1 text-sm font-medium text-slate-700">Property assignments</legend>
-              <p className="mb-2 text-xs text-slate-500">Select every property this person can work at, then choose one primary property.</p>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {hotels.map((hotel) => {
-                  const assigned = selectedHotelIds.includes(hotel.id);
-                  return (
-                    <div key={hotel.id} className={`flex items-center gap-3 rounded-xl border px-3 py-2 ${assigned ? "border-sky-200 bg-sky-50" : "border-slate-200 bg-white"}`}>
-                      <input
-                        id={`assign-${hotel.id}`}
-                        type="checkbox"
-                        checked={assigned}
-                        onChange={(event) => {
-                          const current = form.getValues("hotelIds");
-                          const next = event.target.checked
-                            ? [...current, hotel.id]
-                            : current.filter((id) => id !== hotel.id);
-                          form.setValue("hotelIds", next, { shouldDirty: true, shouldValidate: true });
-                          if (event.target.checked && (!form.getValues("primaryHotelId") || next.length === 1)) {
-                            form.setValue("primaryHotelId", hotel.id, { shouldDirty: true, shouldValidate: true });
-                          } else if (!event.target.checked && form.getValues("primaryHotelId") === hotel.id) {
-                            form.setValue("primaryHotelId", next[0] ?? "", { shouldDirty: true, shouldValidate: true });
-                          }
-                        }}
-                        className="h-4 w-4 rounded border-slate-300 text-sky-700 focus:ring-sky-600"
-                      />
-                      <label htmlFor={`assign-${hotel.id}`} className="min-w-0 flex-1 truncate text-sm text-slate-800">{hotel.name}</label>
-                      {assigned && (
-                        <label className="flex shrink-0 items-center gap-1 text-xs font-medium text-sky-800">
-                          <input
-                            type="radio"
-                            name="primaryHotel"
-                            checked={primaryHotelId === hotel.id}
-                            onChange={() => form.setValue("primaryHotelId", hotel.id, { shouldDirty: true, shouldValidate: true })}
-                            aria-label={`${hotel.name} is primary property`}
-                          />
-                          Primary
-                        </label>
-                      )}
-                    </div>
-                  );
-                })}
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md">
+          <button
+            type="button"
+            aria-expanded={isAccordionOpen}
+            aria-controls="managed-user-form"
+            onClick={toggleCreateUserForm}
+            className="flex min-h-20 w-full items-center justify-between gap-4 px-4 py-4 text-left transition hover:bg-slate-50 active:scale-[0.99] sm:px-6"
+          >
+            <span className="flex min-w-0 items-center gap-3">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-sky-50 text-sky-700"><UserPlus className="h-5 w-5" /></span>
+              <span className="min-w-0">
+                <span className="block font-semibold text-slate-900">{editingId ? "Edit User" : "Add New User"}</span>
+                <span className="mt-0.5 block text-sm text-slate-500">{editingId ? "Update account details and property permissions" : "Create account, assign role, and set property permissions"}</span>
+              </span>
+            </span>
+            <span className="shrink-0 text-slate-500">{isAccordionOpen ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}</span>
+          </button>
+          <div id="managed-user-form" aria-hidden={!isAccordionOpen} inert={!isAccordionOpen} className={`overflow-hidden transition-all duration-300 ease-in-out ${isAccordionOpen ? "max-h-[1200px] opacity-100" : "max-h-0 opacity-0"}`}>
+            <form onSubmit={save} noValidate className="space-y-4 border-t border-slate-200 bg-slate-50 p-4 sm:p-6">
+              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="mb-4"><h3 className="font-semibold text-slate-900">Personal &amp; Access</h3><p className="mt-1 text-xs text-slate-500">Contact information and access role.</p></div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <Field label="Full name" error={form.formState.errors.fullName?.message}><input {...form.register("fullName")} placeholder="Full name" autoComplete="name" className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" /></Field>
+                  <Field label="Email" error={form.formState.errors.email?.message}><input {...emailRegistration} onChange={(event) => { form.clearErrors("email"); void emailRegistration.onChange(event); }} type="email" placeholder="Email" autoComplete="email" aria-invalid={Boolean(form.formState.errors.email)} className={`mt-1 min-h-11 w-full rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-900 ${form.formState.errors.email ? "border-rose-500 focus:border-rose-500 focus:outline-rose-500" : "border-slate-200"}`} /></Field>
+                  <Field label="Phone number" error={form.formState.errors.phoneNumber?.message}><input {...form.register("phoneNumber")} type="tel" placeholder="Phone number" autoComplete="tel" className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" /></Field>
+                </div>
+                <div className="mt-4 max-w-md">
+                  <Field label="Role" error={form.formState.errors.role?.message}><select {...form.register("role")} className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900">{roles.map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}</select></Field>
+                </div>
+              </section>
+
+              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="mb-3"><h3 className="font-semibold text-slate-900">Property assignments</h3><p className="mt-1 text-xs text-slate-500">Select the properties this user can access and choose a primary property.</p></div>
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {selectedHotelIds.length ? selectedHotelIds.map((hotelId) => {
+                    const hotel = hotels.find((item) => item.id === hotelId);
+                    if (!hotel) return null;
+                    return <span key={hotel.id} className="inline-flex max-w-full items-center gap-1 rounded-full bg-sky-50 py-1 pl-3 pr-1 text-xs font-medium text-sky-800">
+                      <span className="max-w-56 truncate">{hotel.name}</span>
+                      <button type="button" aria-label={`Remove ${hotel.name}`} onClick={() => toggleHotelSelection(hotel.id)} className="grid h-6 w-6 shrink-0 place-items-center rounded-full hover:bg-sky-100"><X className="h-3.5 w-3.5" /></button>
+                    </span>;
+                  }) : <span className="text-xs text-slate-500">No properties selected.</span>}
+                </div>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <span className="text-xs font-semibold text-slate-600">{selectedHotelIds.length} of {hotels.length} selected</span>
+                  <div className="flex gap-3">
+                    <button type="button" onClick={() => setHotelSelection(hotels.map((hotel) => hotel.id))} className="text-xs font-semibold text-sky-800 hover:text-sky-950">Select All</button>
+                    <button type="button" onClick={() => setHotelSelection([])} className="text-xs font-semibold text-slate-600 hover:text-slate-900">Clear All</button>
+                  </div>
+                </div>
+                <div className="max-h-52 overflow-y-auto rounded-xl border border-slate-200 p-3">
+                  <label className="sticky top-0 z-10 mb-2 block bg-white pb-2">
+                    <span className="sr-only">Filter properties</span>
+                    <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                    <input value={propertySearch} onChange={(event) => setPropertySearch(event.target.value)} placeholder="Filter properties..." className="min-h-10 w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-900" />
+                  </label>
+                  <div className="space-y-1">
+                    {hotels.filter((hotel) => hotel.name.toLowerCase().includes(propertySearch.trim().toLowerCase())).map((hotel) => {
+                      const assigned = selectedHotelIds.includes(hotel.id);
+                      return <div key={hotel.id} className={`flex items-center gap-3 rounded-lg px-3 py-2 ${assigned ? "bg-sky-50" : "hover:bg-slate-50"}`}>
+                        <input id={`assign-${hotel.id}`} type="checkbox" checked={assigned} onChange={() => toggleHotelSelection(hotel.id)} className="h-4 w-4 rounded border-slate-300 text-sky-700 focus:ring-sky-600" />
+                        <label htmlFor={`assign-${hotel.id}`} className="min-w-0 flex-1 cursor-pointer truncate text-sm text-slate-800">{hotel.name}</label>
+                        {assigned && <label className="flex shrink-0 items-center gap-1 text-xs font-medium text-sky-800"><input type="radio" name="primaryHotel" checked={primaryHotelId === hotel.id} onChange={() => form.setValue("primaryHotelId", hotel.id, { shouldDirty: true, shouldValidate: true })} aria-label={`${hotel.name} is primary property`} />Primary</label>}
+                        {assigned && <Check className="h-4 w-4 shrink-0 text-sky-700" aria-hidden="true" />}
+                      </div>;
+                    })}
+                    {hotels.filter((hotel) => hotel.name.toLowerCase().includes(propertySearch.trim().toLowerCase())).length === 0 && <p className="px-3 py-6 text-center text-sm text-slate-500">No properties match your filter.</p>}
+                  </div>
+                </div>
+              </section>
+
+              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="mb-4"><h3 className="font-semibold text-slate-900">Credentials</h3><p className="mt-1 text-xs text-slate-500">Set a PIN or password for account access.</p></div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <Field label="4-digit PIN" error={form.formState.errors.pinCode?.message}><input {...form.register("pinCode")} inputMode="numeric" maxLength={4} placeholder="PIN" className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" /></Field>
+                  <Field label="Password" error={form.formState.errors.password?.message}><input {...form.register("password")} type="password" placeholder={editingId ? "New password (optional)" : "Password (optional with PIN)"} autoComplete="new-password" className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" /></Field>
+                </div>
+              </section>
+              {message && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{message}</p>}
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <button type="button" onClick={closeUserForm} disabled={isPending} className="min-h-11 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-50">Cancel</button>
+                <button type="submit" disabled={isPending} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+                  {isPending ? <><Loader2 className="h-4 w-4 animate-spin" />{editingId ? "Saving..." : "Creating..."}</> : editingId ? "Save changes" : "Create user"}
+                </button>
               </div>
-            </fieldset>
-            <Field label="4-digit PIN" error={form.formState.errors.pinCode?.message}><input {...form.register("pinCode")} inputMode="numeric" maxLength={4} placeholder="PIN" className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" /></Field>
-            <Field label="Password" error={form.formState.errors.password?.message}><input {...form.register("password")} type="password" placeholder={editingId ? "New password (optional)" : "Password (optional with PIN)"} autoComplete="new-password" className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 sm:col-span-2 lg:col-span-1" /></Field>
+            </form>
           </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button type="submit" disabled={isPending} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{isPending ? <><Loader2 className="h-4 w-4 animate-spin" />Saving...</> : editingId ? "Save changes" : "Create user"}</button>
-            {editingId && <button type="button" onClick={() => { setEditingId(null); form.reset(emptyForm); }} className="inline-flex min-h-11 items-center gap-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700"><X className="h-4 w-4" /> Cancel edit</button>}
-          </div>
-        </form>
+        </div>
 
         <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-6">
-          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div><h2 className="text-lg font-bold text-slate-900">Managed users</h2><p className="text-sm text-slate-500">{filteredUsers.length} matching {users.length} total accounts</p></div>
+          </div>
+          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <p className="text-sm font-medium text-slate-600">Search and manage user access</p>
             <label className="relative block w-full md:max-w-sm">
               <span className="sr-only">Search users</span>
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -363,7 +451,7 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
             </div>
           </div>
         </section>
-        {message && <p role="alert" className="mt-4 rounded-xl bg-slate-900 px-3 py-2 text-sm text-white">{message}</p>}
+        {message && !isAccordionOpen && <p role="status" className="mt-4 rounded-xl bg-slate-900 px-3 py-2 text-sm text-white">{message}</p>}
         {unlinkTarget && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-labelledby="unlink-title"><div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"><div className="flex items-start gap-3"><div className="rounded-xl bg-amber-100 p-2 text-amber-700"><ShieldAlert className="h-5 w-5" /></div><div className="min-w-0"><h2 id="unlink-title" className="text-lg font-bold text-slate-900">Unlink hotel?</h2><p className="mt-2 text-sm leading-6 text-slate-600">Are you sure you want to unlink this hotel from <strong>{unlinkTarget.userName}</strong>?</p><select value={unlinkHotelId} onChange={(event) => setUnlinkHotelId(event.target.value)} className="mt-3 min-h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900">{unlinkTarget.hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select><p className="mt-2 text-xs text-slate-500">This changes the user&apos;s property access but does not delete the hotel or work history.</p></div></div><div className="mt-6 flex justify-end gap-2"><button type="button" onClick={() => setUnlinkTarget(null)} disabled={isPending} className="min-h-11 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700">Cancel</button><button type="button" onClick={confirmUnlink} disabled={isPending} className="min-h-11 rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{isPending ? "Unlinking..." : "Confirm unlink"}</button></div></div></div>}
       </div>
     </section>

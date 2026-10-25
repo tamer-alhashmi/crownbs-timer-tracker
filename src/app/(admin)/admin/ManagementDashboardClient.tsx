@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition, type ReactNode } from "react";
 import Link from "next/link";
-import { Activity, Building2, CalendarDays, Check, CircleDollarSign, ClipboardList, Gauge, History, Hotel, Loader2, Pencil, UsersRound, X, BookOpen, Wallet, Columns3, Filter, Search, CreditCard, ShieldAlert } from "lucide-react";
+import { Activity, Building2, CalendarDays, Check, CircleDollarSign, ClipboardList, Clock, Gauge, History, Hotel, Loader2, Pencil, UsersRound, X, BookOpen, Wallet, Columns3, Filter, Search, CreditCard, ShieldAlert } from "lucide-react";
 import { OperationalBrief } from "@/components/dashboard/OperationalBrief";
 import { ServiceCard } from "@/components/dashboard/ServiceCard";
 import { SystemManual } from "@/components/dashboard/SystemManual";
@@ -351,12 +351,30 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
   };
 
   const syncRooms = () => run(async () => { const result = await importRoomsFromGoogleSheet(); return result; }, "Rooms synced.");
+  const workLogRowProps = (log: Log): WorkLogRowProps => {
+    const isOwnLog = log.user_id === data.currentUserId;
+    return {
+      log,
+      isOwnLog,
+      canManager: canManager && !isOwnLog
+        && (data.userRole !== "manager" || ["hk_admin", "cleaner"].includes(log.assigneeRole)),
+      canOwner: canOwner && !isOwnLog,
+      canBypassClockOut: !isOwnLog && (isPlatformAdmin(data.userRole) || data.userRole === "owner" || ["manager", "housekeeping_admin", "hk_admin"].includes(log.assigneeRole)),
+      canForceEndAndApprove: !isOwnLog && (isPlatformAdmin(data.userRole) || data.userRole === "owner") && log.assigneeRole === "manager" && ["assigned", "active"].includes(log.status) && !log.is_locked,
+      feedback: approvalFeedback[log.id] ?? null,
+      onEdit: openWorkLogDetails,
+      onFinalize: finalizeWorkLogRow,
+      onForceEndAndApprove: submitForceEndAndApprove,
+      onApprove: submitApproval,
+      onReject: rejectWorkLogRow,
+    };
+  };
 
   return <div className="enterprise-dashboard min-h-screen min-w-0 bg-slate-50 text-slate-900">
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="flex h-16 items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3"><span className="hidden h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-white sm:flex"><Hotel className="h-5 w-5" /></span><div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">{data.userRole} workspace</p><h1 className="text-lg font-semibold text-slate-950">Crown Operations</h1></div></div>
-          <div className="flex items-center gap-2">{isPlatformAdmin(data.userRole) && <button type="button" onClick={syncRooms} disabled={isPending} className="hidden min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:inline-flex">Fetch rooms</button>}{data.userRole === "super_admin" && <Link href="/admin/tenant-accounts" className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900 hover:bg-sky-100 sm:text-sm"><CreditCard className="h-4 w-4" /><span className="hidden sm:inline">Tenant Accounts & Billing</span><span className="sm:hidden">Billing</span></Link>}<UserProfileMenu name={data.userName} email={data.userEmail} avatarUrl={data.userAvatarUrl} role={data.userRole} settingsHref="/settings" /></div>
+          <div className="flex items-center gap-2">{isPlatformAdmin(data.userRole) && <button type="button" onClick={syncRooms} disabled={isPending} className="hidden min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:inline-flex">Fetch rooms</button>}{data.userRole === "super_admin" && <Link href="/admin/tenant-accounts" aria-label="Billing" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sky-200 bg-sky-50 p-0 text-sky-900 hover:bg-sky-100 md:h-9 md:w-auto md:gap-2 md:px-3 md:py-2"><CreditCard className="h-4 w-4" /><span className="hidden font-medium text-sm md:inline">Billing</span></Link>}<UserProfileMenu name={data.userName} email={data.userEmail} avatarUrl={data.userAvatarUrl} role={data.userRole} settingsHref="/settings" /></div>
         </div>
         <nav aria-label="Dashboard tabs" role="tablist" className="dashboard-tab-scrollbar flex min-w-0 max-w-full gap-1 overflow-x-auto border-t border-slate-100 px-3 py-2 [-webkit-overflow-scrolling:touch] sm:px-6 lg:px-8">
           {DASHBOARD_TABS.map(({ id, label, icon: Icon }) => <button key={id} id={`tab-${id}`} type="button" role="tab" aria-selected={activeTab === id} aria-controls={`panel-${id}`} onClick={() => selectTab(id)} className={`inline-flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition sm:text-sm ${activeTab === id ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"}`}><Icon aria-hidden="true" className="h-4 w-4" />{label}</button>)}
@@ -448,30 +466,14 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
       setToDate={(value) => { setToDate(value); setWorkLogPage(1); }}
     />
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-      <div className="admin-config-scroll mobile-card-table-wrapper max-h-[65vh] overflow-auto rounded-lg border border-slate-200 [-webkit-overflow-scrolling:touch]">
-        <table className="mobile-card-table min-w-[760px] w-full text-left text-sm">
+      <div className="space-y-3 md:hidden">
+        {visibleWorkLogs.map((log) => <WorkLogMobileCard key={log.id} {...workLogRowProps(log)} />)}
+        {filteredWorkLogs.length === 0 && <p className="rounded-xl border border-slate-200 px-4 py-8 text-center text-sm text-slate-500">No work logs match this date range.</p>}
+      </div>
+      <div className="hidden max-h-[65vh] overflow-auto rounded-lg border border-slate-200 md:block">
+        <table className="min-w-[760px] w-full text-left text-sm">
           <thead className="sticky top-0 z-10 bg-white/95 text-slate-600 shadow-sm backdrop-blur"><tr><th className="px-3 py-3">Cleaner</th><th className="px-3 py-3">Hotel / service</th><th className="px-3 py-3 text-right">Shift</th><th className="px-3 py-3">Approvals</th><th className="px-3 py-3">Actions</th></tr></thead>
-          <tbody className="divide-y divide-slate-100">{visibleWorkLogs.map((log) => {
-            const isOwnLog = log.user_id === data.currentUserId;
-            const canApproveAsManager = canManager && !isOwnLog
-              && (data.userRole !== "manager" || ["hk_admin", "cleaner"].includes(log.assigneeRole));
-            const canApproveAsOwner = canOwner && !isOwnLog;
-            return <WorkLogRow
-              key={log.id}
-              log={log}
-              isOwnLog={isOwnLog}
-              canManager={canApproveAsManager}
-              canOwner={canApproveAsOwner}
-              canBypassClockOut={!isOwnLog && (isPlatformAdmin(data.userRole) || data.userRole === "owner" || ["manager", "housekeeping_admin", "hk_admin"].includes(log.assigneeRole))}
-              canForceEndAndApprove={!isOwnLog && (isPlatformAdmin(data.userRole) || data.userRole === "owner") && log.assigneeRole === "manager" && ["assigned", "active"].includes(log.status) && !log.is_locked}
-              feedback={approvalFeedback[log.id] ?? null}
-              onEdit={openWorkLogDetails}
-              onFinalize={finalizeWorkLogRow}
-              onForceEndAndApprove={submitForceEndAndApprove}
-              onApprove={submitApproval}
-              onReject={rejectWorkLogRow}
-            />;
-          })}{filteredWorkLogs.length === 0 && <tr><td colSpan={5} className="px-3 py-8 text-center text-slate-500">No work logs match this date range.</td></tr>}</tbody>
+          <tbody className="divide-y divide-slate-100">{visibleWorkLogs.map((log) => <WorkLogRow key={log.id} {...workLogRowProps(log)} />)}{filteredWorkLogs.length === 0 && <tr><td colSpan={5} className="px-3 py-8 text-center text-slate-500">No work logs match this date range.</td></tr>}</tbody>
           <tfoot><tr className="font-semibold text-slate-900"><td className="px-3 py-3">Filtered totals ({filteredWorkLogs.length})</td><td className="px-3 py-3 text-right tabular-nums">{filteredWorkLogTotals.rooms} rooms</td><td className="px-3 py-3 text-right tabular-nums">{filteredWorkLogTotals.hours.toFixed(2)} hrs</td><td className="px-3 py-3" colSpan={2}>All matching rows</td></tr></tfoot>
         </table>
         </div>
@@ -620,8 +622,26 @@ function WorkLogFilters({ hotels, cleaners, services, needsActionOnly, setNeedsA
   </section>;
 }
 
-const WorkLogRow = memo(function WorkLogRow({ log, isOwnLog, canManager, canOwner, canBypassClockOut, canForceEndAndApprove, feedback, onEdit, onFinalize, onForceEndAndApprove, onApprove, onReject }: { log: Log; isOwnLog: boolean; canManager: boolean; canOwner: boolean; canBypassClockOut: boolean; canForceEndAndApprove: boolean; feedback: ApprovalFeedback | null; onEdit: (logId: string) => void; onFinalize: (logId: string) => void; onForceEndAndApprove: (logId: string) => void; onApprove: (logId: string, role: "manager" | "owner") => void; onReject: (logId: string, role: "manager" | "owner", note: string) => void }) {
-  const [rejectionNote, setRejectionNote] = useState("");
+type WorkLogRowProps = {
+  log: Log;
+  isOwnLog: boolean;
+  canManager: boolean;
+  canOwner: boolean;
+  canBypassClockOut: boolean;
+  canForceEndAndApprove: boolean;
+  feedback: ApprovalFeedback | null;
+  onEdit: (logId: string) => void;
+  onFinalize: (logId: string) => void;
+  onForceEndAndApprove: (logId: string) => void;
+  onApprove: (logId: string, role: "manager" | "owner") => void;
+  onReject: (logId: string, role: "manager" | "owner", note: string) => void;
+};
+
+function canEditWorkLog(log: Log) {
+  return !log.is_locked && !(log.manager_approved && log.owner_approved);
+}
+
+const WorkLogRow = memo(function WorkLogRow({ log, isOwnLog, canManager, canOwner, canBypassClockOut, canForceEndAndApprove, feedback, onEdit, onFinalize, onForceEndAndApprove, onApprove, onReject }: WorkLogRowProps) {
   const isPending = feedback?.kind === "pending";
   const hours = log.end_time ? durationHours(log.start_time, log.end_time) : 0;
   return <tr className="align-top">
@@ -635,22 +655,100 @@ const WorkLogRow = memo(function WorkLogRow({ log, isOwnLog, canManager, canOwne
     </td>
     <td data-label="Actions" className="px-3 py-4">
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" onClick={() => onEdit(log.id)} className="flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 text-slate-700" title="Open full work-log details"><Pencil className="h-4 w-4" /></button>
+        {canEditWorkLog(log) && <button type="button" onClick={() => onEdit(log.id)} className="flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 text-slate-700" title="Open full work-log details"><Pencil className="h-4 w-4" /></button>}
         {isOwnLog ? <span className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700">
           {log.assigneeRole === "manager" && log.status === "completed"
             ? log.manager_approved ? "Approved (Completed)" : "Pending Manager Approval"
             : "Your work log · read only"}
         </span> : !log.is_locked && (log.status !== "completed" ? <><span className="rounded-lg bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">Clock out required</span>{canBypassClockOut && log.status === "active" && <button type="button" disabled={isPending} onClick={() => onFinalize(log.id)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-semibold text-sky-900 hover:bg-sky-100 disabled:cursor-wait disabled:opacity-60">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Finalizing…" : "Finalize / Bypass Clock-Out"}</button>}</> : <>
-          {canManager && (log.manager_approved ? <ApprovalComplete label="Manager approved" /> : <ApprovalButtons label="Approve (Manager)" onApprove={() => onApprove(log.id, "manager")} onReject={() => onReject(log.id, "manager", rejectionNote)} isPending={isPending} />)}
-          {canOwner && (log.owner_approved ? <ApprovalComplete label="Owner approved" /> : <ApprovalButtons label="Approve (Owner)" onApprove={() => onApprove(log.id, "owner")} onReject={() => onReject(log.id, "owner", rejectionNote)} isPending={isPending} />)}
+          {canManager && (log.manager_approved ? <ApprovalComplete label="Manager approved" /> : <ApprovalButtons label="Approve (Manager)" onApprove={() => onApprove(log.id, "manager")} onReject={(note) => onReject(log.id, "manager", note)} isPending={isPending} />)}
+          {canOwner && (log.owner_approved ? <ApprovalComplete label="Owner approved" /> : <ApprovalButtons label="Approve (Owner)" onApprove={() => onApprove(log.id, "owner")} onReject={(note) => onReject(log.id, "owner", note)} isPending={isPending} />)}
         </>)}
         {canForceEndAndApprove && <button type="button" disabled={isPending} onClick={() => onForceEndAndApprove(log.id)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-semibold text-rose-900 hover:bg-rose-100 disabled:cursor-wait disabled:opacity-60">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Finalizing…" : "Force End & Approve"}</button>}
       </div>
-      {!isOwnLog && !log.is_locked && <input value={rejectionNote} onChange={(event) => setRejectionNote(event.target.value)} placeholder="Rejection note" className="mt-2 w-full rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-900" />}
       {feedback && <p role={feedback.kind === "error" ? "alert" : "status"} className={`mt-2 text-xs ${feedback.kind === "error" ? "font-medium text-rose-700" : feedback.kind === "success" ? "text-emerald-700" : "text-slate-500"}`}>{feedback.text}</p>}
     </td>
   </tr>;
 });
+
+function WorkLogMobileCard(props: WorkLogRowProps) {
+  const { log, isOwnLog, canManager, canOwner, canBypassClockOut, canForceEndAndApprove, feedback, onEdit, onFinalize, onForceEndAndApprove, onApprove, onReject } = props;
+  const isPending = feedback?.kind === "pending";
+  const hours = log.end_time ? durationHours(log.start_time, log.end_time) : null;
+  const dateLabel = new Date(log.start_time).toLocaleString("en-GB", { timeZone: "Africa/Cairo" });
+  const bothApproved = log.manager_approved && log.owner_approved;
+  const managerStatus = log.manager_approved ? "approved" : log.manager_rejected ? "rejected" : "pending";
+  const ownerStatus = log.owner_approved ? "approved" : log.owner_rejected ? "rejected" : "pending";
+  const stateLabel = log.is_locked ? "Locked for payroll" : log.status === "active" ? "Active" : log.status !== "completed" ? "Clock-out required" : null;
+
+  return <article className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:shadow-md dark:border-slate-800 dark:bg-slate-900">
+    <header className="flex items-center justify-between gap-3 border-b border-slate-100 pb-2 dark:border-slate-800">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-sky-100 text-xs font-bold text-sky-800">{log.cleanerName.trim().split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase()}</span>
+        <div className="min-w-0">
+          <p className="truncate text-base font-semibold text-slate-900 dark:text-slate-100">{log.cleanerName}</p>
+          <p className="truncate text-xs capitalize text-slate-500">{log.assigneeRole.replaceAll("_", " ")}</p>
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {stateLabel && <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ${log.is_locked ? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" : log.status === "active" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300" : "bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-300"}`}>
+          {log.status === "active" && !log.is_locked && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />}
+          {stateLabel}
+        </span>}
+        {canEditWorkLog(log) && <button type="button" aria-label={`Edit ${log.cleanerName} work log`} onClick={() => onEdit(log.id)} className="grid h-9 w-9 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white"><Pencil className="h-4 w-4" /></button>}
+      </div>
+    </header>
+
+    <div className="space-y-2.5">
+      <div className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+        <Building2 className="h-4 w-4 shrink-0 text-slate-400" />
+        <span className="min-w-0 flex-1 truncate font-medium">{log.hotelName} <span className="font-normal text-slate-500">· {log.services_config?.[0]?.name ?? "Service"}</span></span>
+        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">{log.rooms_completed} {log.rooms_completed === 1 ? "room" : "rooms"}</span>
+      </div>
+      <div className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
+        <Clock className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+        <span className="min-w-0 flex-1">{dateLabel}</span>
+        <span className="shrink-0 rounded-lg bg-slate-100 px-2 py-1 text-xs font-bold tabular-nums text-slate-700 dark:bg-slate-800 dark:text-slate-200">{hours === null ? "In progress" : `${hours.toFixed(2)} hrs`}</span>
+      </div>
+    </div>
+
+    <div className="grid grid-cols-2 gap-2">
+      <ApprovalStatusPill label="Manager" status={managerStatus} />
+      <ApprovalStatusPill label="Owner" status={ownerStatus} />
+    </div>
+
+    <footer className="space-y-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+      {log.is_locked || bothApproved
+        ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-xs font-semibold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">Fully Approved</div>
+        : log.status !== "completed"
+          ? <div className="space-y-2">
+            <p className="text-center text-xs font-medium text-amber-800">Clock-out required before approval.</p>
+            {canBypassClockOut && log.status === "active" && <button type="button" disabled={isPending} onClick={() => onFinalize(log.id)} className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 text-sm font-semibold text-sky-900 disabled:opacity-60">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Finalizing..." : "Finalize / Bypass Clock-Out"}</button>}
+          </div>
+          : isOwnLog
+            ? <p className="rounded-lg bg-slate-50 px-3 py-2 text-center text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">Your work log · read only</p>
+            : <div className="space-y-2">
+              {canManager && !log.manager_approved && <ApprovalButtons label="Approve (Manager)" onApprove={() => onApprove(log.id, "manager")} onReject={(note) => onReject(log.id, "manager", note)} isPending={isPending} />}
+              {canOwner && !log.owner_approved && <ApprovalButtons label="Approve (Owner)" onApprove={() => onApprove(log.id, "owner")} onReject={(note) => onReject(log.id, "owner", note)} isPending={isPending} />}
+              {canForceEndAndApprove && <button type="button" disabled={isPending} onClick={() => onForceEndAndApprove(log.id)} className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 text-sm font-semibold text-rose-900 disabled:opacity-60">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Finalizing..." : "Force End & Approve"}</button>}
+              {!canManager && !canOwner && !canForceEndAndApprove && <p className="rounded-lg bg-slate-50 px-3 py-2 text-center text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">Awaiting approval.</p>}
+            </div>}
+      {feedback && <p role={feedback.kind === "error" ? "alert" : "status"} className={`text-xs ${feedback.kind === "error" ? "font-medium text-rose-700" : feedback.kind === "success" ? "text-emerald-700" : "text-slate-500"}`}>{feedback.text}</p>}
+    </footer>
+  </article>;
+}
+
+function ApprovalStatusPill({ label, status }: { label: string; status: "approved" | "pending" | "rejected" }) {
+  const style = status === "approved"
+    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+    : status === "rejected"
+      ? "bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300"
+      : "bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-300";
+  return <span className={`inline-flex min-w-0 items-center justify-center gap-1 rounded-full px-2 py-1.5 text-xs font-semibold ${style}`}>
+    {status === "approved" ? <Check className="h-3.5 w-3.5" /> : status === "pending" ? <Clock className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
+    <span>{label} {status === "approved" ? "approved" : status === "pending" ? "pending" : "rejected"}</span>
+  </span>;
+}
 
 function DashboardHeading({ title, description }: { title: string; description: string }) {
   return <header className="rounded-2xl bg-white px-5 py-4 shadow-sm ring-1 ring-slate-200/70">
@@ -662,7 +760,25 @@ function DashboardHeading({ title, description }: { title: string; description: 
 function ApprovalComplete({ label }: { label: string }) {
   return <span className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800"><Check className="h-3.5 w-3.5" />{label}</span>;
 }
-function ApprovalButtons({ label, onApprove, onReject, isPending }: { label: string; onApprove: () => void; onReject: () => void; isPending: boolean }) { return <><button type="button" disabled={isPending} onClick={onApprove} className="min-h-11 rounded-lg bg-slate-900 px-2 py-1 text-xs font-semibold text-white disabled:cursor-wait disabled:opacity-60"><Check className="inline h-3 w-3"/> {isPending ? "Saving..." : label}</button><button type="button" disabled={isPending} onClick={onReject} className="min-h-11 rounded-lg bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 disabled:cursor-wait disabled:opacity-60"><X className="inline h-3 w-3"/> Reject</button></>; }
+function ApprovalButtons({ label, onApprove, onReject, isPending }: { label: string; onApprove: () => void; onReject: (note: string) => void; isPending: boolean }) {
+  const [isRejecting, setIsRejecting] = useState(false);
+  const [note, setNote] = useState("");
+  return <div className="space-y-2">
+    <div className="grid grid-cols-2 gap-2">
+      <button type="button" disabled={isPending} onClick={onApprove} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-lg bg-slate-900 px-2 py-2 text-xs font-semibold text-white disabled:cursor-wait disabled:opacity-60"><Check className="h-3.5 w-3.5" />{isPending ? "Saving..." : label}</button>
+      <button type="button" disabled={isPending} onClick={() => setIsRejecting((open) => !open)} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-lg border border-rose-200 bg-white px-2 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-wait disabled:opacity-60"><X className="h-3.5 w-3.5" />Reject</button>
+    </div>
+    {isRejecting && <div className="space-y-2 overflow-hidden rounded-xl border border-rose-100 bg-rose-50/60 p-3 transition-all">
+      <label className="block text-xs font-semibold text-slate-700">Reason for rejection
+        <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} placeholder="Reason for rejection..." className="mt-1 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900 outline-none focus:border-rose-300 focus:ring-2 focus:ring-rose-100" />
+      </label>
+      <div className="flex justify-end gap-2">
+        <button type="button" disabled={isPending} onClick={() => { setIsRejecting(false); setNote(""); }} className="min-h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 disabled:opacity-50">Cancel</button>
+        <button type="button" disabled={isPending} onClick={() => { onReject(note); setIsRejecting(false); setNote(""); }} className="min-h-9 rounded-lg bg-rose-700 px-3 text-xs font-semibold text-white disabled:opacity-50">{isPending ? "Submitting..." : "Confirm Rejection"}</button>
+      </div>
+    </div>}
+  </div>;
+}
 function PayrollFiltered({ logs }: { logs: PayrollLog[] }) {
   const today = new Date().toISOString().slice(0, 10);
   const monthStart = `${today.slice(0, 7)}-01`;
