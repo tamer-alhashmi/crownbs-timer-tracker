@@ -190,7 +190,7 @@ export function NotificationBell() {
         )}
       </button>
       {isOpen && (
-        <div data-back-button-overlay="true" className="absolute right-0 top-full mt-2 w-80 sm:w-96 z-50 shadow-xl rounded-xl border bg-white dark:bg-slate-900 max-w-[calc(100vw-1.5rem)] max-h-[calc(85dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-1rem)] overflow-x-hidden overflow-y-auto overscroll-contain border-slate-200 dark:border-slate-700">
+        <div data-back-button-overlay="true" style={{ right: 0, left: "auto" }} className="absolute right-0 top-full mt-2 w-[calc(100vw-24px)] max-w-sm sm:w-96 z-50 origin-top-right overflow-hidden shadow-2xl rounded-2xl border max-h-[calc(85dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-1rem)] overflow-y-auto overscroll-contain bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-slate-900">Notifications</p>

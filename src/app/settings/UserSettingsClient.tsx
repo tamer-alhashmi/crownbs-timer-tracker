@@ -280,7 +280,46 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
               <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search name, email, phone, or role" className="min-h-11 w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm text-slate-900" />
             </label>
           </div>
-          <div className="overflow-x-auto rounded-xl border border-slate-200 [-webkit-overflow-scrolling:touch]">
+          <div className="space-y-3 md:hidden">
+            {visibleUsers.map((user) => (
+              <article key={user.id} className="rounded-xl border border-slate-200 p-4">
+                <div className="flex min-w-0 items-start gap-3">
+                  <UserAvatar name={user.full_name} avatarUrl={user.avatar_url} role={user.role} className="h-11 w-11 shrink-0 bg-sky-100 text-sm font-semibold text-sky-800" />
+                  <div className="min-w-0 flex-1">
+                    <p className="break-words font-semibold text-slate-900">{user.full_name}</p>
+                    <p className="break-all text-xs text-slate-500">{user.email}</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{ROLE_LABELS[user.role]}</span>
+                      <LiveStatusIndicator isClockedIn={user.is_clocked_in ?? false} className="text-xs" />
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Assigned properties</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {user.assignedHotels.length ? user.assignedHotels.map((hotel) => (
+                      <span key={hotel.id} className="inline-flex max-w-full rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-800">{hotel.name}</span>
+                    )) : <span className="text-xs text-slate-500">No assigned property</span>}
+                  </div>
+                </div>
+                {user.phone_number && <p className="mt-3 text-sm text-slate-600">{user.phone_number}</p>}
+                <div className="mt-4 space-y-2">
+                  <button type="button" onClick={() => { setAssigningId(assigningId === user.id ? null : user.id); setAssignmentHotelId(""); }} className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-lg border border-sky-200 bg-white px-3 py-2 text-sm font-semibold text-sky-800"><Plus className="h-4 w-4" /> Assign hotel</button>
+                  {assigningId === user.id && <div className="flex flex-col gap-2 rounded-xl border border-sky-100 bg-sky-50 p-3">
+                    <select value={assignmentHotelId} onChange={(event) => setAssignmentHotelId(event.target.value)} className="min-h-11 w-full min-w-0 rounded-lg border border-sky-200 bg-white px-3 text-sm text-slate-900"><option value="">Select hotel</option>{hotels.filter((hotel) => !user.assignedHotels.some((assigned) => assigned.id === hotel.id)).map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select>
+                    <button type="button" onClick={() => assignHotel(user.id)} disabled={isPending} className="min-h-11 w-full rounded-lg bg-sky-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">Assign</button>
+                  </div>}
+                  <div className="grid grid-cols-2 gap-2">
+                    {user.assignedHotels.length > 0 && <button type="button" onClick={() => { setUnlinkTarget({ userId: user.id, userName: user.full_name, hotels: user.assignedHotels }); setUnlinkHotelId(user.assignedHotels[0].id); }} className="inline-flex min-h-11 items-center justify-center gap-1 rounded-lg border border-amber-200 bg-white px-2 py-2 text-xs font-semibold text-amber-800"><ShieldAlert className="h-3.5 w-3.5" /> Unlink</button>}
+                    <button type="button" onClick={() => edit(user)} className="inline-flex min-h-11 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-700"><Pencil className="h-3.5 w-3.5" /> Edit</button>
+                  </div>
+                  {actorRole === "super_admin" && <button type="button" onClick={() => remove(user)} disabled={isPending} className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 disabled:opacity-50"><Trash2 className="h-4 w-4" /> Delete</button>}
+                </div>
+              </article>
+            ))}
+            {visibleUsers.length === 0 && <p className="rounded-xl border border-slate-200 px-4 py-8 text-center text-sm text-slate-500">No users match your search.</p>}
+          </div>
+          <div className="hidden overflow-x-auto rounded-xl border border-slate-200 md:block">
             <table className="min-w-[1050px] w-full text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">User</th><th className="px-4 py-3">Role</th><th className="px-4 py-3">Phone number</th><th className="px-4 py-3">Assigned hotels</th><th className="px-4 py-3">Actions</th></tr></thead>
               <tbody className="divide-y divide-slate-100">
