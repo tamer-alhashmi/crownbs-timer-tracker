@@ -24,7 +24,7 @@ export async function GET() {
 
   const columns = "id, user_id, assigned_by, assigned_to, assigned_at, hotel_id, service_name_snapshot, notes, status, start_time, priority, due_at, dispatch_metadata, room_ids, room_number, room_numbers";
   const [{ data: incoming, error: incomingError }, { data: outgoing, error: outgoingError }] = await Promise.all([
-    supabase.from("work_logs").select(columns).eq("assigned_to", actor.id).eq("status", "assigned").order("assigned_at", { ascending: false }).limit(30),
+    supabase.from("work_logs").select(columns).eq("assigned_to", actor.id).eq("status", "assigned").or(`assigned_by.is.null,assigned_by.neq.${actor.id}`).order("assigned_at", { ascending: false }).limit(30),
     supabase.from("work_logs").select(columns).eq("assigned_by", actor.id).eq("status", "active").order("start_time", { ascending: false }).limit(30),
   ]);
   if (incomingError || outgoingError) {
