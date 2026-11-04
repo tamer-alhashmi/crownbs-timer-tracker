@@ -28,3 +28,18 @@
 .enterprise-dashboard .overflow-x-auto > table tbody tr:hover {
   background: #f8fafc;
 }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .enterprise-dashboard .overflow-x-auto > table thead th {
+    background: var(--surface-2);
+  }
+
+  :root:not([data-theme="light"]) .enterprise-dashboard .overflow-x-auto > table tfoot td {
+    background: var(--surface);
+    box-shadow: 0 -1px 0 var(--line);
+  }
+
+  :root:not([data-theme="light"]) .enterprise-dashboard .overflow-x-auto > table tbody tr:hover {
+    background: var(--surface-2);
+  }
+}

@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
     email TEXT UNIQUE NOT NULL,
     pin_code TEXT,
+    has_pin BOOLEAN GENERATED ALWAYS AS (pin_code IS NOT NULL AND pin_code <> '') STORED,
     role user_role NOT NULL,
     full_name TEXT NOT NULL,
     phone_number TEXT,

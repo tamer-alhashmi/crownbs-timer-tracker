@@ -378,9 +378,10 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, tenants = 
         </div>)}
       </div>
     </section>}
-    <div className="admin-config-scroll mobile-card-table-wrapper mt-4 max-h-[65vh] overflow-auto rounded-lg border border-slate-200 [-webkit-overflow-scrolling:touch]">
-      <table className="mobile-card-table min-w-[760px] w-full text-left text-sm">
-        <thead className="sticky top-0 z-10 bg-white/95 text-slate-600 shadow-sm backdrop-blur"><tr><th className="px-3 py-3">Task date/time</th><th className="px-3 py-3">Cleaner</th><th className="px-3 py-3">Hotel / service</th><th className="px-3 py-3 text-right">Hours</th><th className="px-3 py-3 text-right">Rooms</th><th className="px-3 py-3 text-right">Cost (GBP)</th>{canManageTasks && <th className="px-3 py-3 text-right">Manage</th>}</tr></thead>
+    <div className="workspace-table-scroll admin-config-scroll mobile-card-table-wrapper mt-4 rounded-lg border border-slate-200 [-webkit-overflow-scrolling:touch]">
+      <table className="mobile-card-table min-w-[955px] w-full table-fixed text-left text-sm">
+        <colgroup><col style={{ width: "155px" }} /><col style={{ width: "150px" }} /><col style={{ width: "210px" }} /><col style={{ width: "90px" }} /><col style={{ width: "90px" }} /><col style={{ width: "130px" }} />{canManageTasks && <col style={{ width: "130px" }} />}</colgroup>
+        <thead className="sticky top-0 z-10 bg-white/95 text-slate-600 shadow-sm backdrop-blur"><tr><th className="sticky-column-start px-3 py-3">Cleaner</th><th className="px-3 py-3">Task date/time</th><th className="px-3 py-3">Hotel / service</th><th className="px-3 py-3 text-right">Hours</th><th className="px-3 py-3 text-right">Rooms</th><th className="px-3 py-3 text-right">Cost (GBP)</th>{canManageTasks && <th className="sticky-column-end px-3 py-3 text-right">Manage</th>}</tr></thead>
         <tbody className="divide-y divide-slate-100">
           {visibleLogs.map((log) => {
             const hours = durationHours(log);
@@ -390,13 +391,13 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, tenants = 
             const cost = calculateTaskCost(hours, log.rooms_completed, { ...service, default_rate: rate, unit }, log.cost_override);
             const unitLabel = unit === "hourly" ? "/hr" : unit === "per_room" ? "/room" : "fixed";
             return <tr key={log.id} className="hover:bg-slate-50">
-              <td data-label="Task date/time" className="whitespace-nowrap px-3 py-3 text-slate-600">{new Date(log.start_time).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}</td>
-              <td data-label="Cleaner" className="px-3 py-3 font-medium text-slate-900">{log.cleanerName}</td>
-              <td data-label="Hotel / service" className="px-3 py-3 text-slate-700">{log.hotelName}<span className="mt-0.5 block text-xs text-slate-500">{service.name ?? log.service_name_snapshot ?? "Service"} · GBP {rate.toFixed(2)} {unitLabel}</span></td>
-              <td data-label="Hours" className="px-3 py-3 text-right tabular-nums text-slate-700">{hours.toFixed(2)}</td>
-              <td data-label="Rooms" className="px-3 py-3 text-right tabular-nums text-slate-700">{log.rooms_completed}</td>
-              <td data-label="Cost (GBP)" className="px-3 py-3 text-right font-semibold tabular-nums text-slate-900">{cost.toFixed(2)}</td>
-              {canManageTasks && <td data-label="Manage" className="px-3 py-3"><div className="flex justify-end gap-1"><button type="button" onClick={() => startEditingTask(log)} aria-label={`Edit payroll task for ${log.cleanerName}`} title="Edit task" className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-950"><Pencil className="h-4 w-4" /></button><button type="button" onClick={() => setDeletingTask(log)} aria-label={`Remove payroll task for ${log.cleanerName}`} title="Remove task from payroll" className="flex h-11 w-11 items-center justify-center rounded-lg text-rose-700 hover:bg-rose-50"><Trash2 className="h-4 w-4" /></button></div></td>}
+              <td data-label="Cleaner" className="sticky-column-start break-words px-3 py-3 font-medium text-slate-900">{log.cleanerName}</td>
+              <td data-label="Task date/time" className="break-words px-3 py-3 text-slate-600">{new Date(log.start_time).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}</td>
+              <td data-label="Hotel / service" className="break-words px-3 py-3 text-slate-700">{log.hotelName}<span className="mt-0.5 block text-xs text-slate-500">{service.name ?? log.service_name_snapshot ?? "Service"} · GBP {rate.toFixed(2)} {unitLabel}</span></td>
+              <td data-label="Hours" className="px-3 py-3 text-right tnum text-slate-700">{hours.toFixed(2)}</td>
+              <td data-label="Rooms" className="px-3 py-3 text-right tnum text-slate-700">{log.rooms_completed}</td>
+              <td data-label="Cost (GBP)" className="px-3 py-3 text-right font-semibold tnum text-slate-900">{cost.toFixed(2)}</td>
+              {canManageTasks && <td data-label="Manage" className="sticky-column-end px-3 py-3"><div className="flex justify-end gap-1"><button type="button" onClick={() => startEditingTask(log)} aria-label={`Edit payroll task for ${log.cleanerName}`} title="Edit task" className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-950"><Pencil className="h-4 w-4" /></button><button type="button" onClick={() => setDeletingTask(log)} aria-label={`Remove payroll task for ${log.cleanerName}`} title="Remove task from payroll" className="flex h-11 w-11 items-center justify-center rounded-lg text-rose-700 hover:bg-rose-50"><Trash2 className="h-4 w-4" /></button></div></td>}
             </tr>;
           })}
           {filteredLogs.length === 0 && <tr><td colSpan={canManageTasks ? 7 : 6} className="px-3 py-8 text-center text-slate-500">No locked payroll records in this date range.</td></tr>}

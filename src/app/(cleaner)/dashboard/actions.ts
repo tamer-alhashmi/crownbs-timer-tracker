@@ -10,11 +10,11 @@ async function requireCleaner() {
   const supabase = createPrivilegedServerSupabaseClient();
   const { data: profile, error } = await supabase
     .from("users")
-    .select("role, primary_hotel_id")
+    .select("role, primary_hotel_id, is_active")
     .eq("id", user.userId)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  if (!profile || profile.role !== "cleaner" || profile.role !== user.role) throw new Error("Your account role could not be verified.");
+  if (!profile || profile.is_active !== true || profile.role !== "cleaner" || profile.role !== user.role) throw new Error("Your account could not be verified as an active cleaner.");
   const { data: assignments, error: assignmentsError } = await supabase
     .from("user_hotel_assignments")
     .select("hotel_id")

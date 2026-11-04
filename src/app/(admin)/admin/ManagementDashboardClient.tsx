@@ -27,6 +27,8 @@ import { showActionToast } from "@/components/ui/ActionToast";
 import type { UserRole } from "@/lib/roles";
 import { isPlatformAdmin } from "@/lib/roles";
 import { formatUserMessage } from "@/lib/userMessages";
+import { StatusBadge, type StatusKind } from "@/components/ui/StatusBadge";
+import { MobileWorkspaceNav } from "@/components/layout/MobileWorkspaceNav";
 
 const DASHBOARD_TABS = [
   { id: "overview", label: "Overview", icon: Gauge },
@@ -53,8 +55,8 @@ function subscribeDashboardTab(callback: () => void) {
   };
 }
 
-function useDashboardTab() {
-  return useSyncExternalStore(subscribeDashboardTab, readDashboardTab, () => "overview");
+function useDashboardTab(): DashboardTab {
+  return useSyncExternalStore<DashboardTab>(subscribeDashboardTab, readDashboardTab, () => "overview");
 }
 
 type Log = { id: string; user_id: string; hotel_id: string; service_id: string | null; cleanerName: string; hotelName: string; assigneeRole: string; start_time: string; end_time: string | null; task_date: string; status: string; cancelled_at?: string | null; rooms_completed: number; room_number: string | null; room_numbers: string[]; roomDetails?: { name: string; floor: string }[]; service_name_snapshot: string | null; service_description_snapshot: string | null; notes: string | null; cost_override?: number | string | null; owner_id: string | null; owner_name: string | null; manager_id: string | null; manager_name: string | null; responsibility_recorded_at: string | null; manager_approved: boolean; owner_approved: boolean; manager_rejected: boolean; owner_rejected: boolean; is_locked: boolean; rejection_notes?: string | null; services_config?: { name: string; default_rate: number; unit?: string }[] };
@@ -414,15 +416,15 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
 
   return <div className="enterprise-dashboard min-h-screen min-w-0 bg-slate-50 text-slate-900">
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="flex h-16 items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+        <div className="flex h-16 items-center justify-between gap-4 px-gutter pt-safe sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3"><span className="hidden h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-white sm:flex"><Hotel className="h-5 w-5" /></span><div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">{data.userRole} workspace</p><h1 className="text-lg font-semibold text-slate-950">Crown Operations</h1></div></div>
           <div className="flex items-center gap-2">{isPlatformAdmin(data.userRole) && <button type="button" onClick={syncRooms} disabled={isPending} className="hidden min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:inline-flex">Fetch rooms</button>}{data.userRole === "super_admin" && <Link href="/admin/tenant-accounts" aria-label="Billing" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sky-200 bg-sky-50 p-0 text-sky-900 hover:bg-sky-100 md:h-9 md:w-auto md:gap-2 md:px-3 md:py-2"><CreditCard className="h-4 w-4" /><span className="hidden font-medium text-sm md:inline">Billing</span></Link>}<UserProfileMenu name={data.userName} email={data.userEmail} avatarUrl={data.userAvatarUrl} role={data.userRole} settingsHref="/settings" /></div>
         </div>
-        <nav aria-label="Dashboard tabs" role="tablist" className="dashboard-tab-scrollbar flex min-w-0 max-w-full gap-1 overflow-x-auto border-t border-slate-100 px-3 py-2 [-webkit-overflow-scrolling:touch] sm:px-6 lg:px-8">
+        <nav aria-label="Dashboard tabs" role="tablist" className="dashboard-tab-scrollbar hidden min-w-0 max-w-full gap-1 overflow-x-auto border-t border-slate-100 px-3 py-2 [-webkit-overflow-scrolling:touch] md:flex sm:px-6 lg:px-8">
           {DASHBOARD_TABS.map(({ id, label, icon: Icon }) => <button key={id} id={`tab-${id}`} type="button" role="tab" aria-selected={activeTab === id} aria-controls={`panel-${id}`} onClick={() => selectTab(id)} className={`inline-flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition sm:text-sm ${activeTab === id ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"}`}><Icon aria-hidden="true" className="h-4 w-4" />{label}</button>)}
         </nav>
       </header>
-      <main className="mx-auto min-w-0 max-w-[1600px] space-y-4 p-4 sm:p-6 lg:p-8">
+      <main className="mx-auto min-w-0 max-w-[1600px] space-y-4 px-gutter pb-20 pt-4 sm:p-6 md:pb-6 lg:p-8">
         {message && <p className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm" role="status">{message}</p>}
         <section id="panel-overview" role="tabpanel" aria-labelledby="tab-overview" hidden={activeTab !== "overview"} className="space-y-5">
           {data.userRole === "manager" && (() => {
@@ -503,10 +505,20 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
             <label className="flex min-h-10 items-center gap-2 self-end rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700"><input type="checkbox" checked={sortAscending} onChange={(event) => changeWorkFilters({ ascending: event.target.checked ? "true" : "" })} className="h-4 w-4 accent-sky-700" />Ascending</label>
           </WorkspaceFilterBar>
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-      <div id="work-logs-table" className="mobile-card-table-wrapper max-h-[65vh] scroll-mt-24 overflow-auto rounded-lg border border-slate-200 [-webkit-overflow-scrolling:touch]">
-        <table aria-label="Work logs" aria-rowcount={filteredWorkLogs.length + 1} className="mobile-card-table min-w-[1100px] w-full table-auto text-left text-sm">
+      <div id="work-logs-table" className="workspace-table-scroll mobile-card-table-wrapper scroll-mt-24 rounded-lg border border-slate-200 [-webkit-overflow-scrolling:touch]">
+        <table aria-label="Work logs" aria-rowcount={filteredWorkLogs.length + 1} className="mobile-card-table min-w-[1360px] w-full table-fixed text-left text-sm">
+          <colgroup><col style={{ width: "180px" }} /><col style={{ width: "155px" }} /><col style={{ width: "170px" }} /><col style={{ width: "180px" }} /><col style={{ width: "110px" }} /><col style={{ width: "75px" }} /><col style={{ width: "190px" }} /><col style={{ width: "300px" }} /></colgroup>
           <thead className="sticky top-0 z-10 bg-white/95 text-slate-600 shadow-sm backdrop-blur">
-            <tr>{["Date / time", "Property", "Service / task", "Cleaner", "Duration", "Rooms", "Status", "Actions"].map((heading) => <th key={heading} className="px-3 py-3 font-semibold">{heading}</th>)}</tr>
+            <tr>
+              <th className="sticky-column-start px-3 py-3 font-semibold">Cleaner</th>
+              <th className="px-3 py-3 font-semibold">Date / time</th>
+              <th className="px-3 py-3 font-semibold">Property</th>
+              <th className="px-3 py-3 font-semibold">Service / task</th>
+              <th className="px-3 py-3 text-right font-semibold">Duration</th>
+              <th className="px-3 py-3 text-right font-semibold">Rooms</th>
+              <th className="px-3 py-3 font-semibold">Status</th>
+              <th className="sticky-column-end px-3 py-3 text-right font-semibold">Actions</th>
+            </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {visibleWorkLogs.length > 0
@@ -576,6 +588,7 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
     {selectedTask && <ServiceCard task={selectedTask} onClose={() => setSelectedTask(null)} editLabel={selectedTaskFromAudit ? "Edit Record" : "Edit"} onEdit={selectedTaskFromAudit && !isPlatformAdmin(data.userRole) ? undefined : () => { const logs = selectedTaskFromAudit ? data.auditLogs : data.workLogs; const log = logs.find((item) => item.id === selectedTask.id); if (log) { setSelectedTask(null); beginEdit(log); } }} />}
     {editing && draft && <FullEditPanel draft={draft} setDraft={setDraft} services={data.services} hotels={data.hotels} rooms={data.rooms} saving={isPending} canEditStatus={isPlatformAdmin(data.userRole)} statusDisabled={Boolean(editing.cancelled_at)} onCancel={() => { setEditing(null); setDraft(null); }} onSave={saveEdit}/>}
       </main>
+      <MobileWorkspaceNav activeTab={activeTab} onSelect={selectTab} />
   </div>;
 }
 
@@ -606,20 +619,20 @@ function formatWorkLogDate(value: string) {
 const WorkLogRow = memo(function WorkLogRow({ log, isOwnLog, canManager, canOwner, canBypassClockOut, canForceEndAndApprove, feedback, onEdit, onFinalize, onForceEndAndApprove, onApprove, onReject }: WorkLogRowProps) {
   const isPending = feedback?.kind === "pending";
   const hours = log.end_time ? durationHours(log.start_time, log.end_time) : null;
-  const statusLabel = log.cancelled_at ? "Cancelled" : log.is_locked ? "Approved" : log.status === "active" ? "In progress" : log.status === "assigned" ? "Pending" : log.manager_rejected || log.owner_rejected ? "Rejected" : "Pending approval";
-  const statusStyle = log.cancelled_at || log.manager_rejected || log.owner_rejected ? "bg-rose-50 text-rose-700" : log.is_locked ? "bg-emerald-50 text-emerald-700" : log.status === "active" ? "bg-sky-50 text-sky-700" : "bg-amber-50 text-amber-800";
+  const status: StatusKind = log.cancelled_at ? "cancelled" : log.is_locked ? "approved" : log.status === "active" ? "in_progress" : log.manager_rejected || log.owner_rejected ? "rejected" : log.status === "completed" ? "needs_action" : "pending";
+  const statusLabel = status === "needs_action" ? "Pending approval" : undefined;
   const hotelName = typeof log.hotelName === "string" && log.hotelName.trim() ? log.hotelName : "Unknown property";
   const cleanerName = typeof log.cleanerName === "string" && log.cleanerName.trim() ? log.cleanerName : "Unknown worker";
   const serviceName = log.service_name_snapshot ?? log.services_config?.[0]?.name ?? "Service";
   return <tr className="align-top transition-colors hover:bg-slate-50">
+    <td data-label="Cleaner" className="sticky-column-start break-words px-3 py-4 font-medium text-slate-900">{cleanerName}</td>
     <td data-label="Date / time" className="whitespace-nowrap px-3 py-4 text-slate-600">{formatWorkLogDate(log.start_time)}</td>
-    <td data-label="Property" className="px-3 py-4 font-medium text-slate-800">{hotelName}</td>
-    <td data-label="Service / task" className="px-3 py-4 text-slate-700">{serviceName}</td>
-    <td data-label="Cleaner" className="px-3 py-4 font-medium text-slate-900">{cleanerName}</td>
-    <td data-label="Duration" className="whitespace-nowrap px-3 py-4 text-right tabular-nums text-slate-700">{hours === null || !Number.isFinite(hours) ? "In progress" : `${hours.toFixed(2)} hrs`}</td>
-    <td data-label="Rooms" className="whitespace-nowrap px-3 py-4 text-right tabular-nums text-slate-700">{Number.isFinite(log.rooms_completed) ? log.rooms_completed : 0}</td>
-    <td data-label="Status" className="px-3 py-4"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyle}`}>{statusLabel}</span><div className="mt-1 text-[11px] text-slate-500">Manager: {log.manager_approved ? "Approved" : log.manager_rejected ? "Rejected" : "Pending"} · Owner: {log.owner_approved ? "Approved" : log.owner_rejected ? "Rejected" : "Pending"}</div></td>
-    <td data-label="Actions" className="px-3 py-4">
+    <td data-label="Property" className="break-words px-3 py-4 font-medium text-slate-800">{hotelName}</td>
+    <td data-label="Service / task" className="break-words px-3 py-4 text-slate-700">{serviceName}</td>
+    <td data-label="Duration" className="whitespace-nowrap px-3 py-4 text-right tnum text-slate-700">{hours === null || !Number.isFinite(hours) ? "In progress" : `${hours.toFixed(2)} hrs`}</td>
+    <td data-label="Rooms" className="whitespace-nowrap px-3 py-4 text-right tnum text-slate-700">{Number.isFinite(log.rooms_completed) ? log.rooms_completed : 0}</td>
+    <td data-label="Status" className="px-3 py-4"><StatusBadge status={status} label={statusLabel} /><div className="mt-1 text-[11px] text-slate-500">Manager: {log.manager_approved ? "Approved" : log.manager_rejected ? "Rejected" : "Pending"} · Owner: {log.owner_approved ? "Approved" : log.owner_rejected ? "Rejected" : "Pending"}</div></td>
+    <td data-label="Actions" className="sticky-column-end px-3 py-4">
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" onClick={() => onEdit(log.id)} className="min-h-9 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">View details</button>
         {isOwnLog ? <span className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700">
@@ -649,7 +662,7 @@ export function WorkLogMobileCard(props: WorkLogRowProps) {
   const bothApproved = log.manager_approved && log.owner_approved;
   const managerStatus = log.manager_approved ? "approved" : log.manager_rejected ? "rejected" : "pending";
   const ownerStatus = log.owner_approved ? "approved" : log.owner_rejected ? "rejected" : "pending";
-  const stateLabel = log.cancelled_at ? "Cancelled" : log.is_locked ? "Locked for payroll" : log.status === "active" ? "Active" : log.status !== "completed" ? "Clock-out required" : null;
+  const status: StatusKind = log.cancelled_at ? "cancelled" : log.is_locked ? "locked" : log.status === "active" ? "in_progress" : log.manager_rejected || log.owner_rejected ? "rejected" : log.status !== "completed" ? "pending" : "needs_action";
 
   return <article className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:shadow-md dark:border-slate-800 dark:bg-slate-900">
     <header className="flex items-center justify-between gap-3 border-b border-slate-100 pb-2 dark:border-slate-800">
@@ -661,10 +674,7 @@ export function WorkLogMobileCard(props: WorkLogRowProps) {
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        {stateLabel && <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ${log.is_locked ? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" : log.status === "active" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300" : "bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-300"}`}>
-          {log.status === "active" && !log.is_locked && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />}
-          {stateLabel}
-        </span>}
+        <StatusBadge status={status} label={status === "pending" && log.status !== "completed" ? "Clock-out required" : undefined} className="text-[11px]" />
         {canEditWorkLog(log) && <button type="button" aria-label={`Edit ${cleanerName} work log`} onClick={() => onEdit(log.id)} className="grid h-9 w-9 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white"><Pencil className="h-4 w-4" /></button>}
       </div>
     </header>
@@ -709,15 +719,11 @@ export function WorkLogMobileCard(props: WorkLogRowProps) {
 }
 
 function ApprovalStatusPill({ label, status }: { label: string; status: "approved" | "pending" | "rejected" }) {
-  const style = status === "approved"
-    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-    : status === "rejected"
-      ? "bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300"
-      : "bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-300";
-  return <span className={`inline-flex min-w-0 items-center justify-center gap-1 rounded-full px-2 py-1.5 text-xs font-semibold ${style}`}>
-    {status === "approved" ? <Check className="h-3.5 w-3.5" /> : status === "pending" ? <Clock className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
-    <span>{label} {status === "approved" ? "approved" : status === "pending" ? "pending" : "rejected"}</span>
-  </span>;
+  return <StatusBadge
+    status={status}
+    label={`${label} ${status}`}
+    className="min-w-0 justify-center whitespace-normal text-center"
+  />;
 }
 
 function DashboardHeading({ title, description }: { title: string; description: string }) {
@@ -807,6 +813,13 @@ function lifecycleStatus(log: Log) {
   if (log.status === "active") return "Active";
   if (log.status === "completed") return "Completed";
   return "Pending";
+}
+
+function lifecycleStatusKind(log: Log): StatusKind {
+  if (log.cancelled_at || log.status === "cancelled") return "cancelled";
+  if (log.status === "active") return "in_progress";
+  if (log.status === "completed") return "completed";
+  return "pending";
 }
 
 function approvalSummary(log: Log) {
@@ -1038,7 +1051,7 @@ function SnapshotTransparency({ logs, onOpen }: { logs: Log[]; onOpen: (log: Log
             manager: log.manager_name ?? "Unassigned manager",
             snapshot: log.responsibility_recorded_at ? new Date(log.responsibility_recorded_at).toLocaleString("en-GB", { timeZone: "Africa/Cairo" }) : "Unavailable",
             service,
-            status: lifecycleStatus(log),
+            status: <StatusBadge status={lifecycleStatusKind(log)} />,
             hours: `${hours.toFixed(2)} hrs`,
             value: `GBP ${getLogLaborCost(log).toFixed(2)}`,
             approvals: approvalSummary(log),

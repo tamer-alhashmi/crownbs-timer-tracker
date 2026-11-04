@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { isUserRole, type UserRole } from "@/lib/roles";
+import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 
 export type AppUserSession = {
   userId: string;
@@ -92,6 +93,25 @@ export async function getVerifiedChatSessionUser(): Promise<AppUserSession | nul
     expectedBuffer.length !== receivedBuffer.length ||
     !timingSafeEqual(expectedBuffer, receivedBuffer)
   ) {
+    return null;
+  }
+
+  const supabase = createPrivilegedServerSupabaseClient();
+  const { data: profile, error } = await supabase
+    .from("users")
+    .select("is_active")
+    .eq("id", user.userId)
+    .maybeSingle();
+  if (error) {
+    console.error("[Auth Exception]: Unable to verify the current account status.", error);
+    throw new Error("Unable to verify the current account status.");
+  }
+  if (!profile || profile.is_active !== true) {
+    try {
+      await clearSessionCookies();
+    } catch (clearError) {
+      console.error("[Auth Exception]: Unable to clear a deactivated user's session cookies.", clearError);
+    }
     return null;
   }
   return user;

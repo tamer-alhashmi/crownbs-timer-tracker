@@ -98,7 +98,7 @@ const guides: Guide[] = [
     description: "Housekeeping teams can update room readiness, record inspection notes, and review assigned room status.",
     href: "/hk-admin?tab=rooms#hk-panel-rooms",
     icon: CheckCheck,
-    roles: [...housekeepingRoles, ...operationsManagers],
+    roles: housekeepingRoles,
   },
   {
     category: "Operations & workforce",
@@ -273,15 +273,15 @@ export function HelpCenterButton({ role }: { role: UserRole }) {
       <HelpCircle className="h-5 w-5" />
     </button>
     {open && typeof document !== "undefined" && createPortal(<div className="fixed inset-0 z-[99] bg-black/40 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false); }}>
-      <section role="dialog" aria-modal="true" aria-labelledby="help-center-title" className="fixed inset-y-0 right-0 z-[100] flex h-full max-h-screen w-full max-w-xl flex-col overflow-y-auto overscroll-contain bg-white shadow-2xl [touch-action:pan-y]">
-        <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 p-5 backdrop-blur">
+      <section role="dialog" aria-modal="true" aria-labelledby="help-center-title" className="fixed inset-0 z-[100] flex h-dvh max-h-dvh w-full flex-col overflow-hidden overscroll-contain bg-white shadow-2xl [touch-action:pan-y] sm:inset-y-0 sm:left-auto sm:right-0 sm:h-full sm:max-h-screen sm:w-[28rem] sm:max-w-[28rem]">
+        <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 p-5 pt-[calc(env(safe-area-inset-top,0px)+1.25rem)] backdrop-blur sm:pt-5">
           <div className="flex items-start justify-between gap-4">
             <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-700">Operations guide</p><h2 id="help-center-title" className="mt-1 text-xl font-bold text-slate-950">Help & onboarding</h2><p className="mt-1 text-sm text-slate-600">Role-specific guidance for setup, operations, work history, and finance.</p></div>
             <button type="button" aria-label="Close Operations Guide" onClick={() => setOpen(false)} className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50"><X className="h-4 w-4" /></button>
           </div>
           <label className="relative mt-4 block"><Search aria-hidden="true" className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search guides and topics" className="min-h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm text-slate-900 outline-none focus:border-sky-500" /></label>
         </header>
-        <div className="flex-1 space-y-6 overflow-y-auto overscroll-contain p-5">
+        <div className="flex-1 space-y-6 overflow-y-auto overscroll-contain p-5 pb-[calc(env(safe-area-inset-bottom,0px)+1.25rem)]">
           {Object.entries(groupedGuides).map(([category, categoryGuides]) => <section key={category} aria-label={category}>
             <h3 className="mb-3 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">{category}</h3>
             <div className="space-y-3">{categoryGuides.map((guide) => {

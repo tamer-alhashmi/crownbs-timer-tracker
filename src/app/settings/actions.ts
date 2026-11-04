@@ -13,7 +13,7 @@ export type ManagedUser = {
   role: UserRole;
   phone_number: string | null;
   avatar_url: string | null;
-  pin_code: string | null;
+  hasPin: boolean;
   primary_hotel_id: string | null;
   is_active: boolean;
   deactivated_at: string | null;
@@ -38,11 +38,11 @@ async function requireSettingsAccess(action: FeatureAction = "view") {
   const supabase = createPrivilegedServerSupabaseClient();
   const { data: profile, error: profileError } = await supabase
     .from("users")
-    .select("role")
+    .select("role, is_active")
     .eq("id", session.userId)
     .maybeSingle();
   if (profileError) throw new Error(profileError.message);
-  if (!profile || !isUserRole(profile.role) || normalizeUserRole(profile.role) !== session.role) {
+  if (!profile || profile.is_active !== true || !isUserRole(profile.role) || normalizeUserRole(profile.role) !== session.role) {
     throw new Error("Your session role could not be verified. Sign in again.");
   }
   const actor = { ...session, role: normalizeUserRole(profile.role as UserRole) };
@@ -129,7 +129,7 @@ function assertHotelSlotsAvailable(role: ManagedUser["role"], hotelIds: string[]
 export async function getSettingsData() {
   const context = await requireSettingsAccess();
   const [{ data: users, error }, { data: activeShifts, error: shiftsError }] = await Promise.all([
-    context.supabase.from("users").select("id, full_name, email, phone_number, avatar_url, role, pin_code, primary_hotel_id, is_active, deactivated_at").order("full_name"),
+    context.supabase.from("users").select("id, full_name, email, phone_number, avatar_url, role, has_pin, primary_hotel_id, is_active, deactivated_at").order("full_name"),
     context.supabase.from("master_shifts").select("user_id").eq("status", "active").is("end_time", null),
   ]);
   if (error) throw new Error(error.message);
@@ -186,7 +186,8 @@ export async function getSettingsData() {
         (user.role === "owner" && hotel.owner_id === user.id) ||
         (user.role === "manager" && hotel.manager_id === user.id)
       ).map((hotel) => ({ id: hotel.id, name: hotel.name }));
-      return { ...user, role: normalizeUserRole(user.role as UserRole), is_clocked_in: activeUserIds.has(user.id), hotelName: assignedHotels[0]?.name ?? "Unassigned", assignedHotels };
+      const { has_pin: hasPin, ...safeUser } = user;
+      return { ...safeUser, hasPin, role: normalizeUserRole(user.role as UserRole), is_clocked_in: activeUserIds.has(user.id), hotelName: assignedHotels[0]?.name ?? "Unassigned", assignedHotels };
     }),
     permissions: (permissions ?? []).filter((permission) => visibleUsers.some((user) => user.id === permission.user_id)).map((permission) => ({ ...permission, feature_key: permission.feature_key as FeatureKey })),
   };
@@ -383,7 +384,15 @@ export async function updateManagedUser(userId: string, input: UserInput): Promi
   if (authError) throw new Error(authError.message);
   const { error: assignmentDeleteError } = await context.supabase.from("user_hotel_assignments").delete().eq("user_id", userId);
   if (assignmentDeleteError) throw new Error(assignmentDeleteError.message);
-  const { error } = await context.supabase.from("users").update({ full_name: values.fullName, email: values.email, phone_number: values.phoneNumber || null, role: databaseRole(values.role), pin_code: values.pinCode || null, primary_hotel_id: values.primaryHotelId, updated_at: new Date().toISOString() }).eq("id", userId);
+  const { error } = await context.supabase.from("users").update({
+    full_name: values.fullName,
+    email: values.email,
+    phone_number: values.phoneNumber || null,
+    role: databaseRole(values.role),
+    ...(values.pinCode ? { pin_code: values.pinCode } : {}),
+    primary_hotel_id: values.primaryHotelId,
+    updated_at: new Date().toISOString(),
+  }).eq("id", userId);
   if (error) throw new Error(error.message);
   if (["manager", "housekeeping_admin", "hk_admin", "cleaner"].includes(values.role) && values.hotelIds.length) {
     const { error: assignmentError } = await context.supabase.from("user_hotel_assignments").insert(values.hotelIds.map((hotelId) => ({
@@ -442,6 +451,40 @@ export async function updateManagedUser(userId: string, input: UserInput): Promi
     console.error("Managed user update failed:", error);
     return { success: false, error: errorMessage(error, "Unable to update user.") };
   }
+}
+
+export async function setManagedUserPin(userId: string, pinCode: string | null) {
+  if (!userId || (pinCode !== null && !/^\d{4}$/.test(pinCode))) {
+    throw new Error("Provide a user and either a 4-digit PIN or null to remove it.");
+  }
+  const context = await requireSettingsAccess("edit");
+  const { data: target, error: targetError } = await context.supabase
+    .from("users")
+    .select("id, role, primary_hotel_id")
+    .eq("id", userId)
+    .maybeSingle();
+  if (targetError) throw new Error(targetError.message);
+  if (!target || !isUserRole(target.role)) throw new Error("User was not found.");
+  const targetRole = normalizeUserRole(target.role);
+  const { data: assignments, error: assignmentsError } = await context.supabase
+    .from("user_hotel_assignments")
+    .select("hotel_id")
+    .eq("user_id", userId);
+  if (assignmentsError) throw new Error(assignmentsError.message);
+  const assignedHotelIds = [
+    ...(assignments ?? []).map((assignment) => assignment.hotel_id),
+    ...(target.primary_hotel_id ? [target.primary_hotel_id] : []),
+    ...context.visibleHotels
+      .filter((hotel) => targetRole === "owner" ? hotel.owner_id === userId : targetRole === "manager" ? hotel.manager_id === userId : false)
+      .map((hotel) => hotel.id),
+  ];
+  await assertTargetScope(userId, targetRole, [...new Set(assignedHotelIds)], context);
+  const { error } = await context.supabase
+    .from("users")
+    .update({ pin_code: pinCode, updated_at: new Date().toISOString() })
+    .eq("id", userId);
+  if (error) throw new Error(error.message);
+  revalidatePath("/settings");
 }
 
 export async function deleteManagedUser(userId: string) {

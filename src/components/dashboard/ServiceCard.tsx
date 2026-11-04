@@ -1,8 +1,9 @@
 "use client";
 
-import { CheckCircle2, Clock3, FileText, Hotel, UserRound, X } from "lucide-react";
+import { Clock3, FileText, Hotel, UserRound, X } from "lucide-react";
 import type { BriefTask } from "@/lib/operationalBrief";
 import { WorkLogMediaGallery } from "./WorkLogMediaGallery";
+import { StatusBadge, type StatusKind } from "@/components/ui/StatusBadge";
 
 type Props = { task: BriefTask; onClose: () => void; onEdit?: () => void; editLabel?: string };
 
@@ -18,6 +19,7 @@ function formatDate(value: string) {
 
 export function ServiceCard({ task, onClose, onEdit, editLabel = "Edit" }: Props) {
   const workflow = task.isLocked ? "Locked for payroll" : task.status === "active" ? "Work in progress" : task.status === "completed" ? "Completed - pending management review" : task.status === "cancelled" ? "Cancelled" : "Pending";
+  const status: StatusKind = task.status === "cancelled" ? "cancelled" : task.isLocked ? "approved" : task.status === "active" ? "in_progress" : task.managerRejected || task.ownerRejected ? "rejected" : task.status === "completed" ? "needs_action" : "pending";
   const reviewState = task.status === "active"
     ? "Not submitted"
     : task.isLocked
@@ -31,10 +33,7 @@ export function ServiceCard({ task, onClose, onEdit, editLabel = "Edit" }: Props
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-700">Work log details</p>
           <h2 className="mt-1 text-2xl font-bold">{task.service}</h2>
-          <span className={`mt-2 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${task.status === "active" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
-            {task.status === "active" ? <Clock3 className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-            {workflow}
-          </span>
+          <div className="mt-2"><StatusBadge status={status} label={workflow} /></div>
         </div>
         <div className="flex items-center gap-2">
           {onEdit && <button type="button" onClick={onEdit} className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800">{editLabel}</button>}

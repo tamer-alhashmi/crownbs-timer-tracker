@@ -44,6 +44,8 @@ Manage complex physical real estate with unmatched granularity:
 
 Apply `supabase/migrations/20261022_room_availability_status.sql` after the existing room and housekeeping migrations to enable separate room-availability states.
 
+Apply `supabase/migrations/20261105_pin_login_hardening.sql` before enabling PIN sign-in; it adds the safe PIN-presence field and service-role-only rate-limit functions used by the login action.
+
 ---
 
 ### 4. Custom Service Catalogs & Granular Multi-Property Payroll

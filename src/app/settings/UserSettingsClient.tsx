@@ -7,7 +7,7 @@ import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Loader2, Pencil, Plus, Search, ShieldAlert, UserPlus, UserX, X } from "lucide-react";
 import { UserAvatar } from "@/components/shared/UserAvatar";
-import { assignManagedUserToHotel, createManagedUser, deleteManagedUser, unassignManagedUserFromHotel, updateManagedUser, type ManagedUser } from "./actions";
+import { assignManagedUserToHotel, createManagedUser, deleteManagedUser, setManagedUserPin, unassignManagedUserFromHotel, updateManagedUser, type ManagedUser } from "./actions";
 import { normalizeUserRole, ROLE_LABELS, USER_ROLES } from "@/lib/roles";
 import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
 import { useWorkLogRealtimeRefresh } from "@/lib/useWorkLogRealtimeRefresh";
@@ -82,6 +82,7 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
   const pageCount = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
   const visibleUsers = filteredUsers.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const editingUser = users.find((user) => user.id === editingId);
   const save = form.handleSubmit((values) => startTransition(async () => {
     try {
       setMessage("");
@@ -150,7 +151,7 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
       email: user.email,
       phoneNumber: user.phone_number ?? "",
       role: normalizeUserRole(user.role),
-      pinCode: user.pin_code ?? "",
+      pinCode: "",
       hotelIds: user.assignedHotels.map((hotel) => hotel.id),
       primaryHotelId: user.primary_hotel_id ?? user.assignedHotels[0]?.id ?? "",
       password: "",
@@ -341,9 +342,20 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
               <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="mb-4"><h3 className="font-semibold text-slate-900">Credentials</h3><p className="mt-1 text-xs text-slate-500">Set a PIN or password for account access.</p></div>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <Field label="4-digit PIN" error={form.formState.errors.pinCode?.message}><input {...form.register("pinCode")} inputMode="numeric" maxLength={4} placeholder="PIN" className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" /></Field>
+                  <Field label="4-digit PIN" error={form.formState.errors.pinCode?.message}><input {...form.register("pinCode")} inputMode="numeric" maxLength={4} placeholder={editingId ? "Leave blank to keep current PIN" : "PIN"} className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" />{editingId && <span className="mt-1 block text-xs text-slate-500">{editingUser?.hasPin ? "PIN is set. Enter a new PIN to replace it." : "No PIN is currently set."}</span>}</Field>
                   <Field label="Password" error={form.formState.errors.password?.message}><input {...form.register("password")} type="password" placeholder={editingId ? "New password (optional)" : "Password (optional with PIN)"} autoComplete="new-password" className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" /></Field>
                 </div>
+                {editingId && editingUser?.hasPin && <button type="button" disabled={isPending} onClick={() => startTransition(async () => {
+                  try {
+                    await setManagedUserPin(editingId, null);
+                    showActionToast("success", "PIN removed.");
+                    router.refresh();
+                  } catch (error) {
+                    const errorMessage = error instanceof Error ? error.message : "Unable to remove the PIN.";
+                    setMessage(errorMessage);
+                    showActionToast("error", errorMessage);
+                  }
+                })} className="mt-3 min-h-10 rounded-lg border border-rose-200 px-3 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50">Remove PIN</button>}
               </section>
               {message && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{message}</p>}
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
