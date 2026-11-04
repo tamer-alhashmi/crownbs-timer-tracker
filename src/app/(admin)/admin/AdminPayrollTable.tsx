@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition, type FormEvent } from "react";
-import { ChevronDown, Download, FileSpreadsheet, FileText, Filter, Loader2, Pencil, Trash2, X } from "lucide-react";
+import { ChevronDown, Download, FileSpreadsheet, FileText, Loader2, Pencil, Trash2, X } from "lucide-react";
 import { strToU8, zipSync } from "fflate";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -11,7 +11,9 @@ import { deletePayrollTask, updatePayrollTask } from "./actions";
 import { DashboardPagination } from "@/components/dashboard/DashboardPagination";
 import { showActionToast } from "@/components/ui/ActionToast";
 import { formatUserMessage } from "@/lib/userMessages";
+import { WorkspaceFilterBar, useWorkspaceFilters } from "@/components/dashboard/WorkspaceFilterBar";
 
+const PAYROLL_PAGE_SIZE = 15;
 type PayrollService = { name?: string | null; description?: string | null; default_rate?: number | string | null; unit?: string | null };
 const EXPORT_COLUMNS = [
   "Work log ID", "User ID", "Hotel ID", "Service ID", "Shift ID", "Task date/time", "Started at (UTC)", "Ended at (UTC)", "Task date", "Status", "Payroll locked",
@@ -96,21 +98,25 @@ function downloadFile(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageTasks }: {
+export function AdminPayrollTable({ logs, services, hotels, cleaners, tenants = [], showTenants = false, showWorkers = true, canManageTasks }: {
   logs: PayrollLog[];
   services: ServiceRecord[];
   hotels: { id: string; name: string }[];
   cleaners: { id: string; name: string; primary_hotel_id?: string | null }[];
+  tenants?: { id: string; name: string }[];
+  showTenants?: boolean;
+  showWorkers?: boolean;
   canManageTasks: boolean;
 }) {
   const today = new Date().toISOString().slice(0, 10);
   const monthStart = `${today.slice(0, 7)}-01`;
-  const [from, setFrom] = useState(monthStart);
-  const [to, setTo] = useState(today);
-  const [selectedHotelId, setSelectedHotelId] = useState("");
-  const [selectedCleanerId, setSelectedCleanerId] = useState("");
+  const { filters, updateFilters, clearFilters } = useWorkspaceFilters("payroll", { from: monthStart, to: today });
+  const from = filters.from;
+  const to = filters.to;
+  const selectedHotelId = filters.property;
+  const selectedCleanerId = showWorkers ? filters.worker : "";
+  const selectedTenantId = showTenants ? filters.tenant : "";
   const [page, setPage] = useState(1);
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<PayrollLog | null>(null);
   const [taskForm, setTaskForm] = useState<TaskForm>({ serviceId: "", roomsCompleted: "0", notes: "", cost: "0" });
@@ -119,17 +125,23 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
   const [isTaskPending, startTaskTransition] = useTransition();
   const hotelNames = new Map(hotels.map((hotel) => [hotel.id, hotel.name]));
   const cleanerNames = new Map(cleaners.map((cleaner) => [cleaner.id, cleaner.name]));
+  const tenantNames = new Map(tenants.map((tenant) => [tenant.id, tenant.name]));
+  const changeFilters = (changes: Partial<typeof filters>) => {
+    setPage(1);
+    updateFilters(changes);
+  };
   const filteredLogs = logs
-    .filter((log) => log.task_date >= from && log.task_date <= to)
+    .filter((log) => (!from || log.task_date >= from) && (!to || log.task_date <= to))
     .filter((log) => !selectedHotelId || log.hotel_id === selectedHotelId)
     .filter((log) => !selectedCleanerId || log.user_id === selectedCleanerId)
+    .filter((log) => !selectedTenantId || log.owner_id === selectedTenantId)
     .sort((left, right) => right.start_time.localeCompare(left.start_time));
   const scopedCleaners = selectedHotelId
-    ? cleaners.filter((cleaner) => cleaner.primary_hotel_id === selectedHotelId || logs.some((log) => log.hotel_id === selectedHotelId && log.user_id === cleaner.id && log.task_date >= from && log.task_date <= to))
+    ? cleaners.filter((cleaner) => cleaner.primary_hotel_id === selectedHotelId || logs.some((log) => log.hotel_id === selectedHotelId && log.user_id === cleaner.id))
     : cleaners;
-  const pageCount = Math.max(1, Math.ceil(filteredLogs.length / 30));
+  const pageCount = Math.max(1, Math.ceil(filteredLogs.length / PAYROLL_PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
-  const visibleLogs = filteredLogs.slice((currentPage - 1) * 30, currentPage * 30);
+  const visibleLogs = filteredLogs.slice((currentPage - 1) * PAYROLL_PAGE_SIZE, currentPage * PAYROLL_PAGE_SIZE);
   const totals = filteredLogs.reduce((total, log) => {
     const hours = durationHours(log);
     const service = log.services_config[0] ?? {};
@@ -209,24 +221,13 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
   exportSummary["Work log ID"] = `${filteredLogs.length} tasks`;
   exportSummary.Cleaner = cleanerNames.get(selectedCleanerId) ?? "All cleaners";
   exportSummary.Hotel = hotelNames.get(selectedHotelId) ?? "All hotels";
+  exportSummary["Owner name"] = tenantNames.get(selectedTenantId) ?? "All tenants";
   exportSummary["Duration hours"] = Number(totals.hours.toFixed(2));
   exportSummary["Rooms completed"] = totals.rooms;
   exportSummary["Cost (GBP)"] = Number(totals.cost.toFixed(2));
-  const filterSuffix = [from, to, hotelNames.get(selectedHotelId), cleanerNames.get(selectedCleanerId)].filter(Boolean).join("-").replace(/[^a-z0-9-]/gi, "-");
+  const filterSuffix = [from, to, hotelNames.get(selectedHotelId), tenantNames.get(selectedTenantId), cleanerNames.get(selectedCleanerId)].filter(Boolean).join("-").replace(/[^a-z0-9-]/gi, "-");
   const filename = `payroll-${filterSuffix || "all-records"}`;
-  const activeFilterCount = [
-    from !== monthStart,
-    to !== today,
-    Boolean(selectedHotelId),
-    Boolean(selectedCleanerId),
-  ].filter(Boolean).length;
-  const clearFilters = () => {
-    setFrom(monthStart);
-    setTo(today);
-    setSelectedHotelId("");
-    setSelectedCleanerId("");
-    setPage(1);
-  };
+  const periodLabel = from && to ? `${from} to ${to}` : from ? `From ${from}` : to ? `Through ${to}` : "All time";
   const startEditingTask = (log: PayrollLog) => {
     const service = log.services_config[0] ?? {};
     const hours = durationHours(log);
@@ -322,7 +323,7 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
     pdf.setFontSize(16);
     pdf.text("Payroll task detail export", 14, 16);
     pdf.setFontSize(9);
-    pdf.text(`Period: ${from} to ${to} · Hotel: ${hotelNames.get(selectedHotelId) ?? "All hotels"} · Cleaner: ${cleanerNames.get(selectedCleanerId) ?? "All cleaners"}`, 14, 23);
+    pdf.text(`Period: ${periodLabel} · Hotel: ${hotelNames.get(selectedHotelId) ?? "All hotels"} · Tenant: ${tenantNames.get(selectedTenantId) ?? "All tenants"} · Cleaner: ${cleanerNames.get(selectedCleanerId) ?? "All cleaners"}`, 14, 23);
     const detailColumns = EXPORT_COLUMNS.filter((column) => !["Task date/time", "Cleaner", "Hotel", "Cost (GBP)"].includes(column));
     autoTable(pdf, {
       startY: 29,
@@ -344,55 +345,30 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
     pdf.save(`${filename}.pdf`);
   };
 
-  return <section className="rounded-2xl bg-white p-4 text-slate-900 shadow-sm ring-1 ring-slate-200 sm:p-6">
+  return <section id="payroll-table" className="scroll-mt-24 rounded-2xl bg-white p-4 text-slate-900 shadow-sm ring-1 ring-slate-200 sm:p-6">
     {taskMessage && <p role={taskMessage.error ? "alert" : "status"} className={`mb-4 rounded-lg border px-3 py-2 text-sm ${taskMessage.error ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>{taskMessage.text}</p>}
-    <div className="flex flex-col gap-4 border-b border-slate-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
+    <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-200 pb-4">
       <div><h3 className="text-lg font-semibold text-slate-950">Payroll</h3><p className="mt-1 text-sm text-slate-500">Configured service costs · {filteredLogs.length} records</p></div>
-      <button type="button" onClick={() => setFiltersOpen(true)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 md:hidden"><Filter className="h-4 w-4" />Filter & Search (Active: {activeFilterCount})</button>
-      <div className="hidden grid-cols-2 gap-3 xl:grid-cols-4 md:grid">
-        <label className="text-xs font-medium text-slate-600">From<input type="date" value={from} max={to} onChange={(event) => { setFrom(event.target.value); setPage(1); }} className="mt-1 block min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" /></label>
-        <label className="text-xs font-medium text-slate-600">To<input type="date" value={to} min={from} max={today} onChange={(event) => { setTo(event.target.value); setPage(1); }} className="mt-1 block min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" /></label>
-        <label className="text-xs font-medium text-slate-600">Hotel<select value={selectedHotelId} onChange={(event) => { setSelectedHotelId(event.target.value); setSelectedCleanerId(""); setPage(1); }} className="mt-1 block min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"><option value="">All hotels</option>{hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select></label>
-        <label className="text-xs font-medium text-slate-600">Cleaner<select value={selectedCleanerId} onChange={(event) => { setSelectedCleanerId(event.target.value); setPage(1); }} className="mt-1 block min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"><option value="">All cleaners</option>{scopedCleaners.map((cleaner) => <option key={cleaner.id} value={cleaner.id}>{cleaner.name}</option>)}</select></label>
-      </div>
-      <div className="flex justify-end">
-        <div className="relative">
-          <button type="button" onClick={() => setExportMenuOpen((open) => !open)} disabled={!filteredLogs.length} aria-haspopup="menu" aria-expanded={exportMenuOpen} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"><Download className="h-4 w-4" />Export<ChevronDown className={`h-4 w-4 transition-transform ${exportMenuOpen ? "rotate-180" : ""}`} /></button>
-          {exportMenuOpen && <div role="menu" className="absolute right-0 top-full z-20 mt-2 w-44 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg">
-            <button type="button" role="menuitem" onClick={() => { exportCsv(); setExportMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"><Download className="h-4 w-4 text-slate-400" />CSV</button>
-            <button type="button" role="menuitem" onClick={() => { exportExcel(); setExportMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"><FileSpreadsheet className="h-4 w-4 text-slate-400" />Excel (.xlsx)</button>
-            <button type="button" role="menuitem" onClick={() => { exportPdf(); setExportMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"><FileText className="h-4 w-4 text-slate-400" />PDF</button>
-          </div>}
-        </div>
-        {filtersOpen && <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Filter payroll records"
-          data-back-button-overlay="true"
-          className="fixed inset-0 z-[80] flex items-end bg-slate-950/40 md:hidden"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setFiltersOpen(false);
-          }}
-        >
-          <section className="w-full rounded-t-3xl bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl">
-            <header className="mb-4 flex items-center justify-between">
-              <h4 className="text-base font-bold text-slate-950">Filter payroll records</h4>
-              <button type="button" aria-label="Close filters" onClick={() => setFiltersOpen(false)} className="grid h-9 w-9 place-items-center rounded-lg text-slate-500 hover:bg-slate-100"><X className="h-4 w-4" /></button>
-            </header>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="text-xs font-medium text-slate-600">From<input type="date" value={from} max={to} onChange={(event) => { setFrom(event.target.value); setPage(1); }} className="mt-1 block min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" /></label>
-              <label className="text-xs font-medium text-slate-600">To<input type="date" value={to} min={from} max={today} onChange={(event) => { setTo(event.target.value); setPage(1); }} className="mt-1 block min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900" /></label>
-              <label className="text-xs font-medium text-slate-600">Hotel<select value={selectedHotelId} onChange={(event) => { setSelectedHotelId(event.target.value); setSelectedCleanerId(""); setPage(1); }} className="mt-1 block min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"><option value="">All hotels</option>{hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select></label>
-              <label className="text-xs font-medium text-slate-600">Cleaner<select value={selectedCleanerId} onChange={(event) => { setSelectedCleanerId(event.target.value); setPage(1); }} className="mt-1 block min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"><option value="">All cleaners</option>{scopedCleaners.map((cleaner) => <option key={cleaner.id} value={cleaner.id}>{cleaner.name}</option>)}</select></label>
-            </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <button type="button" onClick={clearFilters} className="min-h-11 rounded-lg border border-slate-200 px-4 text-sm font-semibold text-slate-700">Clear All</button>
-              <button type="button" onClick={() => setFiltersOpen(false)} className="min-h-11 rounded-lg bg-slate-900 px-5 text-sm font-semibold text-white">Apply</button>
-            </div>
-          </section>
+      <div className="relative">
+        <button type="button" onClick={() => setExportMenuOpen((open) => !open)} disabled={!filteredLogs.length} aria-haspopup="menu" aria-expanded={exportMenuOpen} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"><Download className="h-4 w-4" />Export<ChevronDown className={`h-4 w-4 transition-transform ${exportMenuOpen ? "rotate-180" : ""}`} /></button>
+        {exportMenuOpen && <div role="menu" className="absolute right-0 top-full z-20 mt-2 w-44 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg">
+          <button type="button" role="menuitem" onClick={() => { exportCsv(); setExportMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"><Download className="h-4 w-4 text-slate-400" />CSV</button>
+          <button type="button" role="menuitem" onClick={() => { exportExcel(); setExportMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"><FileSpreadsheet className="h-4 w-4 text-slate-400" />Excel (.xlsx)</button>
+          <button type="button" role="menuitem" onClick={() => { exportPdf(); setExportMenuOpen(false); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"><FileText className="h-4 w-4 text-slate-400" />PDF</button>
         </div>}
       </div>
     </div>
+    <WorkspaceFilterBar
+      filters={filters}
+      onChange={(changes) => changeFilters(changes.property !== undefined ? { ...changes, worker: "" } : changes)}
+      onReset={() => { clearFilters(); setPage(1); }}
+      properties={hotels}
+      tenants={tenants}
+      workers={scopedCleaners}
+      showTenants={showTenants}
+      showWorkers={showWorkers}
+      label="Payroll filters"
+    />
     {earningsByCleanerAndHotel.size > 0 && <section aria-label="Earnings by cleaner and property" className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
       <h4 className="text-sm font-semibold text-slate-900">Earnings by cleaner and property</h4>
       <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
@@ -428,7 +404,7 @@ export function AdminPayrollTable({ logs, services, hotels, cleaners, canManageT
         <tfoot><tr className="font-semibold text-slate-950"><td colSpan={3} className="px-3 py-3">Filtered totals</td><td className="px-3 py-3 text-right tabular-nums">{totals.hours.toFixed(2)}</td><td className="px-3 py-3 text-right tabular-nums">{totals.rooms}</td><td className="px-3 py-3 text-right tabular-nums">GBP {totals.cost.toFixed(2)}</td>{canManageTasks && <td />}</tr></tfoot>
       </table>
     </div>
-    <DashboardPagination currentPage={currentPage} pageCount={pageCount} total={filteredLogs.length} pageSize={30} label="payroll records" onPageChange={setPage} />
+    <DashboardPagination currentPage={currentPage} pageCount={pageCount} total={filteredLogs.length} pageSize={PAYROLL_PAGE_SIZE} label="payroll records" onPageChange={setPage} />
     {editingTask && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-labelledby="payroll-task-edit-title">
       <form onSubmit={saveTask} className="w-full max-w-lg rounded-2xl bg-white p-5 text-slate-900 shadow-2xl">
         <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-sky-700">Payroll task</p><h2 id="payroll-task-edit-title" className="mt-1 text-xl font-bold">Edit completed task</h2></div><button type="button" onClick={() => setEditingTask(null)} aria-label="Close task editor" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div>

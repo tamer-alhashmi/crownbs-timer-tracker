@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState, useTransition, type ReactNode } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Building2, ChevronDown, Loader2, MapPin, Pencil, Plus, Trash2, Upload } from "lucide-react";
+import { Building2, ChevronDown, ChevronLeft, ChevronRight, Loader2, MapPin, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import { showActionToast } from "@/components/ui/ActionToast";
 import {
   archiveOwnedProperty,
@@ -47,6 +47,18 @@ type Property = {
   services: Service[];
 };
 type Manager = { id: string; full_name: string };
+const PROPERTY_PAGE_SIZE = 20;
+function getPropertyPageNumbers(pageCount: number, currentPage: number): Array<number | "ellipsis"> {
+  const pages: Array<number | "ellipsis"> = [];
+  for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+    if (pageNumber === 1 || pageNumber === pageCount || Math.abs(pageNumber - currentPage) <= 1) {
+      const previous = pages[pages.length - 1];
+      if (typeof previous === "number" && pageNumber - previous > 1) pages.push("ellipsis");
+      pages.push(pageNumber);
+    }
+  }
+  return pages;
+}
 const MapLocationPicker = dynamic(() => import("./MapLocationPicker"), {
   ssr: false,
   loading: () => (
@@ -80,8 +92,18 @@ export function PropertySettings({ properties, managers }: { properties: Propert
   const [adding, setAdding] = useState(false);
   const [locationPickerOpen, setLocationPickerOpen] = useState(false);
   const [message, setMessage] = useState("");
+  const [propertySearch, setPropertySearch] = useState("");
+  const [page, setPage] = useState(1);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
+  const query = propertySearch.trim().toLowerCase();
+  const filteredProperties = properties.filter((property) =>
+    !query || `${property.name} ${property.id} ${property.managerName ?? ""}`.toLowerCase().includes(query)
+  );
+  const pageCount = Math.max(1, Math.ceil(filteredProperties.length / PROPERTY_PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const pageNumbers = getPropertyPageNumbers(pageCount, currentPage);
+  const visibleProperties = filteredProperties.slice((currentPage - 1) * PROPERTY_PAGE_SIZE, currentPage * PROPERTY_PAGE_SIZE);
   const form = useForm<PropertyValues>({
     resolver: zodResolver(propertySchema),
     defaultValues: { name: "", location: "", roomCount: "0", floorCount: "0", managerId: "" },
@@ -140,11 +162,16 @@ export function PropertySettings({ properties, managers }: { properties: Propert
   };
 
   return (
-    <section className="space-y-5">
+    <section id="properties-setup" className="scroll-mt-24 space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-sky-700">Property setup</p><h2 className="mt-1 text-xl font-bold text-slate-950">Properties & Hotels</h2><p className="mt-1 text-sm text-slate-600">Keep property details, staffing, and service rates together.</p></div>
         <button type="button" onClick={beginAdd} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white"><Plus className="h-4 w-4" /> Add property</button>
       </div>
+      <label className="relative block w-full md:max-w-md">
+        <span className="sr-only">Search properties by name, ID, or manager</span>
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <input value={propertySearch} onChange={(event) => { setPropertySearch(event.target.value); setPage(1); }} placeholder="Search property name, ID, or manager..." className="min-h-11 w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-900" />
+      </label>
       {(adding || editing) && (
         <form onSubmit={saveProperty} noValidate className="rounded-2xl border border-sky-100 bg-white p-5 shadow-sm sm:p-6">
           <h3 className="font-bold text-slate-950">{editing ? `Edit ${editing.name}` : "Add a property"}</h3>
@@ -186,18 +213,29 @@ export function PropertySettings({ properties, managers }: { properties: Propert
       )}
       {message && !adding && !editing && <p role="status" className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">{message}</p>}
 
-      <ul className="space-y-4">
-        {properties.length ? properties.map((property) => (
+      <ul id="room-units" className="scroll-mt-24 space-y-4">
+        {visibleProperties.length ? visibleProperties.map((property) => (
           <li key={property.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-start gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-sky-50 text-sky-800"><Building2 className="h-5 w-5" /></span><div><h3 className="font-bold text-slate-950">{property.name}{!property.isActive && <span className="ml-2 rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-500">Archived</span>}</h3><p className="mt-1 text-sm text-slate-600">{property.location}</p><p className="mt-1 text-xs text-slate-500">{property.roomCount} rooms · {property.floorCount} floors/sections · {property.managerName ?? "No manager assigned"}</p></div></div>
-              <div className="flex gap-2"><button type="button" onClick={() => beginEdit(property)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-semibold"><Pencil className="h-4 w-4" /> Edit</button>{property.isActive && <button type="button" onClick={() => archive(property)} disabled={isPending} className="min-h-10 rounded-lg border border-amber-200 px-3 text-sm font-semibold text-amber-800">Archive</button>}</div>
+              <div className="flex min-w-0 items-start gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-sky-50 text-sky-800"><Building2 className="h-5 w-5" /></span><div className="min-w-0"><h3 className="font-bold text-slate-950">{property.name}{!property.isActive && <span className="ml-2 rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-500">Suspended</span>}</h3><p className="mt-1 text-sm text-slate-600">{property.location}</p><p className="mt-1 text-xs text-slate-500">{property.roomCount} rooms · {property.floorCount} floors/sections · {property.managerName ?? "No manager assigned"}</p><p className="mt-1 truncate font-mono text-[10px] text-slate-400" title={property.id}>Property ID: {property.id}</p></div></div>
+              <div className="flex shrink-0 gap-2"><button type="button" onClick={() => beginEdit(property)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-semibold"><Pencil className="h-4 w-4" /> Edit</button><button type="button" onClick={() => archive(property)} disabled={isPending} className="min-h-10 rounded-lg border border-amber-200 px-3 text-sm font-semibold text-amber-800 disabled:opacity-50">Archive</button></div>
             </div>
             <PropertyRoomManager property={property} />
-            <PropertyServiceCatalog property={property} />
+            <PropertyServiceCatalog property={property} anchorId={property === visibleProperties[0] ? "service-catalog" : undefined} />
           </li>
-        )) : <li className="rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-10 text-center text-sm text-slate-500">No properties have been created yet. Add a property to configure its services and rates.</li>}
+        )) : <li className="rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-10 text-center text-sm text-slate-500">{properties.length ? "No properties match your search." : "No properties have been created yet. Add a property to configure its services and rates."}</li>}
       </ul>
+      {filteredProperties.length > 0 && <div className="flex flex-col gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-slate-500">Showing {(currentPage - 1) * PROPERTY_PAGE_SIZE + 1}-{Math.min(currentPage * PROPERTY_PAGE_SIZE, filteredProperties.length)} of {filteredProperties.length} properties</p>
+        <div className="flex items-center gap-1">
+          <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={currentPage === 1} aria-label="Previous properties page" className="grid h-10 w-10 place-items-center rounded-lg border border-slate-200 text-slate-600 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
+          {pageNumbers.map((pageNumber, index) => pageNumber === "ellipsis"
+            ? <span key={`ellipsis-${index}`} className="px-1 text-slate-400" aria-hidden="true">…</span>
+            : <button key={pageNumber} type="button" onClick={() => setPage(pageNumber)} aria-label={`Go to properties page ${pageNumber}`} aria-current={pageNumber === currentPage ? "page" : undefined} className={`grid h-10 min-w-10 place-items-center rounded-lg border px-2 text-sm font-medium ${pageNumber === currentPage ? "border-sky-700 bg-sky-700 text-white" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}>{pageNumber}</button>)}
+          <span className="px-2 text-sm text-slate-600">Page {currentPage} of {pageCount}</span>
+          <button type="button" onClick={() => setPage((current) => Math.min(pageCount, current + 1))} disabled={currentPage === pageCount} aria-label="Next properties page" className="grid h-10 w-10 place-items-center rounded-lg border border-slate-200 text-slate-600 disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
+        </div>
+      </div>}
     </section>
   );
 }
@@ -264,10 +302,6 @@ function PropertyRoomManager({ property }: { property: Property }) {
       setLoading(false);
     }
   };
-  useEffect(() => {
-    if (open) void refreshRooms();
-  }, [open, property.id]);
-
   const startEdit = (room: ManagedRoom) => {
     setEditing(room);
     setShowForm(true);
@@ -382,7 +416,11 @@ function PropertyRoomManager({ property }: { property: Property }) {
   );
 
   return (
-    <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)} className="border-t border-slate-100">
+    <details open={open} onToggle={(event) => {
+      const isOpen = event.currentTarget.open;
+      setOpen(isOpen);
+      if (isOpen) void refreshRooms();
+    }} className="border-t border-slate-100">
       <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-5 py-3 text-sm font-bold text-slate-800">
         <span>Manage Rooms / Units <span className="ml-1 rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">{activeRooms.length} active</span></span>
         <ChevronDown className="h-4 w-4" />
@@ -478,7 +516,7 @@ function RoomEditor({ initial, isPending, onSave, onCancel }: {
   );
 }
 
-function PropertyServiceCatalog({ property }: { property: Property }) {
+function PropertyServiceCatalog({ property, anchorId }: { property: Property; anchorId?: string }) {
   const [isOpen, setIsOpen] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Service | null>(null);
@@ -575,7 +613,7 @@ function PropertyServiceCatalog({ property }: { property: Property }) {
   };
 
   return (
-    <details open={isOpen} onToggle={(event) => setIsOpen(event.currentTarget.open)} className="border-t border-slate-100">
+    <details id={anchorId} open={isOpen} onToggle={(event) => setIsOpen(event.currentTarget.open)} className="scroll-mt-24 border-t border-slate-100">
       <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-5 py-3 text-sm font-bold text-slate-800"><span>Services & Rates <span className="ml-1 rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">{services.filter((service) => service.hotel_id === property.id).length}</span></span><ChevronDown className="h-4 w-4" /></summary>
       <div className="space-y-4 border-t border-slate-100 bg-slate-50/70 p-4 sm:p-5">
         <p className="text-sm text-slate-600">Create property-specific task types and rates. Shared catalog entries remain available to this property.</p>

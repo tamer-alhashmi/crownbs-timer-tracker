@@ -15,6 +15,8 @@ export type ManagedUser = {
   avatar_url: string | null;
   pin_code: string | null;
   primary_hotel_id: string | null;
+  is_active: boolean;
+  deactivated_at: string | null;
   is_clocked_in?: boolean;
   hotelName: string;
   assignedHotels: { id: string; name: string }[];
@@ -45,10 +47,28 @@ async function requireSettingsAccess(action: FeatureAction = "view") {
   }
   const actor = { ...session, role: normalizeUserRole(profile.role as UserRole) };
   if (!isPlatformAdmin(actor.role) && !["owner", "manager"].includes(actor.role)) throw new Error("Management settings access required.");
-  const { data: hotels, error } = await supabase.from("hotels").select("id, name, location, room_count, floor_count, is_active, owner_id, manager_id").order("name");
+  const { data: hotels, error } = await supabase.from("hotels").select("id, name, location, room_count, total_rooms, floor_count, is_active, owner_id, manager_id").is("archived_at", null).order("name");
   if (error) throw new Error(error.message);
   const visibleHotels = isPlatformAdmin(actor.role) ? hotels ?? [] : (hotels ?? []).filter((hotel) => actor.role === "owner" ? hotel.owner_id === actor.userId : hotel.manager_id === actor.userId);
   return { actor, supabase, visibleHotels };
+}
+
+async function getActiveRoomStats(
+  supabase: ReturnType<typeof createPrivilegedServerSupabaseClient>,
+  hotelId: string
+) {
+  const { data: rooms, count, error } = await supabase
+    .from("rooms")
+    .select("floor_section", { count: "exact" })
+    .eq("hotel_id", hotelId)
+    .eq("status", "active");
+  if (error) throw new Error(`Unable to load active rooms for property ${hotelId}: ${error.message}`);
+  const floors = new Set(
+    (rooms ?? [])
+      .map((room) => room.floor_section?.trim())
+      .filter((floor): floor is string => Boolean(floor))
+  );
+  return { roomCount: count ?? 0, floorCount: floors.size };
 }
 
 function roleAllowed(actorRole: string, targetRole: ManagedUser["role"]) {
@@ -109,7 +129,7 @@ function assertHotelSlotsAvailable(role: ManagedUser["role"], hotelIds: string[]
 export async function getSettingsData() {
   const context = await requireSettingsAccess();
   const [{ data: users, error }, { data: activeShifts, error: shiftsError }] = await Promise.all([
-    context.supabase.from("users").select("id, full_name, email, phone_number, avatar_url, role, pin_code, primary_hotel_id").order("full_name"),
+    context.supabase.from("users").select("id, full_name, email, phone_number, avatar_url, role, pin_code, primary_hotel_id, is_active, deactivated_at").order("full_name"),
     context.supabase.from("master_shifts").select("user_id").eq("status", "active").is("end_time", null),
   ]);
   if (error) throw new Error(error.message);
@@ -129,6 +149,20 @@ export async function getSettingsData() {
   const activeUserIds = new Set((activeShifts ?? []).map((shift) => shift.user_id));
   const managerNames = new Map((users ?? []).filter((user) => user.role === "manager").map((user) => [user.id, user.full_name]));
   const visibleUsers = (users ?? []).filter((user) => isPlatformAdmin(context.actor.role) || (roleAllowed(context.actor.role, user.role) && (user.primary_hotel_id !== null && hotelsById.has(user.primary_hotel_id) || context.visibleHotels.some((hotel) => user.role === "owner" ? hotel.owner_id === user.id : user.role === "manager" ? hotel.manager_id === user.id : false) || (userHotelAssignments ?? []).some((assignment) => assignment.user_id === user.id && hotelsById.has(assignment.hotel_id)))));
+  const properties = await Promise.all(context.visibleHotels.map(async (hotel) => {
+    const roomStats = await getActiveRoomStats(context.supabase, hotel.id);
+    return {
+      id: hotel.id,
+      name: hotel.name,
+      location: hotel.location,
+      roomCount: roomStats.roomCount || Math.max(hotel.room_count ?? 0, hotel.total_rooms ?? 0),
+      floorCount: roomStats.floorCount || hotel.floor_count || 0,
+      isActive: hotel.is_active,
+      managerId: hotel.manager_id,
+      managerName: hotel.manager_id ? managerNames.get(hotel.manager_id) ?? "Assigned manager" : null,
+      services: (services ?? []).filter((service) => service.hotel_id === hotel.id || (service.hotel_id === null && (service.owner_id === null || service.owner_id === hotel.owner_id))),
+    };
+  }));
   return {
     actorRole: context.actor.role,
     actorName: (users ?? []).find((user) => user.id === context.actor.userId)?.full_name ?? context.actor.email,
@@ -136,19 +170,9 @@ export async function getSettingsData() {
     actorPhoneNumber: (users ?? []).find((user) => user.id === context.actor.userId)?.phone_number ?? null,
     actorAvatarUrl: (users ?? []).find((user) => user.id === context.actor.userId)?.avatar_url ?? null,
     hotels: context.visibleHotels.filter((hotel) => hotel.is_active).map((hotel) => ({ id: hotel.id, name: hotel.name })),
-    properties: context.visibleHotels.map((hotel) => ({
-      id: hotel.id,
-      name: hotel.name,
-      location: hotel.location,
-      roomCount: hotel.room_count,
-      floorCount: hotel.floor_count,
-      isActive: hotel.is_active,
-      managerId: hotel.manager_id,
-      managerName: hotel.manager_id ? managerNames.get(hotel.manager_id) ?? "Assigned manager" : null,
-      services: (services ?? []).filter((service) => service.hotel_id === hotel.id || (service.hotel_id === null && (service.owner_id === null || service.owner_id === hotel.owner_id))),
-    })),
+    properties,
     services: (services ?? []).filter((service) => isPlatformAdmin(context.actor.role) || service.owner_id === context.actor.userId),
-    managers: (users ?? []).filter((candidate) => candidate.role === "manager" && (
+    managers: (users ?? []).filter((candidate) => candidate.role === "manager" && candidate.is_active && (
       isPlatformAdmin(context.actor.role) ||
       context.visibleHotels.some((hotel) => hotel.manager_id === candidate.id || hotel.id === candidate.primary_hotel_id)
     )).map(({ id, full_name }) => ({ id, full_name })),
@@ -422,8 +446,8 @@ export async function updateManagedUser(userId: string, input: UserInput): Promi
 
 export async function deleteManagedUser(userId: string) {
   const context = await requireSettingsAccess("delete");
-  if (!isSuperAdmin(context.actor.role)) throw new Error("Only a super administrator can delete user accounts.");
-  const { data: target, error: readError } = await context.supabase.from("users").select("id, role, primary_hotel_id").eq("id", userId).maybeSingle();
+  if (!isSuperAdmin(context.actor.role)) throw new Error("Only a super administrator can deactivate user accounts.");
+  const { data: target, error: readError } = await context.supabase.from("users").select("id, role, primary_hotel_id, is_active").eq("id", userId).maybeSingle();
   if (readError || !target) throw new Error("User was not found.");
   const targetRole = target.role as ManagedUser["role"];
   const targetHotelIds = [...new Set([
@@ -431,10 +455,14 @@ export async function deleteManagedUser(userId: string) {
     ...context.visibleHotels.filter((hotel) => targetRole === "owner" ? hotel.owner_id === userId : targetRole === "manager" ? hotel.manager_id === userId : false).map((hotel) => hotel.id),
   ])];
   await assertTargetScope(userId, targetRole, targetHotelIds, context);
-  const { error: profileError } = await context.supabase.from("users").delete().eq("id", userId);
-  if (profileError) throw new Error(profileError.message);
-  const { error: authError } = await context.supabase.auth.admin.deleteUser(userId);
-  if (authError) throw new Error(authError.message);
+  if (target.is_active) {
+    const { error: profileError } = await context.supabase
+      .from("users")
+      .update({ is_active: false, deactivated_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq("id", userId)
+      .eq("is_active", true);
+    if (profileError) throw new Error(profileError.message);
+  }
   revalidatePath("/settings");
 }
 
@@ -629,15 +657,16 @@ async function validateManagerAssignment(
   managerId: string | null,
   context: Awaited<ReturnType<typeof requireTenantAssetAccess>>
 ) {
-  if (!managerId || isPlatformAdmin(context.actor.role)) return;
+  if (!managerId) return;
   const { data: manager, error } = await context.supabase
     .from("users")
-    .select("id, primary_hotel_id")
+    .select("id, primary_hotel_id, is_active")
     .eq("id", managerId)
     .eq("role", "manager")
     .maybeSingle();
   if (error) throw new Error(error.message);
-  if (!manager || !context.visibleHotels.some((hotel) =>
+  if (!manager || !manager.is_active) throw new Error("Select an active manager account.");
+  if (!isPlatformAdmin(context.actor.role) && !context.visibleHotels.some((hotel) =>
     hotel.manager_id === manager.id || hotel.id === manager.primary_hotel_id
   )) {
     throw new Error("Select a manager assigned to one of your properties.");
@@ -667,6 +696,7 @@ export async function createOwnedProperty(input: PropertyInput): Promise<ActionR
       name: values.name,
       location: values.location,
       room_count: values.roomCount,
+      total_rooms: values.roomCount,
       floor_count: values.floorCount,
       manager_id: values.managerId,
       owner_id: context.actor.userId,
@@ -685,10 +715,17 @@ export async function updateOwnedProperty(propertyId: string, input: PropertyInp
     const context = await requireTenantAssetAccess("edit");
     const values = validateProperty(input);
     await validateManagerAssignment(values.managerId, context);
+    if (!context.visibleHotels.some((hotel) => hotel.id === propertyId)) {
+      throw new Error("Property not found in your account.");
+    }
+    const roomStats = await getActiveRoomStats(context.supabase, propertyId);
+    const roomCount = roomStats.roomCount || values.roomCount;
+    const floorCount = roomStats.floorCount || values.floorCount;
     let query = context.supabase
       .from("hotels")
-      .update({ name: values.name, location: values.location, room_count: values.roomCount, floor_count: values.floorCount, manager_id: values.managerId })
-      .eq("id", propertyId);
+      .update({ name: values.name, location: values.location, room_count: roomCount, total_rooms: roomCount, floor_count: floorCount, manager_id: values.managerId })
+      .eq("id", propertyId)
+      .is("archived_at", null);
     if (!isPlatformAdmin(context.actor.role)) query = query.eq("owner_id", context.actor.userId);
     const { data, error } = await query.select("id").maybeSingle();
     if (error) throw new Error(error.message);
@@ -704,12 +741,15 @@ export async function updateOwnedProperty(propertyId: string, input: PropertyInp
 export async function archiveOwnedProperty(propertyId: string): Promise<ActionResult> {
   try {
     const context = await requireTenantAssetAccess("delete");
-    let query = context.supabase.from("hotels").update({ is_active: false }).eq("id", propertyId);
+    let query = context.supabase.from("hotels")
+      .update({ is_active: false, archived_at: new Date().toISOString() })
+      .eq("id", propertyId)
+      .is("archived_at", null);
     if (!isPlatformAdmin(context.actor.role)) query = query.eq("owner_id", context.actor.userId);
     const { data, error } = await query.select("id").maybeSingle();
     if (error) throw new Error(error.message);
     if (!data) throw new Error("Property not found in your account.");
-    revalidatePath("/settings");
+    for (const path of ["/settings", "/admin", "/owner", "/manager", "/dashboard", "/hk-admin"]) revalidatePath(path);
     return { success: true };
   } catch (error) {
     console.error("Property archive failed:", error);

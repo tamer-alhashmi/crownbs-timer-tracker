@@ -1,7 +1,7 @@
 -- Hotel Time Tracker | Production schema draft
 -- Date and time are stored in UTC in Supabase and rendered in local time zones in the app.
 
-CREATE TYPE user_role AS ENUM ('admin', 'owner', 'manager', 'hk_admin', 'cleaner');
+CREATE TYPE user_role AS ENUM ('super_admin', 'admin', 'owner', 'manager', 'housekeeping_admin', 'hk_admin', 'cleaner');
 
 CREATE TYPE work_status AS ENUM ('assigned', 'active', 'completed');
 
@@ -14,11 +14,13 @@ CREATE TABLE IF NOT EXISTS hotels (
     room_count INTEGER NOT NULL DEFAULT 0 CHECK (room_count >= 0),
     floor_count INTEGER NOT NULL DEFAULT 0 CHECK (floor_count >= 0),
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    archived_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 ALTER TABLE hotels
-ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE,
+ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
@@ -28,6 +30,8 @@ CREATE TABLE IF NOT EXISTS users (
     full_name TEXT NOT NULL,
     phone_number TEXT,
     avatar_url TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    deactivated_at TIMESTAMPTZ,
     language_preference TEXT NOT NULL DEFAULT 'en',
     hourly_rate NUMERIC(10, 2) NOT NULL DEFAULT 12.00 CHECK (hourly_rate >= 0),
     primary_hotel_id UUID,
@@ -35,6 +39,35 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT fk_primary_hotel FOREIGN KEY (primary_hotel_id) REFERENCES hotels (id) ON DELETE SET NULL
 );
+
+ALTER TABLE public.users
+ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE,
+ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ;
+
+CREATE OR REPLACE FUNCTION public.guard_user_deactivation_fields()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF COALESCE(auth.role(), '') <> 'service_role'
+        AND current_user NOT IN ('postgres', 'supabase_admin')
+        AND (
+            NEW.is_active IS DISTINCT FROM OLD.is_active
+            OR NEW.deactivated_at IS DISTINCT FROM OLD.deactivated_at
+        )
+    THEN
+        RAISE EXCEPTION 'Only trusted server operations can change account activation status.'
+            USING ERRCODE = '42501';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS guard_user_deactivation_fields ON public.users;
+CREATE TRIGGER guard_user_deactivation_fields
+BEFORE UPDATE OF is_active, deactivated_at ON public.users
+FOR EACH ROW
+EXECUTE FUNCTION public.guard_user_deactivation_fields();
 
 CREATE TABLE IF NOT EXISTS user_hotel_assignments (
     user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,

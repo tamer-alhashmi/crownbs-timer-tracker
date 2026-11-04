@@ -16,7 +16,7 @@ type ActiveTask = {
   deleted_at: string | null;
   cancelled_at: string | null;
 };
-type TaskHotel = { id: string; owner_id: string | null; manager_id: string | null };
+type TaskHotel = { id: string; owner_id: string | null; manager_id: string | null; is_active: boolean; archived_at: string | null };
 type TaskUser = { id: string; full_name: string; role: string };
 type PageResult<T> = { data: T[] | null; error: { message: string } | null };
 
@@ -55,7 +55,7 @@ export async function createOverdueTaskAlerts(actorId: string, actorRole: UserRo
   let hotelIds: string[] = [];
   if (actorRole !== "cleaner") {
     if (actorRole === "owner") {
-      const { data: hotels, error } = await supabase.from("hotels").select("id").eq("owner_id", actorId).eq("is_active", true);
+      const { data: hotels, error } = await supabase.from("hotels").select("id").eq("owner_id", actorId).eq("is_active", true).is("archived_at", null);
       if (error) {
         console.error("[Task Escalation]: Failed to load owner properties.", error);
         throw new Error("Unable to load property scope for overdue task alerts.");
@@ -70,7 +70,7 @@ export async function createOverdueTaskAlerts(actorId: string, actorRole: UserRo
         supabase.from("user_hotel_assignments").select("hotel_id").eq("user_id", actorId),
         supabase.from("users").select("primary_hotel_id").eq("id", actorId).maybeSingle(),
         actorRole === "manager"
-          ? supabase.from("hotels").select("id").eq("manager_id", actorId).eq("is_active", true)
+          ? supabase.from("hotels").select("id").eq("manager_id", actorId).eq("is_active", true).is("archived_at", null)
           : Promise.resolve({ data: [], error: null }),
       ]);
       if (assignmentsError || profileError || managedHotelsError) {
@@ -83,7 +83,7 @@ export async function createOverdueTaskAlerts(actorId: string, actorRole: UserRo
         ...(managedHotels ?? []).map((hotel) => hotel.id),
       ])];
       if (hotelIds.length) {
-        const { data: activeHotels, error } = await supabase.from("hotels").select("id").in("id", hotelIds).eq("is_active", true);
+        const { data: activeHotels, error } = await supabase.from("hotels").select("id").in("id", hotelIds).eq("is_active", true).is("archived_at", null);
         if (error) {
           console.error("[Task Escalation]: Failed to verify assigned properties.", error);
           throw new Error("Unable to verify property scope for overdue task alerts.");
@@ -128,7 +128,7 @@ export async function createOverdueTaskAlerts(actorId: string, actorRole: UserRo
   const relevantHotelIds = [...new Set(candidates.map((task) => task.hotel_id))];
   const assigneeIds = [...new Set(candidates.map((task) => task.assigned_to ?? task.user_id))];
   const [{ data: hotels, error: hotelsError }, { data: assignees, error: assigneesError }, { data: hkAssignments, error: hkError }] = await Promise.all([
-    supabase.from("hotels").select("id, owner_id, manager_id").in("id", relevantHotelIds),
+    supabase.from("hotels").select("id, owner_id, manager_id, is_active, archived_at").in("id", relevantHotelIds),
     supabase.from("users").select("id, full_name, role").in("id", assigneeIds),
     supabase.from("user_hotel_assignments").select("user_id, hotel_id").in("hotel_id", relevantHotelIds),
   ]);
@@ -161,7 +161,7 @@ export async function createOverdueTaskAlerts(actorId: string, actorRole: UserRo
     const hotel = hotelById.get(task.hotel_id);
     const assigneeId = task.assigned_to ?? task.user_id;
     const assignee = userById.get(assigneeId);
-    if (!hotel || !assignee) continue;
+    if (!hotel || !hotel.is_active || hotel.archived_at || !assignee) continue;
     const recipientIds = new Set<string>();
     if (assignee.role === "cleaner") {
       (hkAdminsByHotel.get(hotel.id) ?? []).forEach((id) => recipientIds.add(id));

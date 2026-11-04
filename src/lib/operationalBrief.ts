@@ -115,7 +115,7 @@ export async function getManagementOperationalBrief(user: AppUserSession, period
   const { data: authUsers } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
   const matchingAuthUser = (authUsers?.users ?? []).find((authUser) => authUser.email?.toLowerCase() === user.email.toLowerCase());
   const identityIds = new Set([user.userId, matchingAuthUser?.id].filter((id): id is string => Boolean(id)));
-  let hotelsQuery = supabase.from("hotels").select("id, name, owner_id, manager_id").order("name");
+  let hotelsQuery = supabase.from("hotels").select("id, name, owner_id, manager_id").is("archived_at", null).order("name");
   if (user.role === "owner") hotelsQuery = hotelsQuery.eq("owner_id", user.userId);
   if (user.role === "manager") hotelsQuery = hotelsQuery.eq("manager_id", user.userId);
   let logQuery = supabase

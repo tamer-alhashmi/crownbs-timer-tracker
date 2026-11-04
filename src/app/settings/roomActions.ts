@@ -51,6 +51,7 @@ async function getRoomContext(action: FeatureAction = "view") {
   if (!profile || normalizeUserRole(profile.role as UserRole) !== session.role) throw new Error("Your role could not be verified. Sign in again.");
   const { data: hotels, error } = await supabase.from("hotels")
     .select("id, owner_id, manager_id")
+    .is("archived_at", null)
     .order("id");
   if (error) throw new Error(`Unable to load property access: ${error.message}`);
   const visibleHotels = (hotels ?? []).filter((hotel) =>

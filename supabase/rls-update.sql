@@ -12,12 +12,24 @@ ALTER TABLE public.work_log_audit ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.room_media ENABLE ROW LEVEL SECURITY;
 ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
 
+CREATE OR REPLACE FUNCTION public.current_app_user_role()
+RETURNS TEXT
+LANGUAGE SQL
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT role::TEXT FROM public.users WHERE id = auth.uid()
+$$;
+
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS BOOLEAN
 LANGUAGE SQL
 STABLE
+SECURITY DEFINER
+SET search_path = public
 AS $$
-  SELECT COALESCE((auth.jwt() ->> 'role'), '') = 'admin';
+  SELECT COALESCE(public.current_app_user_role(), '') IN ('admin', 'super_admin');
 $$;
 
 CREATE OR REPLACE FUNCTION public.is_owner()

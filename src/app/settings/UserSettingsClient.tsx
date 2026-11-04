@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Loader2, Pencil, Plus, Search, ShieldAlert, Trash2, UserPlus, X } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Loader2, Pencil, Plus, Search, ShieldAlert, UserPlus, UserX, X } from "lucide-react";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 import { assignManagedUserToHotel, createManagedUser, deleteManagedUser, unassignManagedUserFromHotel, updateManagedUser, type ManagedUser } from "./actions";
 import { normalizeUserRole, ROLE_LABELS, USER_ROLES } from "@/lib/roles";
@@ -199,16 +199,16 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
       : [...currentHotelIds, hotelId]);
   };
 
-  const remove = (user: ManagedUser) => {
-    if (!window.confirm(`Delete ${user.full_name}? This removes their login and work history.`)) return;
+  const deactivate = (user: ManagedUser) => {
+    if (!window.confirm(`Deactivate ${user.full_name}? Their work logs and audit history will be retained.`)) return;
     startTransition(async () => {
       try {
         await deleteManagedUser(user.id);
-        setMessage("User deleted.");
-        showActionToast("success", `${user.full_name} deleted.`);
+        setMessage("User deactivated. Historical records were retained.");
+        showActionToast("success", `${user.full_name} deactivated.`);
         router.refresh();
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unable to delete user.";
+        const message = error instanceof Error ? error.message : "Unable to deactivate user.";
         setMessage(message);
         showActionToast("error", message);
       }
@@ -356,7 +356,7 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
           </div>
         </div>
 
-        <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-6">
+        <section id="managed-users" className="scroll-mt-24 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-6">
           <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div><h2 className="text-lg font-bold text-slate-900">Managed users</h2><p className="text-sm text-slate-500">{filteredUsers.length} matching {users.length} total accounts</p></div>
           </div>
@@ -368,7 +368,7 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
               <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search name, email, phone, or role" className="min-h-11 w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm text-slate-900" />
             </label>
           </div>
-          <div className="space-y-3 md:hidden">
+          <div className="grid gap-3 md:grid-cols-2">
             {visibleUsers.map((user) => (
               <article key={user.id} className="rounded-xl border border-slate-200 p-4">
                 <div className="flex min-w-0 items-start gap-3">
@@ -378,6 +378,7 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
                     <p className="break-all text-xs text-slate-500">{user.email}</p>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{ROLE_LABELS[user.role]}</span>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${user.is_active ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>{user.is_active ? "Active" : "Deactivated"}</span>
                       <LiveStatusIndicator isClockedIn={user.is_clocked_in ?? false} className="text-xs" />
                     </div>
                   </div>
@@ -401,46 +402,11 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
                     {user.assignedHotels.length > 0 && <button type="button" onClick={() => { setUnlinkTarget({ userId: user.id, userName: user.full_name, hotels: user.assignedHotels }); setUnlinkHotelId(user.assignedHotels[0].id); }} className="inline-flex min-h-11 items-center justify-center gap-1 rounded-lg border border-amber-200 bg-white px-2 py-2 text-xs font-semibold text-amber-800"><ShieldAlert className="h-3.5 w-3.5" /> Unlink</button>}
                     <button type="button" onClick={() => edit(user)} className="inline-flex min-h-11 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-700"><Pencil className="h-3.5 w-3.5" /> Edit</button>
                   </div>
-                  {actorRole === "super_admin" && <button type="button" onClick={() => remove(user)} disabled={isPending} className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 disabled:opacity-50"><Trash2 className="h-4 w-4" /> Delete</button>}
+                  {actorRole === "super_admin" && user.is_active && <button type="button" onClick={() => deactivate(user)} disabled={isPending} className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 disabled:opacity-50"><UserX className="h-4 w-4" /> Deactivate</button>}
                 </div>
               </article>
             ))}
             {visibleUsers.length === 0 && <p className="rounded-xl border border-slate-200 px-4 py-8 text-center text-sm text-slate-500">No users match your search.</p>}
-          </div>
-          <div className="hidden overflow-x-auto rounded-xl border border-slate-200 md:block">
-            <table className="min-w-[1050px] w-full text-left text-sm">
-              <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">User</th><th className="px-4 py-3">Role</th><th className="px-4 py-3">Phone number</th><th className="px-4 py-3">Assigned hotels</th><th className="px-4 py-3">Actions</th></tr></thead>
-              <tbody className="divide-y divide-slate-100">
-                {visibleUsers.map((user) => (
-                  <tr key={user.id} className="align-top hover:bg-slate-50/80">
-                    <td className="px-4 py-3">
-                      <div className="flex min-w-56 items-center gap-3">
-                        <UserAvatar name={user.full_name} avatarUrl={user.avatar_url} role={user.role} className="h-10 w-10 bg-sky-100 text-sm font-semibold text-sky-800" />
-                        <div className="min-w-0"><p className="truncate font-semibold text-slate-900">{user.full_name}</p><p className="max-w-56 truncate text-xs text-slate-500">{user.email}</p></div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3"><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{ROLE_LABELS[user.role]}</span><LiveStatusIndicator isClockedIn={user.is_clocked_in ?? false} className="text-xs" /></div></td>
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">{user.phone_number || <span className="text-slate-400">Not provided</span>}</td>
-                    <td className="max-w-64 px-4 py-3">
-                      <div className="flex flex-wrap gap-1.5">{user.assignedHotels.length ? user.assignedHotels.map((hotel) => <span key={hotel.id} className="inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-800">{hotel.name}</span>) : <span className="text-xs text-slate-500">No assigned hotel</span>}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex min-w-64 flex-wrap gap-1.5">
-                        <button type="button" onClick={() => { setAssigningId(assigningId === user.id ? null : user.id); setAssignmentHotelId(""); }} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-sky-200 bg-white px-2.5 py-2 text-xs font-semibold text-sky-800"><Plus className="h-3.5 w-3.5" /> Assign hotel</button>
-                        {user.assignedHotels.length > 0 && <button type="button" onClick={() => { setUnlinkTarget({ userId: user.id, userName: user.full_name, hotels: user.assignedHotels }); setUnlinkHotelId(user.assignedHotels[0].id); }} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-amber-200 bg-white px-2.5 py-2 text-xs font-semibold text-amber-800"><ShieldAlert className="h-3.5 w-3.5" /> Unlink</button>}
-                        <button type="button" onClick={() => edit(user)} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700"><Pencil className="h-3.5 w-3.5" /> Edit</button>
-                        {actorRole === "super_admin" && <button type="button" onClick={() => remove(user)} disabled={isPending} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-red-200 bg-white px-2.5 py-2 text-xs font-semibold text-red-700 disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" /> Delete</button>}
-                      </div>
-                      {assigningId === user.id && <div className="mt-2 flex min-w-64 flex-col gap-2 rounded-xl border border-sky-100 bg-sky-50 p-2 sm:flex-row">
-                        <select value={assignmentHotelId} onChange={(event) => setAssignmentHotelId(event.target.value)} className="min-h-10 min-w-0 flex-1 rounded-lg border border-sky-200 bg-white px-2 text-xs text-slate-900"><option value="">Select hotel</option>{hotels.filter((hotel) => !user.assignedHotels.some((assigned) => assigned.id === hotel.id)).map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select>
-                        <button type="button" onClick={() => assignHotel(user.id)} disabled={isPending} className="min-h-10 rounded-lg bg-sky-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">Assign</button>
-                      </div>}
-                    </td>
-                  </tr>
-                ))}
-                {visibleUsers.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">No users match your search.</td></tr>}
-              </tbody>
-            </table>
           </div>
           <div className="mt-5 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-slate-500">Showing {visibleUsers.length ? (currentPage - 1) * PAGE_SIZE + 1 : 0}-{Math.min(currentPage * PAGE_SIZE, filteredUsers.length)} of {filteredUsers.length} accounts</p>

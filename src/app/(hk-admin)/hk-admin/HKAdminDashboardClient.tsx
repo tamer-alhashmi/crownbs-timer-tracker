@@ -77,8 +77,30 @@ export default function HKAdminDashboardClient({
   const [reason, setReason] = useState("");
 
   useEffect(() => {
-    const requestedTab = new URLSearchParams(window.location.search).get("tab");
-    if (requestedTab && TABS.some((tab) => tab.id === requestedTab)) setActiveTab(requestedTab as DashboardTab);
+    const syncFromUrl = () => {
+      const url = new URL(window.location.href);
+      const requestedTab = url.searchParams.get("tab");
+      if (requestedTab && TABS.some((tab) => tab.id === requestedTab)) setActiveTab(requestedTab as DashboardTab);
+      if (url.hash) {
+        let attempts = 0;
+        const scrollToAnchor = () => {
+          const target = document.getElementById(decodeURIComponent(url.hash.slice(1)));
+          if (target && target.getClientRects().length > 0) {
+            target.scrollIntoView({ behavior: "smooth", block: "start" });
+            target.classList.add("ring-2", "ring-sky-400", "ring-offset-2");
+            window.setTimeout(() => target.classList.remove("ring-2", "ring-sky-400", "ring-offset-2"), 1800);
+          } else if (attempts++ < 10) window.requestAnimationFrame(scrollToAnchor);
+        };
+        window.requestAnimationFrame(scrollToAnchor);
+      }
+    };
+    syncFromUrl();
+    window.addEventListener("help-center-navigate", syncFromUrl);
+    window.addEventListener("popstate", syncFromUrl);
+    return () => {
+      window.removeEventListener("help-center-navigate", syncFromUrl);
+      window.removeEventListener("popstate", syncFromUrl);
+    };
   }, []);
 
   useEffect(() => {
@@ -181,7 +203,7 @@ export default function HKAdminDashboardClient({
         </section>
 
         <section id="hk-panel-operations" role="tabpanel" aria-labelledby="hk-tab-operations" hidden={activeTab !== "operations"} className="space-y-5">
-          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <section id="operations-live" className="scroll-mt-24 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Live status</p><h2 className="mt-1 text-xl font-bold">Cleaner operations</h2><p className="mt-1 text-sm text-slate-600">{data.shifts.length} cleaner{data.shifts.length === 1 ? "" : "s"} clocked in across your assigned properties.</p></div>
               <Activity className="h-5 w-5 text-emerald-700" />

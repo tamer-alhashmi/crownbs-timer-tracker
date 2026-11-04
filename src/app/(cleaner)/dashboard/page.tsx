@@ -36,6 +36,7 @@ export default async function CleanerDashboardPage() {
     .select("id, name, location, owner_id")
     .in("id", assignedHotelIds)
     .eq("is_active", true)
+    .is("archived_at", null)
     .order("name");
   if (hotelError || !hotels?.length) throw new Error(hotelError?.message ?? "Your assigned properties are unavailable.");
   const hotel = hotels.find((item) => item.id === user.hotelId)

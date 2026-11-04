@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
   if ("response" in context) return context.response;
   if (request.nextUrl.searchParams.get("view") === "options") {
     const [{ data: hotels, error: hotelsError }, { data: assignments, error: assignmentsError }, { data: users, error: usersError }] = await Promise.all([
-      context.supabase.from("hotels").select("id, name, owner_id, manager_id, is_active"),
+      context.supabase.from("hotels").select("id, name, owner_id, manager_id, is_active").is("archived_at", null),
       context.supabase.from("user_hotel_assignments").select("user_id, hotel_id"),
       context.supabase.from("users").select("id, full_name, role, primary_hotel_id").neq("id", context.actor.id),
     ]);

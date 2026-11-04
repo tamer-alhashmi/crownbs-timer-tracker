@@ -126,7 +126,7 @@ export async function getHKAdminDashboardData(): Promise<HousekeepingDashboardDa
     { data: ownActiveTask, error: ownTaskError },
     { data: logs, error: logsError },
   ] = await Promise.all([
-    supabase.from("hotels").select("id, name, floors_sections").in("id", hotelIds).eq("is_active", true).order("name"),
+    supabase.from("hotels").select("id, name, floors_sections").in("id", hotelIds).eq("is_active", true).is("archived_at", null).order("name"),
     supabase.from("rooms").select("id, hotel_id, room_name, category, floor_section, availability_status, housekeeping_status, inspection_notes").in("hotel_id", hotelIds).eq("status", "active").order("floor_section").order("room_name"),
     supabase.from("user_hotel_assignments").select("user_id, hotel_id").in("hotel_id", hotelIds),
     supabase.from("users").select("id, full_name, role, primary_hotel_id").eq("role", "cleaner").order("full_name"),
@@ -157,14 +157,15 @@ export async function getHKAdminDashboardData(): Promise<HousekeepingDashboardDa
   const cleanerNames = new Map(cleanerRows.map((cleaner) => [cleaner.id, cleaner.full_name ?? "Cleaner"]));
   const cleanerPrimaryHotels = new Map(cleanerRows.map((cleaner) => [cleaner.id, cleaner.primary_hotel_id]));
   const hotelNames = new Map(activeHotels.map((hotel) => [hotel.id, hotel.name]));
-  const ownTaskHotel = ownActiveTask ? hotelNames.get(ownActiveTask.hotel_id) : null;
-  const ownTaskRooms = ownActiveTask && Array.isArray(ownActiveTask.room_ids)
-    ? ownActiveTask.room_ids.flatMap((roomId) => {
+  const activeOwnTask = ownActiveTask && activeHotelIds.has(ownActiveTask.hotel_id) ? ownActiveTask : null;
+  const ownTaskHotel = activeOwnTask ? hotelNames.get(activeOwnTask.hotel_id) : null;
+  const ownTaskRooms = activeOwnTask && Array.isArray(activeOwnTask.room_ids)
+    ? activeOwnTask.room_ids.flatMap((roomId) => {
       const room = roomRows.find((item) => item.id === roomId);
       return room ? [`${room.room_name}${room.floor_section ? ` (${room.floor_section})` : ""}`] : [];
     })
     : [];
-  const activeTaskRows = (activeTasks ?? []).filter((task) => cleanerIds.has(task.user_id));
+  const activeTaskRows = (activeTasks ?? []).filter((task) => cleanerIds.has(task.user_id) && activeHotelIds.has(task.hotel_id));
   const taskByCleaner = new Map(activeTaskRows.map((task) => [task.user_id, task]));
   const activeShiftRows = (shifts ?? []).filter((shift) => cleanerIds.has(shift.user_id));
 
@@ -203,12 +204,12 @@ export async function getHKAdminDashboardData(): Promise<HousekeepingDashboardDa
 
   return {
     userName: actor.full_name ?? "Housekeeping Admin",
-    activeTask: ownActiveTask && ownTaskHotel ? {
-      id: ownActiveTask.id,
-      name: ownActiveTask.service_name_snapshot ?? "Active task",
+    activeTask: activeOwnTask && ownTaskHotel ? {
+      id: activeOwnTask.id,
+      name: activeOwnTask.service_name_snapshot ?? "Active task",
       hotelName: ownTaskHotel,
-      roomLabel: ownTaskRooms.join(", ") || (Array.isArray(ownActiveTask.room_numbers) ? ownActiveTask.room_numbers.join(", ") : ownActiveTask.room_number ?? ""),
-      startTime: ownActiveTask.start_time,
+      roomLabel: ownTaskRooms.join(", ") || (Array.isArray(activeOwnTask.room_numbers) ? activeOwnTask.room_numbers.join(", ") : activeOwnTask.room_number ?? ""),
+      startTime: activeOwnTask.start_time,
     } : null,
     hotels: activeHotels.map((hotel) => ({
       id: hotel.id,

@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { Building2, CalendarDays, CheckCircle2, Clock3, CreditCard, Loader2, Search, ShieldAlert, X } from "lucide-react";
+import { Building2, CalendarDays, CheckCircle2, Clock3, CreditCard, Loader2, Search, ShieldAlert } from "lucide-react";
 import { DashboardPagination } from "@/components/dashboard/DashboardPagination";
 import { showActionToast } from "@/components/ui/ActionToast";
+import { TenantDetailsModal } from "./TenantDetailsModal";
 import {
   getTenantAccountsPage,
   settleTenantCycle,
-  toggleTenantPropertyStatus,
   type TenantAccount,
   type TenantAccountsPage,
 } from "./tenantAccountsActions";
@@ -69,23 +69,6 @@ export default function TenantAccountsHub({ initialData }: { initialData: Tenant
     });
   };
 
-  const toggleProperty = (tenant: TenantAccount, propertyId: string, propertyName: string, isActive: boolean) => {
-    startTransition(async () => {
-      try {
-        await toggleTenantPropertyStatus(propertyId);
-        showActionToast("success", `${propertyName} ${isActive ? "suspended" : "reactivated"}.`);
-        setRefreshKey((key) => key + 1);
-        setSelectedTenant((selected) => selected?.id === tenant.id ? {
-          ...selected,
-          properties: selected.properties.map((property) => property.id === propertyId ? { ...property, isActive: !isActive } : property),
-        } : selected);
-      } catch (actionError) {
-        const message = actionError instanceof Error ? actionError.message : "Unable to update property status.";
-        showActionToast("error", message);
-      }
-    });
-  };
-
   const pageCount = Math.max(1, Math.ceil(data.total / data.pageSize));
 
   return (
@@ -135,7 +118,20 @@ export default function TenantAccountsHub({ initialData }: { initialData: Tenant
                 const settled = tenant.settledAt !== null && pendingAmount < 0.005;
                 const totalRooms = tenant.properties.reduce((sum, property) => sum + property.totalRooms, 0);
                 return (
-                  <tr key={tenant.id} className="align-top hover:bg-slate-50/70">
+                  <tr
+                    key={tenant.id}
+                    tabIndex={0}
+                    aria-label={`View details for ${tenant.name}`}
+                    onClick={() => setSelectedTenant(tenant)}
+                    onKeyDown={(event) => {
+                      if (event.target !== event.currentTarget) return;
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setSelectedTenant(tenant);
+                      }
+                    }}
+                    className="cursor-pointer align-top hover:bg-sky-50/60 focus:outline-none focus-visible:bg-sky-50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-600"
+                  >
                     <td className="px-4 py-4">
                       <p className="font-semibold text-slate-950">{tenant.name}</p>
                       <p className="mt-0.5 text-xs text-slate-600">{tenant.email}</p>
@@ -170,10 +166,10 @@ export default function TenantAccountsHub({ initialData }: { initialData: Tenant
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex min-w-44 flex-col items-start gap-1.5">
-                        <button type="button" onClick={() => markSettled(tenant)} disabled={isPending || !tenant.completedTasks || settled} className="min-h-9 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-45">
+                        <button type="button" onClick={(event) => { event.stopPropagation(); markSettled(tenant); }} disabled={isPending || !tenant.completedTasks || settled} className="min-h-9 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-45">
                           {settled ? "Settled this cycle" : isPending ? "Saving…" : "Mark as Settled / Paid"}
                         </button>
-                        <button type="button" onClick={() => setSelectedTenant(tenant)} className="min-h-8 rounded-lg px-2 text-xs font-semibold text-sky-800 hover:bg-sky-50">View Owner Breakdown</button>
+                        <button type="button" onClick={(event) => { event.stopPropagation(); setSelectedTenant(tenant); }} className="min-h-8 rounded-lg px-2 text-xs font-semibold text-sky-800 hover:bg-sky-50">View tenant details</button>
                       </div>
                     </td>
                   </tr>
@@ -188,41 +184,7 @@ export default function TenantAccountsHub({ initialData }: { initialData: Tenant
         </div>
       </section>
 
-      {selectedTenant && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/55 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedTenant(null); }}>
-          <section role="dialog" aria-modal="true" aria-labelledby="tenant-breakdown-title" className="max-h-[min(85dvh,720px)] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl sm:p-6">
-            <header className="flex items-start justify-between gap-4">
-              <div><p className="text-xs font-bold uppercase tracking-[0.15em] text-sky-800">Owner breakdown</p><h2 id="tenant-breakdown-title" className="mt-1 text-xl font-bold text-slate-950">{selectedTenant.name}</h2><p className="mt-1 text-sm text-slate-600">{selectedTenant.email} · {data.monthLabel}</p></div>
-              <button type="button" onClick={() => setSelectedTenant(null)} aria-label="Close owner breakdown" className="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button>
-            </header>
-            <div className="mt-5 grid gap-3 sm:grid-cols-3">
-              <Metric label="Completed tasks" value={selectedTenant.completedTasks.toLocaleString()} />
-              <Metric label="Active shifts" value={selectedTenant.activeShifts.toLocaleString()} />
-              <Metric label="Accrued amount" value={money(selectedTenant.amountDue)} />
-            </div>
-            <h3 className="mt-6 text-sm font-bold text-slate-900">Hotel-by-hotel consumption</h3>
-            <ul className="mt-2 divide-y divide-slate-100 rounded-xl border border-slate-200">
-              {selectedTenant.properties.map((property) => (
-                <li key={property.id} className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <p className="font-semibold text-slate-900">{property.name}</p>
-                    <p className="mt-0.5 text-xs text-slate-600">{property.totalRooms.toLocaleString()} rooms · {property.completedTasks.toLocaleString()} billable tasks · {money(property.completedTasks * 0.08)}</p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${property.isActive ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>{property.isActive ? "Active" : "Suspended"}</span>
-                    <button type="button" disabled={isPending} onClick={() => toggleProperty(selectedTenant, property.id, property.name, property.isActive)} className="min-h-9 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">{property.isActive ? "Suspend" : "Reactivate"}</button>
-                  </div>
-                </li>
-              ))}
-              {!selectedTenant.properties.length && <li className="p-4 text-sm text-slate-500">No properties are assigned to this tenant.</li>}
-            </ul>
-          </section>
-        </div>
-      )}
+      {selectedTenant && <TenantDetailsModal key={selectedTenant.id} tenant={selectedTenant} onClose={() => setSelectedTenant(null)} onUpdated={() => setRefreshKey((key) => key + 1)} />}
     </main>
   );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><p className="text-xs text-slate-500">{label}</p><p className="mt-1 font-bold tabular-nums text-slate-950">{value}</p></div>;
 }

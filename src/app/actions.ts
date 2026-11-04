@@ -7,3 +7,7 @@ export async function signOut() {
   await clearSessionCookies();
   redirect("/login");
 }
+
+export async function clearSecuritySessionCookies() {
+  await clearSessionCookies();
+}

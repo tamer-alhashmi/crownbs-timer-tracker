@@ -39,7 +39,7 @@ async function validateSelection(hotelId: string, serviceId: string, roomIds: st
   const supabase = createPrivilegedServerSupabaseClient();
   const uniqueRoomIds = [...new Set(roomIds)];
   const [{ data: hotel }, { data: service }, roomResult] = await Promise.all([
-    supabase.from("hotels").select("id, owner_id").eq("id", hotelId).eq("is_active", true).maybeSingle(),
+    supabase.from("hotels").select("id, owner_id").eq("id", hotelId).eq("is_active", true).is("archived_at", null).maybeSingle(),
     supabase.from("services_config").select("id, name, description, unit, owner_id, hotel_id").eq("id", serviceId).eq("is_active", true).maybeSingle(),
     uniqueRoomIds.length ? supabase.from("rooms").select("id, room_name").in("id", uniqueRoomIds).eq("hotel_id", hotelId).eq("status", "active") : Promise.resolve({ data: [] }),
   ]);
@@ -63,6 +63,7 @@ export async function clockIn() {
     .select("id")
     .in("id", user.hotelIds)
     .eq("is_active", true)
+    .is("archived_at", null)
     .limit(1);
   if (activeHotelsError) throw new Error(`Unable to verify your property status: ${activeHotelsError.message}`);
   if (!activeHotels?.length) throw new Error("Clock-in is unavailable because all assigned properties are suspended.");
@@ -131,7 +132,7 @@ export async function switchHotel(newHotelId: string) {
   const user = await requireCleaner();
   const supabase = createPrivilegedServerSupabaseClient();
   if (!user.hotelIds.includes(newHotelId)) throw new Error("You can only switch to a property assigned to you.");
-  const { data: hotel, error } = await supabase.from("hotels").select("id").eq("id", newHotelId).eq("is_active", true).maybeSingle();
+  const { data: hotel, error } = await supabase.from("hotels").select("id").eq("id", newHotelId).eq("is_active", true).is("archived_at", null).maybeSingle();
   if (error) throw new Error(error.message);
   if (!hotel) throw new Error("Select an active hotel.");
   await setSessionCookies({ ...user, hotelId: newHotelId });

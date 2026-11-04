@@ -42,6 +42,7 @@ export async function getTaskDispatchData() {
   const { data: hotels, error: hotelError } = await supabase
     .from("hotels")
     .select("id, name, owner_id, manager_id, is_active")
+    .is("archived_at", null)
     .order("name");
   if (hotelError) throw new Error(hotelError.message);
   const activeHotels = (hotels ?? []).filter((hotel) =>
@@ -569,11 +570,20 @@ export async function completeDispatchTask(taskId: string, reason: string) {
   if (typeof reason !== "string" || reason.trim().length < 5 || reason.trim().length > 1000) throw new Error("Enter an audit reason between 5 and 1,000 characters.");
   const { actor, supabase, task } = await getManagedTask(taskId);
   if (task.status !== "active") throw new Error("Only active tasks can be force-completed.");
-  const { error } = await supabase.rpc("complete_dispatch_task", {
-    p_task_id: task.id,
-    p_actor_id: actor.id,
-    p_reason: reason.trim(),
-  });
+  const { error } = actor.role === "super_admin"
+    ? await supabase.rpc("record_management_override", {
+      p_entity_type: "task",
+      p_entity_id: task.id,
+      p_action: "force_complete_task",
+      p_actor_id: actor.id,
+      p_reason: reason.trim(),
+      p_end_time: null,
+    })
+    : await supabase.rpc("complete_dispatch_task", {
+      p_task_id: task.id,
+      p_actor_id: actor.id,
+      p_reason: reason.trim(),
+    });
   if (error) throw new Error(`Unable to complete active task: ${error.message}`);
   revalidateTaskViews();
 }

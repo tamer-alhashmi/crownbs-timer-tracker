@@ -11,6 +11,7 @@ import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { BackButtonHandler } from "@/components/native/BackButtonHandler";
 import { ModalScrollLock } from "@/components/ui/ModalScrollLock";
 import { ActionToastViewport } from "@/components/ui/ActionToast";
+import { SecurityWatcher } from "@/components/auth/SecurityWatcher";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -69,11 +70,13 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <ModalScrollLock />
         <ActionToastViewport />
         {user ? (
-          <ChatProviders key={user.userId} soundEnabled={soundNotificationsEnabled}>
-            {children}
-            {chatProfile && <GlobalChatWidget user={user} profile={chatProfile} />}
-            <BackButtonHandler userRole={user.role} />
-          </ChatProviders>
+          <SecurityWatcher userId={user.userId} role={user.role}>
+            <ChatProviders key={user.userId} soundEnabled={soundNotificationsEnabled}>
+              {children}
+              {chatProfile && <GlobalChatWidget user={user} profile={chatProfile} />}
+              <BackButtonHandler userRole={user.role} />
+            </ChatProviders>
+          </SecurityWatcher>
         ) : (
           <>
             {children}

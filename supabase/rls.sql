@@ -11,10 +11,25 @@ ALTER TABLE room_media ENABLE ROW LEVEL SECURITY;
 ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
 
 -- Helper functions for role checks.
+CREATE OR REPLACE FUNCTION public.current_app_user_role()
+RETURNS TEXT
+LANGUAGE SQL
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT role::TEXT FROM public.users WHERE id = auth.uid()
+$$;
+
 CREATE OR REPLACE FUNCTION is_admin()
-RETURNS BOOLEAN AS $$
-  SELECT COALESCE((auth.jwt() ->> 'role'), '') = 'admin';
-$$ LANGUAGE SQL STABLE;
+RETURNS BOOLEAN
+LANGUAGE SQL
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT COALESCE(public.current_app_user_role(), '') IN ('admin', 'super_admin');
+$$;
 
 CREATE OR REPLACE FUNCTION is_owner()
 RETURNS BOOLEAN AS $$

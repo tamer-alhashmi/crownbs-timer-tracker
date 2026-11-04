@@ -7,7 +7,6 @@ import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { UserProfileMenu } from "@/components/layout/UserProfileMenu";
 import { SignOutButton } from "@/components/layout/SignOutButton";
 import { PayrollSummary } from "@/components/dashboard/PayrollSummary";
-import { SystemManual } from "@/components/dashboard/SystemManual";
 import { getSettingsData } from "./actions";
 import UserSettingsClient from "./UserSettingsClient";
 import SystemAccessPanel from "./SystemAccessPanel";
@@ -53,10 +52,6 @@ export default async function SettingsPage() {
         utility={utility}
         profile={<div className="mx-auto max-w-5xl">
           <PersonalProfileSettings fullName={name} email={profile?.email ?? user.email} phoneNumber={profile?.phone_number ?? null} avatarUrl={profile?.avatar_url ?? null} languagePreference={profile?.language_preference ?? "en"} role={user.role} {...emailSettings} />
-          <section className="mt-5 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
-            <div className="mb-4"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">Quick reference</p><h2 className="mt-1 text-lg font-bold text-slate-950">Cleaner system manual</h2><p className="mt-1 text-sm text-slate-600">Quick guidance for shift and task workflows.</p></div>
-            <SystemManual role="cleaner" />
-          </section>
           <section className="mt-5 flex flex-col gap-4 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
             <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Account session</p><h2 className="mt-1 font-bold">Sign out of this device</h2><p className="mt-1 text-sm text-slate-500">Your shift and submitted work logs remain saved.</p></div>
             <SignOutButton />

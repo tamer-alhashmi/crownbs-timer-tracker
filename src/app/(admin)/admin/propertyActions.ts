@@ -140,6 +140,13 @@ async function saveRooms(supabase: Awaited<ReturnType<typeof requireAdmin>>, hot
 
 export async function getPropertyRooms(hotelId: string): Promise<ConfiguredRoom[]> {
   const supabase = await requireAdmin("edit");
+  const { data: property, error: propertyError } = await supabase.from("hotels")
+    .select("id")
+    .eq("id", hotelId)
+    .is("archived_at", null)
+    .maybeSingle();
+  if (propertyError) throw new Error(propertyError.message);
+  if (!property) throw new Error("The property is archived or no longer available.");
   const { data, error } = await supabase.from("rooms")
     .select("id, room_name, floor_section, category, max_capacity, adult, children, bedroom, bed_configs, amenities, status, room_amenities, room_photos")
     .eq("hotel_id", hotelId)
@@ -189,7 +196,7 @@ export async function updateProperty(id: string, updates: PropertyInput & { is_a
   const { data, error } = await supabase.from("hotels").update({
     ...values,
     ...(updates.is_active === undefined ? {} : { is_active: updates.is_active }),
-  }).eq("id", id).select(PROPERTY_COLUMNS).maybeSingle();
+  }).eq("id", id).is("archived_at", null).select(PROPERTY_COLUMNS).maybeSingle();
   if (error || !data) throw new Error(error?.message ?? "Property was not found.");
   await saveRooms(supabase, id, rooms);
   revalidatePropertyViews();

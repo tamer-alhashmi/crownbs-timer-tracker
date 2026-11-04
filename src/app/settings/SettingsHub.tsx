@@ -33,18 +33,41 @@ function isTabVisible(id: Tab, role: UserRole) {
 export default function SettingsHub({ role, utility, profile, billing, payroll, users, properties }: Props) {
   const visibleTabs = tabs.filter(({ id }) => isTabVisible(id, role));
   const [activeTab, setActiveTab] = useState<Tab>("profile");
+  const [requestedHash, setRequestedHash] = useState("");
   useEffect(() => {
-    const url = new URL(window.location.href);
-    const requestedTab = url.searchParams.get("tab");
-    if (requestedTab === "overview") {
-      url.searchParams.set("tab", "profile");
-      window.history.replaceState(window.history.state, "", url);
-      return;
-    }
-    if (requestedTab && tabs.some(({ id }) => id === requestedTab && isTabVisible(id, role))) {
-      setActiveTab(requestedTab as Tab);
-    }
+    const syncFromUrl = () => {
+      const url = new URL(window.location.href);
+      const requestedTab = url.searchParams.get("tab");
+      if (requestedTab === "overview") {
+        url.searchParams.set("tab", "profile");
+        window.history.replaceState(window.history.state, "", url);
+      } else if (requestedTab && tabs.some(({ id }) => id === requestedTab && isTabVisible(id, role))) {
+        setActiveTab(requestedTab as Tab);
+      }
+      setRequestedHash(url.hash);
+    };
+    syncFromUrl();
+    window.addEventListener("help-center-navigate", syncFromUrl);
+    window.addEventListener("popstate", syncFromUrl);
+    return () => {
+      window.removeEventListener("help-center-navigate", syncFromUrl);
+      window.removeEventListener("popstate", syncFromUrl);
+    };
   }, [role]);
+  useEffect(() => {
+    if (!requestedHash) return;
+    let attempts = 0;
+    const scrollToPanel = () => {
+      const target = document.getElementById(decodeURIComponent(requestedHash.slice(1)));
+      if (target && target.getClientRects().length > 0) {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+        target.classList.add("ring-2", "ring-sky-400", "ring-offset-2");
+        window.setTimeout(() => target.classList.remove("ring-2", "ring-sky-400", "ring-offset-2"), 1800);
+        setRequestedHash("");
+      } else if (attempts++ < 10) window.requestAnimationFrame(scrollToPanel);
+    };
+    window.requestAnimationFrame(scrollToPanel);
+  }, [activeTab, requestedHash]);
   const content: Record<Tab, ReactNode> = { profile, payroll: payroll ?? null, users, properties };
 
   const selectTab = (tab: Tab) => {

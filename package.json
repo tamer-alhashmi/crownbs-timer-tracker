@@ -25,6 +25,7 @@
     "browser-image-compression": "^2.0.2",
     "date-fns": "^4.4.0",
     "fflate": "^0.8.3",
+    "framer-motion": "^14.9.0",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
     "leaflet": "^1.9.4",

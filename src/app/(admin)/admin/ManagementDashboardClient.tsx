@@ -2,10 +2,9 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition, type ReactNode } from "react";
 import Link from "next/link";
-import { Activity, Building2, CalendarDays, Check, CircleDollarSign, ClipboardList, Clock, Gauge, History, Hotel, Loader2, Pencil, UsersRound, X, BookOpen, Wallet, Columns3, Filter, Search, CreditCard, ShieldAlert } from "lucide-react";
+import { Activity, Building2, Check, CircleDollarSign, ClipboardList, Clock, Gauge, History, Hotel, Loader2, Pencil, UsersRound, X, Wallet, Columns3, Filter, Search, CreditCard, ShieldAlert } from "lucide-react";
 import { OperationalBrief } from "@/components/dashboard/OperationalBrief";
 import { ServiceCard } from "@/components/dashboard/ServiceCard";
-import { SystemManual } from "@/components/dashboard/SystemManual";
 import { UserProfileMenu } from "@/components/layout/UserProfileMenu";
 import type { BriefTask, ManagementBrief } from "@/lib/operationalBrief";
 import { calculateTaskCost, resolveBillingUnit, resolveServiceRate, type ServicePricing } from "@/lib/servicePricing";
@@ -21,6 +20,7 @@ import type { ServiceRecord } from "./serviceActions";
 import { useWorkLogRealtimeRefresh } from "@/lib/useWorkLogRealtimeRefresh";
 import type { LucideIcon } from "lucide-react";
 import { DashboardPagination } from "@/components/dashboard/DashboardPagination";
+import { WorkspaceFilterBar, useWorkspaceFilters } from "@/components/dashboard/WorkspaceFilterBar";
 import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
 import { ActiveAssignedTaskCard } from "@/components/dashboard/ActiveAssignedTaskCard";
 import { showActionToast } from "@/components/ui/ActionToast";
@@ -34,7 +34,6 @@ const DASHBOARD_TABS = [
   { id: "work-logs", label: "Work Logs & History", icon: ClipboardList },
   { id: "financials", label: "Financials & Payroll", icon: Wallet },
   { id: "audit", label: "Audit & Compliance", icon: History },
-  { id: "manual", label: "System Manual", icon: BookOpen },
 ] as const;
 type DashboardTab = typeof DASHBOARD_TABS[number]["id"];
 const DASHBOARD_TAB_CHANGE = "management-dashboard-tab-change";
@@ -61,7 +60,7 @@ function useDashboardTab() {
 type Log = { id: string; user_id: string; hotel_id: string; service_id: string | null; cleanerName: string; hotelName: string; assigneeRole: string; start_time: string; end_time: string | null; task_date: string; status: string; cancelled_at?: string | null; rooms_completed: number; room_number: string | null; room_numbers: string[]; roomDetails?: { name: string; floor: string }[]; service_name_snapshot: string | null; service_description_snapshot: string | null; notes: string | null; cost_override?: number | string | null; owner_id: string | null; owner_name: string | null; manager_id: string | null; manager_name: string | null; responsibility_recorded_at: string | null; manager_approved: boolean; owner_approved: boolean; manager_rejected: boolean; owner_rejected: boolean; is_locked: boolean; rejection_notes?: string | null; services_config?: { name: string; default_rate: number; unit?: string }[] };
 type Room = { id: string; hotel_id: string; room_name: string; floor_section?: string | null; category: string; status?: string };
 type DispatchData = Awaited<ReturnType<typeof getTaskDispatchData>>;
-type Props = { data: { userRole: string; currentUserId: string; userName: string; userEmail: string; userAvatarUrl: string | null; canManagePayrollTasks: boolean; canManageActiveOperations: boolean; hotels: PropertyRecord[]; services: ServiceRecord[]; cleaners: { id: string; name: string; primary_hotel_id: string | null }[]; rooms: Room[]; workLogs: Log[]; auditLogs: Log[]; payroll: PayrollLog[]; activeShifts: { id: string; user_id: string; start_time: string; cleanerName: string; task: Log | null }[]; activeTasks: Log[]; overrideAudit: OverrideAuditRecord[]; brief: ManagementBrief }; dispatchData?: DispatchData; tenantIntelligence?: ReactNode };
+type Props = { data: { userRole: string; currentUserId: string; userName: string; userEmail: string; userAvatarUrl: string | null; canManagePayrollTasks: boolean; canManageActiveOperations: boolean; hotels: PropertyRecord[]; services: ServiceRecord[]; cleaners: { id: string; name: string; primary_hotel_id: string | null }[]; propertyAssignees: { id: string; name: string; role: string }[]; rooms: Room[]; workLogs: Log[]; auditLogs: Log[]; payroll: PayrollLog[]; activeShifts: { id: string; user_id: string; start_time: string; cleanerName: string; task: Log | null }[]; activeTasks: Log[]; overrideAudit: OverrideAuditRecord[]; brief: ManagementBrief }; dispatchData?: DispatchData; tenantIntelligence?: ReactNode };
 type AuditDetail = { label: string; value: string };
 type OverrideAuditRecord = { id: string; entity_type: "task" | "shift"; action: string; actor_name: string; target_label: string; override_reason: string; previous_details: AuditDetail[]; new_details: AuditDetail[]; created_at: string };
 type Draft = { hotelId: string; serviceId: string; roomId: string; roomsCompleted: string; roomNumber: string; notes: string; startTime: string; endTime: string; status: "assigned" | "active" | "completed" };
@@ -110,6 +109,20 @@ function toBriefTask(log: Log): BriefTask {
 export default function ManagementDashboardClient({ data, dispatchData, tenantIntelligence }: Props) {
   useWorkLogRealtimeRefresh();
   const activeTab = useDashboardTab();
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (!hash) return;
+    let attempts = 0;
+    const scrollToAnchor = () => {
+      const target = document.getElementById(decodeURIComponent(hash.slice(1)));
+      if (target && target.getClientRects().length > 0) {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+        target.classList.add("ring-2", "ring-sky-400", "ring-offset-2");
+        window.setTimeout(() => target.classList.remove("ring-2", "ring-sky-400", "ring-offset-2"), 1800);
+      } else if (attempts++ < 10) window.requestAnimationFrame(scrollToAnchor);
+    };
+    window.requestAnimationFrame(scrollToAnchor);
+  }, [activeTab]);
   const [isPending, startTransition] = useTransition();
   const [editing, setEditing] = useState<Log | null>(null);
   const [selectedTask, setSelectedTask] = useState<BriefTask | null>(null);
@@ -120,15 +133,25 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
   const [approvalFeedback, setApprovalFeedback] = useState<Record<string, ApprovalFeedback>>({});
   const [approvalOverrides, setApprovalOverrides] = useState<Record<string, Partial<Log>>>({});
   const [workLogPage, setWorkLogPage] = useState(1);
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-  const [needsActionOnly, setNeedsActionOnly] = useState(false);
-  const [cleanerFilter, setCleanerFilter] = useState("");
-  const [hotelFilter, setHotelFilter] = useState("");
-  const [serviceFilter, setServiceFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [sortColumn, setSortColumn] = useState<WorkLogSortColumn>("date");
-  const [sortAscending, setSortAscending] = useState(false);
+  const [propertySearch, setPropertySearch] = useState("");
+  const { filters: workFilters, updateFilters: updateWorkFilters, clearFilters: clearWorkFilters } = useWorkspaceFilters("work");
+  const today = new Date().toISOString().slice(0, 10);
+  const { filters: payrollFilters } = useWorkspaceFilters("payroll", { from: `${today.slice(0, 7)}-01`, to: today });
+  const cleanerFilter = data.userRole === "owner" ? "" : workFilters.worker;
+  const hotelFilter = workFilters.property;
+  const serviceFilter = workFilters.service;
+  const statusFilter = workFilters.status;
+  const fromDate = workFilters.from;
+  const toDate = workFilters.to;
+  const needsActionOnly = workFilters.needsAction === "true";
+  const sortColumn: WorkLogSortColumn = ["date", "cleaner", "hotel", "service", "status"].includes(workFilters.sort)
+    ? workFilters.sort as WorkLogSortColumn
+    : "date";
+  const sortAscending = workFilters.ascending === "true";
+  const changeWorkFilters = (changes: Partial<typeof workFilters>) => {
+    setWorkLogPage(1);
+    updateWorkFilters(changes);
+  };
   const canManager = isPlatformAdmin(data.userRole) || data.userRole === "manager";
   const canOwner = isPlatformAdmin(data.userRole) || data.userRole === "owner";
   const pageSize = RECORDS_PER_PAGE;
@@ -145,12 +168,13 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
   const displayedPayrollLogs = [...data.payroll, ...optimisticPayrollLogs.filter((optimistic) => !data.payroll.some((log) => log.id === optimistic.id))];
   const payrollApprovalsPendingSync = optimisticPayrollLogs.filter((optimistic) => !data.payroll.some((log) => log.id === optimistic.id)).length;
   const filteredWorkLogs = displayedWorkLogs.filter((log) => {
-    const status = log.status === "active" ? "Active" : log.is_locked ? "Approved" : log.manager_rejected || log.owner_rejected ? "Rejected" : "Pending approval";
+    const status = log.cancelled_at ? "Cancelled" : log.status === "active" ? "Active" : log.is_locked ? "Approved" : log.manager_rejected || log.owner_rejected ? "Rejected" : "Pending approval";
     return (!fromDate || log.task_date >= fromDate)
       && (!toDate || log.task_date <= toDate)
       && (!needsActionOnly || (log.status === "completed" && !log.is_locked))
       && (!cleanerFilter || log.user_id === cleanerFilter)
       && (!hotelFilter || log.hotel_id === hotelFilter)
+      && (data.userRole !== "super_admin" || !workFilters.tenant || log.owner_id === workFilters.tenant)
       && (!serviceFilter || log.service_id === serviceFilter)
       && (!statusFilter || status === statusFilter);
   }).sort((left, right) => {
@@ -165,8 +189,9 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
     return comparison * (sortAscending ? 1 : -1);
   });
   const pageCount = Math.max(1, Math.ceil(filteredWorkLogs.length / pageSize));
-  const currentPage = Math.min(workLogPage, pageCount);
-  const visibleWorkLogs = filteredWorkLogs.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const currentPage = Math.max(1, Math.min(Math.floor(workLogPage), pageCount));
+  const pageStart = (currentPage - 1) * pageSize;
+  const visibleWorkLogs = filteredWorkLogs.slice(pageStart, pageStart + pageSize);
   const filteredWorkLogTotals = filteredWorkLogs.reduce((totals, log) => ({
     rooms: totals.rooms + log.rooms_completed,
     hours: totals.hours + (log.end_time ? durationHours(log.start_time, log.end_time) : 0),
@@ -179,19 +204,36 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
   const cleanerOptions = data.cleaners.filter((cleaner) => (!hotelFilter || cleaner.primary_hotel_id === hotelFilter) || filteredHotelLogs.some((log) => log.user_id === cleaner.id));
   const serviceOptions = data.services.filter((service) => filteredHotelLogs.some((log) => log.service_id === service.id));
   const completedLogs = displayedWorkLogs.filter((log) => log.status === "completed");
-  const totalLaborCost = completedLogs.reduce((total, log) => total + getLogLaborCost(log), 0);
-  const completedRooms = completedLogs.reduce((total, log) => total + log.rooms_completed, 0);
-  const lockedPayrollLiability = displayedPayrollLogs.reduce((total, log) => {
+  const filteredFinancialLogs = completedLogs.filter((log) =>
+    (!payrollFilters.from || log.task_date >= payrollFilters.from)
+    && (!payrollFilters.to || log.task_date <= payrollFilters.to)
+    && (!payrollFilters.property || log.hotel_id === payrollFilters.property)
+    && (data.userRole !== "super_admin" || !payrollFilters.tenant || log.owner_id === payrollFilters.tenant)
+    && (data.userRole === "owner" || !payrollFilters.worker || log.user_id === payrollFilters.worker)
+  );
+  const totalLaborCost = filteredFinancialLogs.reduce((total, log) => total + getLogLaborCost(log), 0);
+  const completedRooms = filteredFinancialLogs.reduce((total, log) => total + log.rooms_completed, 0);
+  const filteredFinancialPayroll = displayedPayrollLogs.filter((log) =>
+    (!payrollFilters.from || log.task_date >= payrollFilters.from)
+    && (!payrollFilters.to || log.task_date <= payrollFilters.to)
+    && (!payrollFilters.property || log.hotel_id === payrollFilters.property)
+    && (data.userRole !== "super_admin" || !payrollFilters.tenant || log.owner_id === payrollFilters.tenant)
+    && (data.userRole === "owner" || !payrollFilters.worker || log.user_id === payrollFilters.worker)
+  );
+  const lockedPayrollLiability = filteredFinancialPayroll.reduce((total, log) => {
     const hours = log.end_time ? durationHours(log.start_time, log.end_time) : 0;
     const service = log.services_config?.[0] ?? {};
     return total + calculateTaskCost(hours, log.rooms_completed, service, log.cost_override);
   }, 0);
   const propertyFinancials = data.hotels.map((hotel) => {
-    const logs = completedLogs.filter((log) => log.hotel_id === hotel.id);
+    const logs = filteredFinancialLogs.filter((log) => log.hotel_id === hotel.id);
     const rooms = logs.reduce((total, log) => total + log.rooms_completed, 0);
     const cost = logs.reduce((total, log) => total + getLogLaborCost(log), 0);
     return { id: hotel.id, name: hotel.name, rooms, cost, costPerRoom: rooms ? cost / rooms : 0 };
   }).sort((left, right) => right.cost - left.cost);
+  const filteredPropertyFinancials = propertyFinancials.filter((property) =>
+    property.name.toLowerCase().includes(propertySearch.trim().toLowerCase())
+  );
 
   const selectTab = (tab: DashboardTab) => {
     const url = new URL(window.location.href);
@@ -431,52 +473,56 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
         </section>
 
         <section id="panel-operations" role="tabpanel" aria-labelledby="tab-operations" hidden={activeTab !== "operations"} className="space-y-5">
+          <div id="operations-live" className="scroll-mt-24">
           <DashboardHeading title="Live operations & shifts" description="Monitor on-shift cleaners and resolve hanging work with audited interventions." />
           <ActiveOperations shifts={data.activeShifts} tasks={data.activeTasks} canManage={data.canManageActiveOperations} />
+          </div>
         </section>
 
         <section id="panel-work-logs" role="tabpanel" aria-labelledby="tab-work-logs" hidden={activeTab !== "work-logs"} className="space-y-5">
           <DashboardHeading title="Work logs & history" description={`${filteredWorkLogs.length} matching records · review approvals, task details, and shift history.`} />
-    <WorkLogFilters
-      hotels={data.hotels.map(({ id, name }) => ({ id, name }))}
-      cleaners={cleanerOptions}
-      services={serviceOptions.map((service) => ({ id: service.id, name: service.name }))}
-      needsActionOnly={needsActionOnly}
-      setNeedsActionOnly={(value) => { setNeedsActionOnly(value); setWorkLogPage(1); }}
-      cleaner={cleanerFilter}
-      setCleaner={(value) => { setCleanerFilter(value); setWorkLogPage(1); }}
-      hotel={hotelFilter}
-      setHotel={(value) => {
-        setHotelFilter(value);
-        setCleanerFilter("");
-        setServiceFilter("");
-        setWorkLogPage(1);
-      }}
-      service={serviceFilter}
-      setService={(value) => { setServiceFilter(value); setWorkLogPage(1); }}
-      status={statusFilter}
-      setStatus={(value) => { setStatusFilter(value); setWorkLogPage(1); }}
-      sortColumn={sortColumn}
-      setSortColumn={setSortColumn}
-      sortAscending={sortAscending}
-      setSortAscending={setSortAscending}
-      fromDate={fromDate}
-      toDate={toDate}
-      setFromDate={(value) => { setFromDate(value); setWorkLogPage(1); }}
-      setToDate={(value) => { setToDate(value); setWorkLogPage(1); }}
-    />
+          <WorkspaceFilterBar
+            filters={workFilters}
+            onChange={(changes) => {
+              if (changes.property !== undefined) changeWorkFilters({ ...changes, worker: "" });
+              else changeWorkFilters(changes);
+            }}
+            onReset={() => { clearWorkFilters(); setWorkLogPage(1); }}
+            properties={data.hotels.map(({ id, name }) => ({ id, name }))}
+            services={data.services.map(({ id, name }) => ({ id, name }))}
+            tenants={data.propertyAssignees.filter((assignee) => assignee.role === "owner").map(({ id, name }) => ({ id, name }))}
+            workers={cleanerOptions}
+            statuses={["Active", "Approved", "Pending approval", "Rejected", "Cancelled"]}
+            showTenants={data.userRole === "super_admin"}
+            showWorkers={data.userRole !== "owner"}
+            label="Work log filters"
+          >
+            <label className="text-xs font-semibold text-slate-600">Service<select value={serviceFilter} onChange={(event) => changeWorkFilters({ service: event.target.value })} className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"><option value="">All services</option>{serviceOptions.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select></label>
+            <label className="flex min-h-10 items-center gap-2 self-end rounded-lg border border-amber-200 bg-amber-50 px-3 text-xs font-semibold text-amber-900"><input type="checkbox" checked={needsActionOnly} onChange={(event) => changeWorkFilters({ needsAction: event.target.checked ? "true" : "" })} className="h-4 w-4 accent-amber-700" />Needs action</label>
+            <label className="text-xs font-semibold text-slate-600">Sort by<select value={sortColumn} onChange={(event) => changeWorkFilters({ sort: event.target.value })} className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"><option value="date">Date</option><option value="cleaner">Cleaner</option><option value="hotel">Property</option><option value="service">Service</option><option value="status">Status</option></select></label>
+            <label className="flex min-h-10 items-center gap-2 self-end rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700"><input type="checkbox" checked={sortAscending} onChange={(event) => changeWorkFilters({ ascending: event.target.checked ? "true" : "" })} className="h-4 w-4 accent-sky-700" />Ascending</label>
+          </WorkspaceFilterBar>
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-      <div className="space-y-3 md:hidden">
-        {visibleWorkLogs.map((log) => <WorkLogMobileCard key={log.id} {...workLogRowProps(log)} />)}
-        {filteredWorkLogs.length === 0 && <p className="rounded-xl border border-slate-200 px-4 py-8 text-center text-sm text-slate-500">No work logs match this date range.</p>}
-      </div>
-      <div className="hidden max-h-[65vh] overflow-auto rounded-lg border border-slate-200 md:block">
-        <table className="min-w-[760px] w-full text-left text-sm">
-          <thead className="sticky top-0 z-10 bg-white/95 text-slate-600 shadow-sm backdrop-blur"><tr><th className="px-3 py-3">Cleaner</th><th className="px-3 py-3">Hotel / service</th><th className="px-3 py-3 text-right">Shift</th><th className="px-3 py-3">Approvals</th><th className="px-3 py-3">Actions</th></tr></thead>
-          <tbody className="divide-y divide-slate-100">{visibleWorkLogs.map((log) => <WorkLogRow key={log.id} {...workLogRowProps(log)} />)}{filteredWorkLogs.length === 0 && <tr><td colSpan={5} className="px-3 py-8 text-center text-slate-500">No work logs match this date range.</td></tr>}</tbody>
-          <tfoot><tr className="font-semibold text-slate-900"><td className="px-3 py-3">Filtered totals ({filteredWorkLogs.length})</td><td className="px-3 py-3 text-right tabular-nums">{filteredWorkLogTotals.rooms} rooms</td><td className="px-3 py-3 text-right tabular-nums">{filteredWorkLogTotals.hours.toFixed(2)} hrs</td><td className="px-3 py-3" colSpan={2}>All matching rows</td></tr></tfoot>
+      <div id="work-logs-table" className="mobile-card-table-wrapper max-h-[65vh] scroll-mt-24 overflow-auto rounded-lg border border-slate-200 [-webkit-overflow-scrolling:touch]">
+        <table aria-label="Work logs" aria-rowcount={filteredWorkLogs.length + 1} className="mobile-card-table min-w-[1100px] w-full table-auto text-left text-sm">
+          <thead className="sticky top-0 z-10 bg-white/95 text-slate-600 shadow-sm backdrop-blur">
+            <tr>{["Date / time", "Property", "Service / task", "Cleaner", "Duration", "Rooms", "Status", "Actions"].map((heading) => <th key={heading} className="px-3 py-3 font-semibold">{heading}</th>)}</tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {visibleWorkLogs.length > 0
+              ? visibleWorkLogs.map((log) => <WorkLogRow key={log.id} {...workLogRowProps(log)} />)
+              : <tr><td colSpan={8} className="px-3 py-8 text-center text-slate-500">No logs match your filter criteria.</td></tr>}
+          </tbody>
+          {visibleWorkLogs.length > 0 && <tfoot className="sticky bottom-0 z-10 bg-white font-semibold text-slate-900 shadow-[0_-1px_0_#e2e8f0]">
+            <tr>
+              <td colSpan={4} className="px-3 py-3">Filtered totals ({filteredWorkLogs.length})</td>
+              <td className="px-3 py-3 text-right tabular-nums">{filteredWorkLogTotals.hours.toFixed(2)} hrs</td>
+              <td className="px-3 py-3 text-right tabular-nums">{filteredWorkLogTotals.rooms}</td>
+              <td colSpan={2} className="px-3 py-3">All matching rows</td>
+            </tr>
+          </tfoot>}
         </table>
-        </div>
+      </div>
       <DashboardPagination currentPage={currentPage} pageCount={pageCount} total={filteredWorkLogs.length} pageSize={pageSize} label="work logs" onPageChange={setWorkLogPage} />
     </section>
         </section>
@@ -489,16 +535,21 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
             <Metric label="Locked payroll liability*" value={formatGBP(lockedPayrollLiability)} icon={Wallet} tone="amber" />
           </section>
           <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-950">*This is the total value of locked payroll records. The current schema does not track payment/settlement, so it cannot confirm unpaid balances.</p>
-          <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/70">
+          <section id="property-labor-breakdown" className="scroll-mt-24 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/70">
             <div className="mb-4 flex flex-wrap items-end justify-between gap-2"><div><h3 className="font-semibold text-slate-950">Property labor cost breakdown</h3><p className="mt-1 text-sm text-slate-600">Completed work logs and task-level overrides across your visible properties.</p></div><span className="text-xs text-slate-500">Revenue is not tracked in the current model</span></div>
+            <label className="relative mb-2 block">
+              <span className="sr-only">Filter properties</span>
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <input value={propertySearch} onChange={(event) => setPropertySearch(event.target.value)} placeholder="Filter properties..." className="min-h-11 w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-900" />
+            </label>
             <div className="admin-config-scroll max-h-72 overflow-y-auto rounded-xl border border-slate-200 p-2">
-              {propertyFinancials.map((property) => <article key={property.id} className="grid gap-2 border-b border-slate-100 px-3 py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:items-center sm:gap-6">
+              {filteredPropertyFinancials.map((property) => <article key={property.id} className="grid gap-2 border-b border-slate-100 px-3 py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:items-center sm:gap-6">
                 <p className="truncate font-medium text-slate-900">{property.name}</p>
                 <p className="text-sm text-slate-600">{property.rooms} units</p>
                 <p className="text-sm font-semibold tabular-nums text-slate-900">GBP {property.cost.toFixed(2)}</p>
                 <p className="text-xs tabular-nums text-slate-500">GBP {property.costPerRoom.toFixed(2)} / unit</p>
               </article>)}
-              {!propertyFinancials.length && <p className="p-6 text-center text-sm text-slate-500">No visible properties.</p>}
+              {!filteredPropertyFinancials.length && <p className="p-6 text-center text-sm text-slate-500">No properties match your filter</p>}
             </div>
           </section>
           {payrollApprovalsPendingSync > 0 && <p className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-900"><Check className="h-4 w-4 shrink-0" />Latest approval is reflected in this payroll preview while the saved totals refresh.</p>}
@@ -507,119 +558,25 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
       services={data.services}
       hotels={data.hotels.map(({ id, name }) => ({ id, name }))}
       cleaners={data.cleaners}
+      tenants={data.propertyAssignees.filter((assignee) => assignee.role === "owner").map(({ id, name }) => ({ id, name }))}
+      showTenants={data.userRole === "super_admin"}
+      showWorkers={data.userRole !== "owner"}
       canManageTasks={data.canManagePayrollTasks}
           />
         </section>
 
         <section id="panel-audit" role="tabpanel" aria-labelledby="tab-audit" hidden={activeTab !== "audit"} className="space-y-5">
           <DashboardHeading title="Audit & compliance" description="Historical responsibility snapshots for work logs in your role-scoped property set." />
-          <div className="space-y-5">
+          <div id="audit-trail" className="scroll-mt-24 space-y-5">
             <SnapshotTransparency logs={data.auditLogs} onOpen={(log) => { setSelectedTaskFromAudit(true); setSelectedTask(toBriefTask(log)); }} />
             <OverrideAuditTable entries={data.overrideAudit} />
           </div>
-        </section>
-
-        <section id="panel-manual" role="tabpanel" aria-labelledby="tab-manual" hidden={activeTab !== "manual"} className="space-y-5">
-          <DashboardHeading title={`${data.userRole[0]?.toUpperCase()}${data.userRole.slice(1)} system manual`} description="Role-specific workflow guidance for this operations workspace." />
-          <SystemManual role={data.userRole} />
         </section>
 
     {selectedTask && <ServiceCard task={selectedTask} onClose={() => setSelectedTask(null)} editLabel={selectedTaskFromAudit ? "Edit Record" : "Edit"} onEdit={selectedTaskFromAudit && !isPlatformAdmin(data.userRole) ? undefined : () => { const logs = selectedTaskFromAudit ? data.auditLogs : data.workLogs; const log = logs.find((item) => item.id === selectedTask.id); if (log) { setSelectedTask(null); beginEdit(log); } }} />}
     {editing && draft && <FullEditPanel draft={draft} setDraft={setDraft} services={data.services} hotels={data.hotels} rooms={data.rooms} saving={isPending} canEditStatus={isPlatformAdmin(data.userRole)} statusDisabled={Boolean(editing.cancelled_at)} onCancel={() => { setEditing(null); setDraft(null); }} onSave={saveEdit}/>}
       </main>
   </div>;
-}
-
-function WorkLogFilters({ hotels, cleaners, services, needsActionOnly, setNeedsActionOnly, cleaner, setCleaner, hotel, setHotel, service, setService, status, setStatus, sortColumn, setSortColumn, sortAscending, setSortAscending, fromDate, toDate, setFromDate, setToDate }: {
-  hotels: { id: string; name: string }[];
-  cleaners: { id: string; name: string }[];
-  services: { id: string; name: string }[];
-  needsActionOnly: boolean;
-  setNeedsActionOnly: (value: boolean) => void;
-  cleaner: string;
-  setCleaner: (value: string) => void;
-  hotel: string;
-  setHotel: (value: string) => void;
-  service: string;
-  setService: (value: string) => void;
-  status: string;
-  setStatus: (value: string) => void;
-  sortColumn: WorkLogSortColumn;
-  setSortColumn: (value: WorkLogSortColumn) => void;
-  sortAscending: boolean;
-  setSortAscending: (value: boolean) => void;
-  fromDate: string;
-  toDate: string;
-  setFromDate: (value: string) => void;
-  setToDate: (value: string) => void;
-}) {
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const statuses = ["Active", "Approved", "Pending approval", "Rejected"];
-  const selectClass = "mt-1 h-9 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-normal text-slate-800 md:text-sm";
-  const compactButtonClass = "h-9 min-w-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold md:text-sm";
-  const activeFilterCount = [
-    needsActionOnly,
-    Boolean(cleaner),
-    Boolean(hotel),
-    Boolean(service),
-    Boolean(status),
-    Boolean(fromDate),
-    Boolean(toDate),
-  ].filter(Boolean).length;
-  const clearAll = () => {
-    setNeedsActionOnly(false);
-    setCleaner("");
-    setHotel("");
-    setService("");
-    setStatus("");
-    setFromDate("");
-    setToDate("");
-    setSortColumn("date");
-    setSortAscending(true);
-  };
-  return <section className="mb-4 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200" aria-label="Work log filters">
-    <button
-      type="button"
-      aria-expanded={filtersOpen}
-      onClick={() => setFiltersOpen((open) => !open)}
-      className="mb-2 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 md:hidden"
-    >
-      <Filter className="h-4 w-4" />Filter & Search (Active: {activeFilterCount})
-    </button>
-    <div
-      role={filtersOpen ? "dialog" : undefined}
-      aria-modal={filtersOpen ? true : undefined}
-      aria-label={filtersOpen ? "Filter and search work logs" : undefined}
-      className={`${filtersOpen ? "fixed inset-0 z-[80] flex items-end bg-slate-950/40 md:static md:block md:bg-transparent" : "hidden md:block"}`}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) setFiltersOpen(false);
-      }}
-    >
-    <div className="w-full rounded-t-2xl bg-white p-3 shadow-2xl md:contents">
-    <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
-      <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Work log filters</p><p className="mt-0.5 text-xs text-slate-500">Filter by column or sort the current results.</p></div>
-      <button type="button" aria-pressed={needsActionOnly} onClick={() => setNeedsActionOnly(!needsActionOnly)} className={`${compactButtonClass} ${needsActionOnly ? "bg-amber-700 text-white" : "border border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100"}`}>Needs Action / Pending Approval</button>
-    </div>
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:flex lg:flex-wrap lg:items-end">
-      <label className="min-w-0 text-xs font-semibold text-slate-500">Cleaner<select value={cleaner} onChange={(event) => setCleaner(event.target.value)} className={selectClass}><option value="">All cleaners</option>{cleaners.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <label className="min-w-0 text-xs font-semibold text-slate-500">Hotel<select value={hotel} onChange={(event) => setHotel(event.target.value)} className={selectClass}><option value="">All hotels</option>{hotels.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <label className="min-w-0 text-xs font-semibold text-slate-500">Service<select value={service} onChange={(event) => setService(event.target.value)} className={selectClass}><option value="">All services</option>{services.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <label className="min-w-0 text-xs font-semibold text-slate-500">Approval status<select value={status} onChange={(event) => setStatus(event.target.value)} className={selectClass}><option value="">All statuses</option>{statuses.map((value) => <option key={value}>{value}</option>)}</select></label>
-      <label className="min-w-0 text-xs font-semibold text-slate-500">From task date<input type="date" value={fromDate} max={toDate || undefined} onChange={(event) => setFromDate(event.target.value)} className={selectClass} /></label>
-      <label className="min-w-0 text-xs font-semibold text-slate-500">To task date<input type="date" value={toDate} min={fromDate || undefined} onChange={(event) => setToDate(event.target.value)} className={selectClass} /></label>
-      <label className="min-w-0 text-xs font-semibold text-slate-500">Sort column<select value={sortColumn} onChange={(event) => setSortColumn(event.target.value as WorkLogSortColumn)} className={selectClass}><option value="date">Task date</option><option value="cleaner">Cleaner (A-Z)</option><option value="hotel">Hotel (A-Z)</option><option value="service">Service (A-Z)</option><option value="status">Approval status</option></select></label>
-      <div className="flex min-w-0 items-end gap-2">
-        <button type="button" onClick={() => setSortAscending(!sortAscending)} className={`${compactButtonClass} flex-1 border border-slate-200 text-slate-700`}>{sortAscending ? "Ascending A-Z" : "Descending Z-A"}</button>
-        <button type="button" onClick={() => { setFromDate(""); setToDate(""); }} className={`${compactButtonClass} border border-slate-200 bg-white text-slate-700 hover:bg-slate-50`}>Clear dates</button>
-      </div>
-    </div>
-    <div className="mt-3 flex justify-end gap-2 md:hidden">
-      <button type="button" onClick={clearAll} className="min-h-10 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700">Clear All</button>
-      <button type="button" onClick={() => setFiltersOpen(false)} className="min-h-10 rounded-lg bg-slate-900 px-4 text-sm font-semibold text-white">Apply</button>
-    </div>
-    </div>
-    </div>
-  </section>;
 }
 
 type WorkLogRowProps = {
@@ -641,21 +598,30 @@ function canEditWorkLog(log: Log) {
   return !log.is_locked && !(log.manager_approved && log.owner_approved);
 }
 
+function formatWorkLogDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Unknown date" : date.toLocaleString("en-GB", { timeZone: "Africa/Cairo" });
+}
+
 const WorkLogRow = memo(function WorkLogRow({ log, isOwnLog, canManager, canOwner, canBypassClockOut, canForceEndAndApprove, feedback, onEdit, onFinalize, onForceEndAndApprove, onApprove, onReject }: WorkLogRowProps) {
   const isPending = feedback?.kind === "pending";
-  const hours = log.end_time ? durationHours(log.start_time, log.end_time) : 0;
-  return <tr className="align-top">
-    <td data-label="Cleaner" className="px-3 py-4 font-medium text-slate-900">{log.cleanerName}</td>
-    <td data-label="Hotel / service" className="px-3 py-4 text-slate-600">{log.hotelName}<br /><span className="text-xs">{log.services_config?.[0]?.name ?? "Service"} - {log.rooms_completed} rooms</span></td>
-    <td data-label="Shift" className="px-3 py-4 text-slate-600">{new Date(log.start_time).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}<br /><span className="text-xs">{log.end_time ? `${hours.toFixed(2)} hours` : "Active"}</span></td>
-    <td data-label="Approvals" className="px-3 py-4 text-xs">
-      <div className={log.manager_approved ? "font-semibold text-emerald-700" : "text-amber-700"}>Manager: {log.manager_approved ? "Approved" : log.manager_rejected ? "Rejected" : "Pending"}</div>
-      <div className={log.owner_approved ? "font-semibold text-emerald-700" : "text-amber-700"}>Owner: {log.owner_approved ? "Approved" : log.owner_rejected ? "Rejected" : "Pending"}</div>
-      {log.is_locked && <div className="mt-1 font-semibold text-slate-900">Locked for payroll</div>}
-    </td>
+  const hours = log.end_time ? durationHours(log.start_time, log.end_time) : null;
+  const statusLabel = log.cancelled_at ? "Cancelled" : log.is_locked ? "Approved" : log.status === "active" ? "In progress" : log.status === "assigned" ? "Pending" : log.manager_rejected || log.owner_rejected ? "Rejected" : "Pending approval";
+  const statusStyle = log.cancelled_at || log.manager_rejected || log.owner_rejected ? "bg-rose-50 text-rose-700" : log.is_locked ? "bg-emerald-50 text-emerald-700" : log.status === "active" ? "bg-sky-50 text-sky-700" : "bg-amber-50 text-amber-800";
+  const hotelName = typeof log.hotelName === "string" && log.hotelName.trim() ? log.hotelName : "Unknown property";
+  const cleanerName = typeof log.cleanerName === "string" && log.cleanerName.trim() ? log.cleanerName : "Unknown worker";
+  const serviceName = log.service_name_snapshot ?? log.services_config?.[0]?.name ?? "Service";
+  return <tr className="align-top transition-colors hover:bg-slate-50">
+    <td data-label="Date / time" className="whitespace-nowrap px-3 py-4 text-slate-600">{formatWorkLogDate(log.start_time)}</td>
+    <td data-label="Property" className="px-3 py-4 font-medium text-slate-800">{hotelName}</td>
+    <td data-label="Service / task" className="px-3 py-4 text-slate-700">{serviceName}</td>
+    <td data-label="Cleaner" className="px-3 py-4 font-medium text-slate-900">{cleanerName}</td>
+    <td data-label="Duration" className="whitespace-nowrap px-3 py-4 text-right tabular-nums text-slate-700">{hours === null || !Number.isFinite(hours) ? "In progress" : `${hours.toFixed(2)} hrs`}</td>
+    <td data-label="Rooms" className="whitespace-nowrap px-3 py-4 text-right tabular-nums text-slate-700">{Number.isFinite(log.rooms_completed) ? log.rooms_completed : 0}</td>
+    <td data-label="Status" className="px-3 py-4"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyle}`}>{statusLabel}</span><div className="mt-1 text-[11px] text-slate-500">Manager: {log.manager_approved ? "Approved" : log.manager_rejected ? "Rejected" : "Pending"} · Owner: {log.owner_approved ? "Approved" : log.owner_rejected ? "Rejected" : "Pending"}</div></td>
     <td data-label="Actions" className="px-3 py-4">
       <div className="flex flex-wrap items-center gap-2">
-        {canEditWorkLog(log) && <button type="button" onClick={() => onEdit(log.id)} className="flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 text-slate-700" title="Open full work-log details"><Pencil className="h-4 w-4" /></button>}
+        <button type="button" onClick={() => onEdit(log.id)} className="min-h-9 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">View details</button>
         {isOwnLog ? <span className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700">
           {log.assigneeRole === "manager" && log.status === "completed"
             ? log.manager_approved ? "Approved (Completed)" : "Pending Manager Approval"
@@ -671,23 +637,27 @@ const WorkLogRow = memo(function WorkLogRow({ log, isOwnLog, canManager, canOwne
   </tr>;
 });
 
-function WorkLogMobileCard(props: WorkLogRowProps) {
+export function WorkLogMobileCard(props: WorkLogRowProps) {
   const { log, isOwnLog, canManager, canOwner, canBypassClockOut, canForceEndAndApprove, feedback, onEdit, onFinalize, onForceEndAndApprove, onApprove, onReject } = props;
   const isPending = feedback?.kind === "pending";
   const hours = log.end_time ? durationHours(log.start_time, log.end_time) : null;
-  const dateLabel = new Date(log.start_time).toLocaleString("en-GB", { timeZone: "Africa/Cairo" });
+  const dateLabel = formatWorkLogDate(log.start_time);
+  const cleanerName = typeof log.cleanerName === "string" && log.cleanerName.trim() ? log.cleanerName : "Unknown worker";
+  const hotelName = typeof log.hotelName === "string" && log.hotelName.trim() ? log.hotelName : "Unknown property";
+  const serviceName = log.service_name_snapshot ?? log.services_config?.[0]?.name ?? "Service";
+  const roomCount = Number.isFinite(log.rooms_completed) ? log.rooms_completed : 0;
   const bothApproved = log.manager_approved && log.owner_approved;
   const managerStatus = log.manager_approved ? "approved" : log.manager_rejected ? "rejected" : "pending";
   const ownerStatus = log.owner_approved ? "approved" : log.owner_rejected ? "rejected" : "pending";
-  const stateLabel = log.is_locked ? "Locked for payroll" : log.status === "active" ? "Active" : log.status !== "completed" ? "Clock-out required" : null;
+  const stateLabel = log.cancelled_at ? "Cancelled" : log.is_locked ? "Locked for payroll" : log.status === "active" ? "Active" : log.status !== "completed" ? "Clock-out required" : null;
 
   return <article className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:shadow-md dark:border-slate-800 dark:bg-slate-900">
     <header className="flex items-center justify-between gap-3 border-b border-slate-100 pb-2 dark:border-slate-800">
       <div className="flex min-w-0 items-center gap-2.5">
-        <span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-sky-100 text-xs font-bold text-sky-800">{log.cleanerName.trim().split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase()}</span>
+        <span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-sky-100 text-xs font-bold text-sky-800">{cleanerName.trim().split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase()}</span>
         <div className="min-w-0">
-          <p className="truncate text-base font-semibold text-slate-900 dark:text-slate-100">{log.cleanerName}</p>
-          <p className="truncate text-xs capitalize text-slate-500">{log.assigneeRole.replaceAll("_", " ")}</p>
+          <p className="truncate text-base font-semibold text-slate-900 dark:text-slate-100">{cleanerName}</p>
+          <p className="truncate text-xs capitalize text-slate-500">{typeof log.assigneeRole === "string" ? log.assigneeRole.replaceAll("_", " ") : "Unknown role"}</p>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
@@ -695,20 +665,20 @@ function WorkLogMobileCard(props: WorkLogRowProps) {
           {log.status === "active" && !log.is_locked && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />}
           {stateLabel}
         </span>}
-        {canEditWorkLog(log) && <button type="button" aria-label={`Edit ${log.cleanerName} work log`} onClick={() => onEdit(log.id)} className="grid h-9 w-9 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white"><Pencil className="h-4 w-4" /></button>}
+        {canEditWorkLog(log) && <button type="button" aria-label={`Edit ${cleanerName} work log`} onClick={() => onEdit(log.id)} className="grid h-9 w-9 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white"><Pencil className="h-4 w-4" /></button>}
       </div>
     </header>
 
     <div className="space-y-2.5">
       <div className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
         <Building2 className="h-4 w-4 shrink-0 text-slate-400" />
-        <span className="min-w-0 flex-1 truncate font-medium">{log.hotelName} <span className="font-normal text-slate-500">· {log.services_config?.[0]?.name ?? "Service"}</span></span>
-        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">{log.rooms_completed} {log.rooms_completed === 1 ? "room" : "rooms"}</span>
+        <span className="min-w-0 flex-1 truncate font-medium">{hotelName} <span className="font-normal text-slate-500">· {serviceName}</span></span>
+        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">{roomCount} {roomCount === 1 ? "room" : "rooms"}</span>
       </div>
       <div className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
         <Clock className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
         <span className="min-w-0 flex-1">{dateLabel}</span>
-        <span className="shrink-0 rounded-lg bg-slate-100 px-2 py-1 text-xs font-bold tabular-nums text-slate-700 dark:bg-slate-800 dark:text-slate-200">{hours === null ? "In progress" : `${hours.toFixed(2)} hrs`}</span>
+        <span className="shrink-0 rounded-lg bg-slate-100 px-2 py-1 text-xs font-bold tabular-nums text-slate-700 dark:bg-slate-800 dark:text-slate-200">{hours === null || !Number.isFinite(hours) ? "In progress" : `${hours.toFixed(2)} hrs`}</span>
       </div>
     </div>
 
@@ -779,43 +749,6 @@ function ApprovalButtons({ label, onApprove, onReject, isPending }: { label: str
     </div>}
   </div>;
 }
-function PayrollFiltered({ logs }: { logs: PayrollLog[] }) {
-  const today = new Date().toISOString().slice(0, 10);
-  const monthStart = `${today.slice(0, 7)}-01`;
-  const [from, setFrom] = useState(monthStart);
-  const [to, setTo] = useState(today);
-  const filteredLogs = logs.filter((log) => log.task_date >= from && log.task_date <= to).sort((left, right) => right.start_time.localeCompare(left.start_time));
-  const total = filteredLogs.reduce((sum, log) => {
-    const hours = log.end_time ? durationHours(log.start_time, log.end_time) : 0;
-    return sum + calculateTaskCost(hours, log.rooms_completed, log.services_config?.[0] ?? {}, log.cost_override);
-  }, 0);
-  return <section className="mt-6 rounded-3xl bg-white p-4 text-slate-900 shadow-sm ring-1 ring-slate-200">
-    <div className="flex flex-col gap-4 border-b border-slate-100 pb-4 sm:flex-row sm:items-end sm:justify-between"><div><h2 className="text-xl font-bold">Payroll</h2><p className="mt-1 text-sm text-slate-500">Configured service rates · newest records first</p></div><div className="grid grid-cols-2 items-end gap-3"><label className="text-xs font-semibold uppercase tracking-wide text-slate-500">From<input type="date" value={from} max={to} onChange={(event) => setFrom(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900" /></label><label className="text-xs font-semibold uppercase tracking-wide text-slate-500">To<input type="date" value={to} min={from} max={today} onChange={(event) => setTo(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900" /></label></div></div>
-    <div className="my-4 grid gap-3 sm:grid-cols-3"><div className="rounded-xl bg-slate-900 p-4 text-white"><p className="text-xs uppercase tracking-wide text-slate-300">Gross service costs</p><p className="mt-1 text-2xl font-bold">GBP {total.toFixed(2)}</p></div><div className="rounded-xl bg-slate-50 p-4"><p className="text-xs text-slate-500">Payroll records</p><p className="mt-1 text-2xl font-bold text-slate-900">{filteredLogs.length}</p></div><div className="rounded-xl bg-slate-50 p-4"><p className="text-xs text-slate-500">Date range</p><p className="mt-1 text-sm font-semibold text-slate-900">{from} to {to}</p></div></div>
-    <div className="admin-config-scroll overflow-x-auto [-webkit-overflow-scrolling:touch]"><table className="min-w-[680px] text-left text-sm"><thead className="border-b border-slate-200 text-slate-500"><tr><th className="px-3 py-3">Task date/time</th><th className="px-3 py-3">Cleaner</th><th className="px-3 py-3">Hotel / service</th><th className="px-3 py-3">Hours</th><th className="px-3 py-3">Rooms</th><th className="px-3 py-3">Calculated cost</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredLogs.map((log) => {
-      const hours = log.end_time ? durationHours(log.start_time, log.end_time) : 0;
-      const service = log.services_config?.[0] ?? {};
-      const rate = resolveServiceRate(service);
-      const unit = resolveBillingUnit(service.unit, service.name ?? "");
-      const cost = calculateTaskCost(hours, log.rooms_completed, { ...service, default_rate: rate, unit }, log.cost_override);
-      const unitLabel = unit === "hourly" ? "/hr" : unit === "per_room" ? "/room" : "fixed";
-      return <tr key={log.id}><td className="px-3 py-3 text-slate-700">{new Date(log.start_time).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}</td><td className="px-3 py-3 font-medium text-slate-900">{log.cleanerName}</td><td className="px-3 py-3 text-slate-700">{log.hotelName}<br /><span className="text-xs">{service.name ?? "Service"} · GBP {rate.toFixed(2)} {unitLabel}</span></td><td className="px-3 py-3 text-slate-700">{hours.toFixed(2)}</td><td className="px-3 py-3 text-slate-700">{log.rooms_completed}</td><td className="px-3 py-3 font-semibold text-slate-900">GBP {cost.toFixed(2)}</td></tr>;
-    })}{filteredLogs.length === 0 && <tr><td colSpan={6} className="px-3 py-8 text-center text-slate-500">No locked payroll records in this date range.</td></tr>}</tbody></table></div>
-  </section>;
-}
-
-function PayrollFilteredLegacy({ logs }: { logs: PayrollLog[] }) {
-  const today = new Date().toISOString().slice(0, 10);
-  const monthStart = `${today.slice(0, 7)}-01`;
-  const [from, setFrom] = useState(monthStart);
-  const [to, setTo] = useState(today);
-  const filteredLogs = logs.filter((log) => log.task_date >= from && log.task_date <= to).sort((left, right) => right.start_time.localeCompare(left.start_time));
-  const total = filteredLogs.reduce((sum, log) => { const hours = log.end_time ? durationHours(log.start_time, log.end_time) : 0; return sum + calculateTaskCost(hours, log.rooms_completed, log.services_config?.[0] ?? {}, log.cost_override); }, 0);
-  const isMonthToDate = from === monthStart;
-  return <section className="mt-6 rounded-3xl bg-white p-4 text-slate-900 shadow-sm ring-1 ring-slate-200"><div className="flex flex-col gap-4 border-b border-slate-100 pb-4 lg:flex-row lg:items-end lg:justify-between"><div><h2 className="text-xl font-bold">Payroll</h2><p className="mt-1 text-sm text-slate-500">{isMonthToDate ? "Month to date" : "Selected period"} · newest records first</p></div><div className="flex flex-wrap items-end gap-3"><label className="text-xs font-semibold uppercase tracking-wide text-slate-500">From<input type="date" value={from} max={to} onChange={(event) => setFrom(event.target.value)} className="mt-1 block rounded-lg border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900" /></label><label className="text-xs font-semibold uppercase tracking-wide text-slate-500">To<input type="date" value={to} min={from} max={today} onChange={(event) => setTo(event.target.value)} className="mt-1 block rounded-lg border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900" /></label><CalendarDays className="mb-2 h-5 w-5 text-sky-700" /></div></div><div className="my-4 grid gap-3 sm:grid-cols-3"><div className="rounded-2xl bg-slate-900 p-4 text-white"><p className="text-xs uppercase tracking-wide text-slate-300">Total {isMonthToDate ? "month to date" : "for period"}</p><p className="mt-1 text-2xl font-bold">GBP {total.toFixed(2)}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs text-slate-500">Payroll records</p><p className="mt-1 text-2xl font-bold text-slate-900">{filteredLogs.length}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs text-slate-500">Date range</p><p className="mt-1 text-sm font-semibold text-slate-900">{from} to {to}</p></div></div><div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead className="border-b border-slate-200 text-slate-500"><tr><th className="px-3 py-3">Task date/time</th><th className="px-3 py-3">Cleaner</th><th className="px-3 py-3">Hotel / service</th><th className="px-3 py-3">Hours</th><th className="px-3 py-3">Rooms</th><th className="px-3 py-3">Calculated wage</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredLogs.map((log) => { const hours = log.end_time ? durationHours(log.start_time, log.end_time) : 0; const rate = Number(log.services_config?.[0]?.default_rate ?? 0); const wage = /per room/i.test(log.services_config?.[0]?.name ?? "") ? log.rooms_completed * rate : hours * rate; return <tr key={log.id}><td className="px-3 py-3 text-slate-700">{new Date(log.start_time).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}</td><td className="px-3 py-3 font-medium text-slate-900">{log.cleanerName}</td><td className="px-3 py-3 text-slate-700">{log.hotelName}<br /><span className="text-xs">{log.services_config?.[0]?.name ?? "Service"} · GBP {rate.toFixed(2)}</span></td><td className="px-3 py-3 text-slate-700">{hours.toFixed(2)}</td><td className="px-3 py-3 text-slate-700">{log.rooms_completed}</td><td className="px-3 py-3 font-semibold text-slate-900">GBP {wage.toFixed(2)}</td></tr>; })}{filteredLogs.length === 0 && <tr><td colSpan={6} className="px-3 py-8 text-center text-slate-500">No locked payroll records in this date range.</td></tr>}</tbody></table></div></section>;
-  return <section className="mt-6 rounded-3xl bg-white p-4 text-slate-900 shadow-sm ring-1 ring-slate-200"><div className="flex flex-col gap-4 border-b border-slate-100 pb-4 lg:flex-row lg:items-end lg:justify-between"><div><h2 className="text-xl font-bold">Payroll</h2><p className="mt-1 text-sm text-slate-500">{isMonthToDate ? "Month to date" : "Selected period"} · newest records first</p></div><div className="grid grid-cols-2 items-end gap-3"><label className="text-xs font-semibold uppercase tracking-wide text-slate-500">From<input type="date" value={from} max={to} onChange={(event) => setFrom(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900" /></label><label className="text-xs font-semibold uppercase tracking-wide text-slate-500">To<input type="date" value={to} min={from} max={today} onChange={(event) => setTo(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-normal text-slate-900" /></label></div></div><div className="my-4 grid gap-3 sm:grid-cols-3"><div className="rounded-2xl bg-slate-900 p-4 text-white"><p className="text-xs uppercase tracking-wide text-slate-300">Gross service costs</p><p className="mt-1 text-2xl font-bold">GBP {total.toFixed(2)}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs text-slate-500">Payroll records</p><p className="mt-1 text-2xl font-bold text-slate-900">{filteredLogs.length}</p></div><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs text-slate-500">Date range</p><p className="mt-1 text-sm font-semibold text-slate-900">{from} to {to}</p></div></div><div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead className="border-b border-slate-200 text-slate-500"><tr><th className="px-3 py-3">Task date/time</th><th className="px-3 py-3">Cleaner</th><th className="px-3 py-3">Hotel / service</th><th className="px-3 py-3">Hours</th><th className="px-3 py-3">Rooms</th><th className="px-3 py-3">Calculated cost</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredLogs.map((log) => { const hours = log.end_time ? durationHours(log.start_time, log.end_time) : 0; const service = log.services_config?.[0] ?? {}; const rate = resolveServiceRate(service); const unit = resolveBillingUnit(service.unit, service.name ?? ""); const wage = calculateTaskCost(hours, log.rooms_completed, { ...service, default_rate: rate, unit }, log.cost_override); return <tr key={log.id}><td className="px-3 py-3 text-slate-700">{new Date(log.start_time).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}</td><td className="px-3 py-3 font-medium text-slate-900">{log.cleanerName}</td><td className="px-3 py-3 text-slate-700">{log.hotelName}<br /><span className="text-xs">{service.name ?? "Service"} · GBP {rate.toFixed(2)} {unit === "hourly" ? "/hr" : unit === "per_room" ? "/room" : "fixed"}</span></td><td className="px-3 py-3 text-slate-700">{hours.toFixed(2)}</td><td className="px-3 py-3 text-slate-700">{log.rooms_completed}</td><td className="px-3 py-3 font-semibold text-slate-900">GBP {wage.toFixed(2)}</td></tr>; })}{filteredLogs.length === 0 && <tr><td colSpan={6} className="px-3 py-8 text-center text-slate-500">No locked payroll records in this date range.</td></tr>}</tbody></table></div></section>;
-}
-function Payroll({ logs }: { logs: PayrollLog[] }) { return <section className="mt-6 rounded-3xl bg-white p-4 text-slate-900 shadow-sm ring-1 ring-slate-200"><div className="mb-4 flex items-center justify-between"><h2 className="text-xl font-bold text-slate-900">Payroll</h2><span className="text-sm text-slate-500">Locked logs only</span></div><div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead className="border-b border-slate-200 text-slate-500"><tr><th className="px-3 py-3">Cleaner</th><th className="px-3 py-3">Hotel</th><th className="px-3 py-3">Service</th><th className="px-3 py-3">Hours</th><th className="px-3 py-3">Rooms</th><th className="px-3 py-3">Calculated wage</th></tr></thead><tbody className="divide-y divide-slate-100">{logs.map((log) => { const hours = log.end_time ? durationHours(log.start_time, log.end_time) : 0; const rate = Number(log.services_config?.[0]?.default_rate ?? 0); const wage = /per room/i.test(log.services_config?.[0]?.name ?? "") ? log.rooms_completed * rate : hours * rate; return <tr key={log.id}><td className="px-3 py-3 font-medium text-slate-900">{log.cleanerName}</td><td className="px-3 py-3 text-slate-700">{log.hotelName}</td><td className="px-3 py-3 text-slate-700">{log.services_config?.[0]?.name ?? "Service"} - GBP {rate.toFixed(2)}</td><td className="px-3 py-3 text-slate-700">{hours.toFixed(2)}</td><td className="px-3 py-3 text-slate-700">{log.rooms_completed}</td><td className="px-3 py-3 font-semibold text-slate-900">GBP {wage.toFixed(2)}</td></tr>; })}{logs.length === 0 && <tr><td colSpan={6} className="px-3 py-8 text-center text-slate-500">No locked logs are available for payroll.</td></tr>}</tbody></table></div></section>; }
 function Metric({ label, value, icon: Icon, tone }: { label: string; value: number | string; icon: LucideIcon; tone: "sky" | "emerald" | "amber" | "violet" }) {
   const iconTone = {
     sky: "bg-sky-50 text-sky-700",
@@ -1186,5 +1119,3 @@ function OverrideAuditTable({ entries }: { entries: OverrideAuditRecord[] }) {
     </div>}
   </>;
 }
-
-function EditPanel({ draft, setDraft, services, hotels, saving, onCancel, onSave }: { draft: Draft; setDraft: (draft: Draft) => void; services: { id: string; name: string }[]; hotels: { id: string; name: string }[]; saving: boolean; onCancel: () => void; onSave: () => void }) { const hours = durationHours(draft.startTime, draft.endTime); return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4"><div className="w-full max-w-lg rounded-2xl bg-white p-5 text-slate-900 shadow-xl"><div className="flex items-center justify-between"><h2 className="text-xl font-bold">Edit work log</h2><button type="button" onClick={onCancel} className="rounded-lg p-2 text-slate-500"><X className="h-5 w-5"/></button></div><div className="mt-4 grid gap-3"><select value={draft.hotelId} onChange={(event) => setDraft({...draft, hotelId: event.target.value})} className="rounded-lg border border-slate-200 bg-white p-2 text-slate-900">{hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select><select value={draft.serviceId} onChange={(event) => setDraft({...draft, serviceId: event.target.value})} className="rounded-lg border border-slate-200 bg-white p-2 text-slate-900">{services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select><div className="grid grid-cols-2 gap-3"><label className="text-xs font-semibold text-slate-600">Start time<input type="datetime-local" value={draft.startTime} onChange={(event) => setDraft({...draft, startTime: event.target.value})} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-900"/></label><label className="text-xs font-semibold text-slate-600">End time<input type="datetime-local" value={draft.endTime} onChange={(event) => setDraft({...draft, endTime: event.target.value})} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-900"/></label></div><div className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">Calculated duration: <strong>{hours.toFixed(2)} hours</strong></div><label className="text-xs font-semibold text-slate-600">Rooms completed<input type="number" min="0" value={draft.roomsCompleted} onChange={(event) => setDraft({...draft, roomsCompleted: event.target.value})} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-slate-900"/></label><label className="text-xs font-semibold text-slate-600">Room number<input value={draft.roomNumber} onChange={(event) => setDraft({...draft, roomNumber: event.target.value})} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-slate-900"/></label><label className="text-xs font-semibold text-slate-600">Notes<textarea value={draft.notes} onChange={(event) => setDraft({...draft, notes: event.target.value})} rows={4} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2 text-slate-900"/></label></div><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={onCancel} className="rounded-lg border px-4 py-2 text-sm text-slate-700">Cancel</button><button type="button" disabled={saving} onClick={onSave} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Save changes</button></div></div></div>; }
