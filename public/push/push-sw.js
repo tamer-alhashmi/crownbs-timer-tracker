@@ -5,10 +5,23 @@ self.addEventListener("push", (event) => {
   } catch (error) {
     console.error("Unable to parse push notification payload:", error);
   }
+  if (!payload || typeof payload !== "object") payload = {};
 
   const title = typeof payload.title === "string" ? payload.title : "New task assigned";
+  const unreadCount = Number.isSafeInteger(payload.unreadCount) && payload.unreadCount > 0
+    ? payload.unreadCount
+    : 1;
+  const badgeUpdate = typeof navigator.setAppBadge === "function"
+    ? navigator.setAppBadge(unreadCount).catch((error) => {
+      console.error("Unable to set the application badge:", error);
+    })
+    : Promise.resolve();
   const options = {
-    body: typeof payload.body === "string" ? payload.body : "Open CrownBS to review your task.",
+    body: typeof payload.body === "string"
+      ? payload.body
+      : typeof payload.message === "string"
+        ? payload.message
+        : "Open CrownBS to review your notification.",
     icon: typeof payload.icon === "string" ? payload.icon : "/icon-192.png",
     badge: typeof payload.badge === "string" ? payload.badge : "/icon-192.png",
     tag: typeof payload.tag === "string" ? payload.tag : "crownbs-task",
@@ -20,7 +33,7 @@ self.addEventListener("push", (event) => {
     requireInteraction: Boolean(payload.requireInteraction),
     vibrate: [150, 80, 150],
   };
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(Promise.all([badgeUpdate, self.registration.showNotification(title, options)]));
 });
 
 self.addEventListener("notificationclick", (event) => {

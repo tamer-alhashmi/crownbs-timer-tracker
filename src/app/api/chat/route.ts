@@ -9,6 +9,7 @@ import {
   isUuid,
 } from "@/lib/chat/server";
 import type { AttachmentType } from "@/lib/chat/types";
+import { dispatchPushNotification } from "@/lib/notifications/notificationDispatcher";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -465,6 +466,30 @@ export async function POST(request: NextRequest) {
   if (error) {
     console.error("[Chat System Error]:", error);
     return apiError("Could not send message.", 500);
+  }
+  if (!isUuid(channelId) && data.receiver_id) {
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    const { data: delivery, error: deliveryError } = await supabase
+      .from("messages")
+      .select("delivered_at")
+      .eq("id", data.id)
+      .eq("receiver_id", data.receiver_id)
+      .maybeSingle();
+    if (deliveryError) {
+      console.error("Unable to determine direct-message delivery state:", deliveryError.message);
+    } else if (delivery?.delivered_at === null) {
+      try {
+        await dispatchPushNotification({
+          userId: data.receiver_id,
+          title: `New message from ${actor.email || "a teammate"}`,
+          body: "Open Crown Operations to view your message.",
+          url: "/",
+          tag: `message-${data.id}`,
+        });
+      } catch (pushError) {
+        console.error("Direct message was sent, but push delivery could not be completed:", pushError);
+      }
+    }
   }
   return NextResponse.json({ message: data }, { status: 201 });
 }

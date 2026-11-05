@@ -18,6 +18,7 @@ export async function PATCH(request: Request) {
     || !(
       ("taskId" in body && typeof body.taskId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.taskId))
       || ("shiftEventNotificationId" in body && typeof body.shiftEventNotificationId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.shiftEventNotificationId))
+      || ("overtimeNotificationId" in body && typeof body.overtimeNotificationId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.overtimeNotificationId))
     )
   ) {
     return NextResponse.json({ error: "Provide a valid notification." }, { status: 400 });
@@ -50,6 +51,22 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Could not update this attendance notification." }, { status: 500 });
     }
     if (!updated) return NextResponse.json({ error: "Attendance notification not found." }, { status: 404 });
+    return NextResponse.json({ success: true });
+  }
+
+  if ("overtimeNotificationId" in body && typeof body.overtimeNotificationId === "string") {
+    const { data: updated, error: overtimeReadError } = await supabase
+      .from("workforce_overtime_notifications")
+      .update({ is_read: true })
+      .eq("id", body.overtimeNotificationId)
+      .eq("recipient_id", actor.id)
+      .select("id")
+      .maybeSingle();
+    if (overtimeReadError) {
+      console.error("Overtime notification read-state update failed:", overtimeReadError.message);
+      return NextResponse.json({ error: "Could not update this overtime notification." }, { status: 500 });
+    }
+    if (!updated) return NextResponse.json({ error: "Overtime notification not found." }, { status: 404 });
     return NextResponse.json({ success: true });
   }
 

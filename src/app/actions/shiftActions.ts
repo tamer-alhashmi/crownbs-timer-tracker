@@ -4,9 +4,34 @@ import { revalidatePath } from "next/cache";
 import { getSessionUser } from "@/lib/auth";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { isHousekeepingAdmin, normalizeUserRole } from "@/lib/roles";
+import { dispatchPushNotification } from "@/lib/notifications/notificationDispatcher";
 
 type WorkforceRole = "cleaner" | "manager" | "housekeeping_admin";
 type Location = { latitude: number; longitude: number; accuracy: number };
+
+async function dispatchStoredShiftNotifications(supabase: ReturnType<typeof createPrivilegedServerSupabaseClient>, eventId: string) {
+  const { data: notifications, error } = await supabase.from("workforce_shift_notifications")
+    .select("recipient_id, severity, title, body")
+    .eq("shift_event_id", eventId);
+  if (error) {
+    console.error("Shift event was recorded, but notification recipients could not be loaded:", error.message);
+    return;
+  }
+  await Promise.all((notifications ?? []).map(async (notification) => {
+    try {
+      await dispatchPushNotification({
+        userId: notification.recipient_id,
+        title: notification.title,
+        body: notification.body,
+        url: "/",
+        tag: `shift-${eventId}-${notification.recipient_id}`,
+        urgency: notification.severity === "high" ? "high" : "normal",
+      });
+    } catch (error) {
+      console.error("Shift event was recorded, but push delivery failed:", error);
+    }
+  }));
+}
 
 function isWorkforceRole(role: string): role is WorkforceRole | "hk_admin" {
   return role === "cleaner" || role === "manager" || role === "housekeeping_admin" || role === "hk_admin";
@@ -57,6 +82,10 @@ export async function clockInToAssignedProperty(propertyId: string, location: Lo
     p_accuracy: location.accuracy,
   });
   if (error) throw new Error(error.message);
+  const eventId = data && typeof data === "object" && "eventId" in data && typeof data.eventId === "string"
+    ? data.eventId
+    : null;
+  if (eventId) await dispatchStoredShiftNotifications(supabase, eventId);
   if (!data || typeof data !== "object" || !("success" in data) || data.success !== true || !("shiftId" in data) || typeof data.shiftId !== "string") {
     const message = data && typeof data === "object" && "error" in data && typeof data.error === "string"
       ? data.error
@@ -72,6 +101,10 @@ export async function clockOutWorkforceShift() {
   const { session, profile, supabase } = await getActiveWorkforceUser();
   const { data, error } = await supabase.rpc("record_workforce_clock_out", { p_user_id: session.userId });
   if (error) throw new Error(`Unable to clock out: ${error.message}`);
+  const eventId = data && typeof data === "object" && "eventId" in data && typeof data.eventId === "string"
+    ? data.eventId
+    : null;
+  if (eventId) await dispatchStoredShiftNotifications(supabase, eventId);
   if (!data || typeof data !== "object" || !("success" in data) || data.success !== true) {
     const message = data && typeof data === "object" && "error" in data && typeof data.error === "string"
       ? data.error

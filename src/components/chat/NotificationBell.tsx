@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
-import { fetchTaskNotifications, fetchUnread, markShiftEventNotificationRead, markTaskNotificationRead, type OverdueTaskNotice, type TaskNotice } from "./chatApi";
+import { fetchTaskNotifications, fetchUnread, markOvertimeNotificationRead, markShiftEventNotificationRead, markTaskNotificationRead, type OverdueTaskNotice, type TaskNotice } from "./chatApi";
 import { useChatStore } from "./chatStore";
 import { roleLabel } from "@/lib/chat/types";
 import { UserAvatar } from "@/components/shared/UserAvatar";
@@ -16,6 +16,7 @@ import { playChatSound } from "./chatSound";
 import { showActionToast } from "@/components/ui/ActionToast";
 import { safeChatError } from "./chatErrors";
 import { usePushPermission } from "@/lib/pushPermission";
+import { updateAppBadge } from "@/lib/notifications/badgeService";
 
 function relativeDispatchTime(value: string | null) {
   if (!value) return "Time unavailable";
@@ -82,10 +83,17 @@ export function NotificationBell() {
   const unreadOverdue = overdue.filter((alert) => !alert.is_read);
   const shiftEvents = taskQuery.data?.shiftEvents ?? [];
   const unreadShiftEvents = shiftEvents.filter((event) => !event.is_read);
+  const overtimeAlerts = taskQuery.data?.overtime ?? [];
+  const unreadOvertimeAlerts = overtimeAlerts.filter((alert) => !alert.is_read);
   const unreadMessages = data?.messages.filter((message) =>
     message.sender_id !== data.currentUserId && !message.is_read
   ) ?? [];
-  const unreadCount = (data?.count ?? 0) + unreadAssignments.length + unreadOverdue.length + unreadShiftEvents.length;
+  const unreadCount = (data?.count ?? 0) + unreadAssignments.length + unreadOverdue.length + unreadShiftEvents.length + unreadOvertimeAlerts.length;
+
+  useEffect(() => {
+    if (!data || !taskQuery.data) return;
+    void updateAppBadge(unreadCount);
+  }, [data, taskQuery.data, unreadCount]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -170,6 +178,18 @@ export function NotificationBell() {
       setTaskError("");
     } catch (error) {
       const message = safeChatError(error, "Unable to mark this attendance alert as read.");
+      setTaskError(message);
+      showActionToast("error", message);
+    }
+  };
+
+  const markOvertimeRead = async (notificationId: string) => {
+    try {
+      await markOvertimeNotificationRead(notificationId);
+      await queryClient.invalidateQueries({ queryKey: ["tasks", "notifications"] });
+      setTaskError("");
+    } catch (error) {
+      const message = safeChatError(error, "Unable to mark this overtime alert as read.");
       setTaskError(message);
       showActionToast("error", message);
     }
@@ -276,6 +296,21 @@ export function NotificationBell() {
                     <div className="mt-2 flex items-center justify-between gap-2">
                       <time className="text-[11px] text-ink-muted" dateTime={event.created_at}>{relativeDispatchTime(event.created_at)}</time>
                       {!event.is_read && <button type="button" onClick={() => void markShiftEventRead(event.id)} className="min-h-8 rounded-lg border border-line px-2.5 text-xs font-semibold text-ink-secondary hover:bg-surface">Mark read</button>}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+            {overtimeAlerts.length > 0 && (
+              <div className="border-b border-amber-500/20 bg-amber-500/5 p-2">
+                <p className="px-2 py-1 text-xs font-bold uppercase tracking-wide text-amber-800 dark:text-amber-200">12-hour overtime</p>
+                {overtimeAlerts.map((alert) => (
+                  <article key={alert.id} className={`mb-2 rounded-lg border p-3 ${alert.is_read ? "border-line bg-surface" : "border-amber-500/30 bg-surface-secondary"}`}>
+                    <h3 className="flex items-center gap-2 text-sm font-bold text-amber-800 dark:text-amber-200"><Clock className="h-4 w-4" />{alert.title}</h3>
+                    <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-ink-secondary">{alert.body}</p>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <time className="text-[11px] text-ink-muted" dateTime={alert.created_at}>{relativeDispatchTime(alert.created_at)}</time>
+                      {!alert.is_read && <button type="button" onClick={() => void markOvertimeRead(alert.id)} className="min-h-8 rounded-lg border border-line px-2.5 text-xs font-semibold text-ink-secondary hover:bg-surface">Mark read</button>}
                     </div>
                   </article>
                 ))}

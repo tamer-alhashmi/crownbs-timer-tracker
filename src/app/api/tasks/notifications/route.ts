@@ -109,6 +109,16 @@ export async function GET() {
     console.error("Workforce shift notification query failed:", shiftEventsError.message);
     return NextResponse.json({ error: "Could not load workforce notifications." }, { status: 500 });
   }
+  const { data: overtime, error: overtimeError } = await supabase
+    .from("workforce_overtime_notifications")
+    .select("id, source_type, source_id, title, body, is_read, created_at")
+    .eq("recipient_id", actor.id)
+    .order("created_at", { ascending: false })
+    .limit(30);
+  if (overtimeError) {
+    console.error("Workforce overtime notification query failed:", overtimeError.message);
+    return NextResponse.json({ error: "Could not load workforce overtime notifications." }, { status: 500 });
+  }
   const visibleTaskIds = [...new Set([
     ...(incoming ?? []).map((task) => task.id),
     ...activeAlertRecords.map((alert) => alert.task_id),
@@ -142,7 +152,10 @@ export async function GET() {
     if (!task) return [];
     const elapsedMinutes = Math.max(0, Math.floor((Date.now() - Date.parse(task.start_time)) / 60_000));
     const duration = `${Math.floor(elapsedMinutes / 60)}h ${String(elapsedMinutes % 60).padStart(2, "0")}m`;
-    const dashboardPath = session.role === "housekeeping_admin" || session.role === "hk_admin" ? "/hk-admin" : session.role === "owner" ? "/owner" : "/manager";
+    const dashboardPath = session.role === "housekeeping_admin" || session.role === "hk_admin" ? "/hk-admin"
+      : session.role === "owner" ? "/owner"
+        : session.role === "cleaner" ? "/dashboard"
+          : session.role === "super_admin" || session.role === "admin" ? "/admin" : "/manager";
     return [{
       id: alert.id,
       task_id: task.id,
@@ -162,5 +175,6 @@ export async function GET() {
     outgoing: (outgoing ?? []).map(enrichTask),
     overdue,
     shiftEvents: shiftEvents ?? [],
+    overtime: overtime ?? [],
   });
 }

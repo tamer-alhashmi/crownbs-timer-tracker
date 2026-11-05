@@ -1,5 +1,6 @@
 import "server-only";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
+import { dispatchPushNotification } from "@/lib/notifications/notificationDispatcher";
 import { isHousekeepingAdmin, normalizeUserRole, type UserRole } from "@/lib/roles";
 
 const STALE_AFTER_HOURS = 12;
@@ -16,8 +17,9 @@ type ActiveTask = {
   deleted_at: string | null;
   cancelled_at: string | null;
 };
-type TaskHotel = { id: string; owner_id: string | null; manager_id: string | null; is_active: boolean; archived_at: string | null };
-type TaskUser = { id: string; full_name: string; role: string };
+type TaskHotel = { id: string; name: string; owner_id: string | null; manager_id: string | null; is_active: boolean; archived_at: string | null };
+type TaskUser = { id: string; full_name: string; role: string; is_active: boolean };
+type ActiveShift = { id: string; user_id: string; hotel_id: string; role_at_shift: string | null; start_time: string };
 type PageResult<T> = { data: T[] | null; error: { message: string } | null };
 
 async function readAllRows<T>(
@@ -38,7 +40,7 @@ async function readAllRows<T>(
 }
 
 export async function createOverdueTaskAlerts(actorId: string, actorRole: UserRole) {
-  if (!["owner", "manager", "housekeeping_admin", "hk_admin", "cleaner"].includes(actorRole)) return;
+  if (!["owner", "manager", "housekeeping_admin", "hk_admin", "cleaner", "super_admin"].includes(actorRole)) return;
   const supabase = createPrivilegedServerSupabaseClient();
   const cutoff = new Date(Date.now() - STALE_AFTER_HOURS * 60 * 60 * 1000).toISOString();
 
@@ -47,13 +49,21 @@ export async function createOverdueTaskAlerts(actorId: string, actorRole: UserRo
     .select("id, role")
     .eq("id", actorId)
     .maybeSingle();
-  if (actorError || !actor || normalizeUserRole(actor.role as UserRole) !== actorRole) {
+  if (actorError || !actor || normalizeUserRole(actor.role as UserRole) !== normalizeUserRole(actorRole)) {
     if (actorError) console.error("[Task Escalation]: Failed to verify actor.", actorError);
     throw new Error("Unable to verify account for overdue task alerts.");
   }
 
   let hotelIds: string[] = [];
-  if (actorRole !== "cleaner") {
+  if (actorRole === "super_admin") {
+    const { data: properties, error } = await supabase.from("hotels")
+      .select("id").eq("is_active", true).is("archived_at", null);
+    if (error) {
+      console.error("[Task Escalation]: Failed to load platform property scope.", error);
+      throw new Error("Unable to load property scope for overdue alerts.");
+    }
+    hotelIds = (properties ?? []).map((property) => property.id);
+  } else if (actorRole !== "cleaner") {
     if (actorRole === "owner") {
       const { data: hotels, error } = await supabase.from("hotels").select("id").eq("owner_id", actorId).eq("is_active", true).is("archived_at", null);
       if (error) {
@@ -123,17 +133,44 @@ export async function createOverdueTaskAlerts(actorId: string, actorRole: UserRo
         )
       : [];
   }
-  if (!candidates.length) return;
+  const shifts: ActiveShift[] = actorRole === "cleaner"
+    ? await readAllRows<ActiveShift>("the cleaner's active shifts", (from, to) =>
+        supabase.from("master_shifts")
+          .select("id, user_id, hotel_id, role_at_shift, start_time")
+          .eq("user_id", actorId)
+          .eq("status", "active")
+          .is("end_time", null)
+          .lt("start_time", cutoff)
+          .order("start_time")
+          .range(from, to)
+      )
+    : hotelIds.length
+      ? await readAllRows<ActiveShift>("active shifts at assigned properties", (from, to) =>
+          supabase.from("master_shifts")
+            .select("id, user_id, hotel_id, role_at_shift, start_time")
+            .in("hotel_id", hotelIds)
+            .eq("status", "active")
+            .is("end_time", null)
+            .lt("start_time", cutoff)
+            .order("start_time")
+            .range(from, to)
+        )
+      : [];
+  if (!candidates.length && !shifts.length) return;
 
-  const relevantHotelIds = [...new Set(candidates.map((task) => task.hotel_id))];
-  const assigneeIds = [...new Set(candidates.map((task) => task.assigned_to ?? task.user_id))];
-  const [{ data: hotels, error: hotelsError }, { data: assignees, error: assigneesError }, { data: hkAssignments, error: hkError }] = await Promise.all([
-    supabase.from("hotels").select("id, owner_id, manager_id, is_active, archived_at").in("id", relevantHotelIds),
-    supabase.from("users").select("id, full_name, role").in("id", assigneeIds),
+  const relevantHotelIds = [...new Set([...candidates.map((task) => task.hotel_id), ...shifts.map((shift) => shift.hotel_id)])];
+  const assigneeIds = [...new Set([
+    ...candidates.map((task) => task.assigned_to ?? task.user_id),
+    ...shifts.map((shift) => shift.user_id),
+  ])];
+  const [{ data: hotels, error: hotelsError }, { data: assignees, error: assigneesError }, { data: hkAssignments, error: hkError }, { data: superAdmins, error: superAdminsError }] = await Promise.all([
+    supabase.from("hotels").select("id, name, owner_id, manager_id, is_active, archived_at").in("id", relevantHotelIds),
+    supabase.from("users").select("id, full_name, role, is_active").in("id", assigneeIds),
     supabase.from("user_hotel_assignments").select("user_id, hotel_id").in("hotel_id", relevantHotelIds),
+    supabase.from("users").select("id").eq("role", "super_admin").eq("is_active", true),
   ]);
-  if (hotelsError || assigneesError || hkError) {
-    console.error("[Task Escalation]: Failed to resolve recipients.", hotelsError ?? assigneesError ?? hkError);
+  if (hotelsError || assigneesError || hkError || superAdminsError) {
+    console.error("[Task Escalation]: Failed to resolve recipients.", hotelsError ?? assigneesError ?? hkError ?? superAdminsError);
     throw new Error("Unable to resolve recipients for overdue task alerts.");
   }
 
@@ -142,7 +179,7 @@ export async function createOverdueTaskAlerts(actorId: string, actorRole: UserRo
   const hkAdminsByHotel = new Map<string, string[]>();
   const hkAdminIds = new Set((hkAssignments ?? []).map((assignment) => assignment.user_id));
   if (hkAdminIds.size) {
-    const { data: hkAdmins, error } = await supabase.from("users").select("id, role").in("id", [...hkAdminIds]).in("role", ["housekeeping_admin", "hk_admin"]);
+    const { data: hkAdmins, error } = await supabase.from("users").select("id, role").in("id", [...hkAdminIds]).eq("is_active", true).in("role", ["housekeeping_admin", "hk_admin"]);
     if (error) {
       console.error("[Task Escalation]: Failed to resolve housekeeping administrators.", error);
       throw new Error("Unable to resolve recipients for overdue task alerts.");
@@ -156,41 +193,93 @@ export async function createOverdueTaskAlerts(actorId: string, actorRole: UserRo
     }
   }
 
+  const superAdminIds = (superAdmins ?? []).map((admin) => admin.id);
+  const activeUserIds = new Set((assignees ?? []).filter((user) => user.is_active).map((user) => user.id));
   const alertRows: { task_id: string; incident_started_at: string; recipient_id: string }[] = [];
+  const overtimeRows: {
+    source_type: "shift";
+    source_id: string;
+    incident_started_at: string;
+    worker_id: string;
+    property_id: string;
+    recipient_id: string;
+    title: string;
+    body: string;
+  }[] = [];
+  const recipientsFor = (role: string, hotel: TaskHotel, workerId: string) => {
+    const recipients = new Set<string>([workerId, ...superAdminIds]);
+    if (role === "cleaner") (hkAdminsByHotel.get(hotel.id) ?? []).forEach((id) => recipients.add(id));
+    if ((role === "cleaner" || isHousekeepingAdmin(role) || role === "manager") && hotel.manager_id) recipients.add(hotel.manager_id);
+    if (["cleaner", "housekeeping_admin", "hk_admin", "manager"].includes(role) && hotel.owner_id) recipients.add(hotel.owner_id);
+    return [...recipients].filter((id) => id !== workerId || activeUserIds.has(id));
+  };
+
   for (const task of candidates) {
     const hotel = hotelById.get(task.hotel_id);
-    const assigneeId = task.assigned_to ?? task.user_id;
-    const assignee = userById.get(assigneeId);
-    if (!hotel || !hotel.is_active || hotel.archived_at || !assignee) continue;
-    const recipientIds = new Set<string>();
-    if (assignee.role === "cleaner") {
-      (hkAdminsByHotel.get(hotel.id) ?? []).forEach((id) => recipientIds.add(id));
-      if (hotel.manager_id) recipientIds.add(hotel.manager_id);
-      if (hotel.owner_id) recipientIds.add(hotel.owner_id);
-    } else if (isHousekeepingAdmin(assignee.role)) {
-      if (hotel.manager_id) recipientIds.add(hotel.manager_id);
-      if (hotel.owner_id) recipientIds.add(hotel.owner_id);
-    } else if (assignee.role === "manager" && hotel.owner_id) {
-      recipientIds.add(hotel.owner_id);
+    const workerId = task.assigned_to ?? task.user_id;
+    const worker = userById.get(workerId);
+    if (!hotel || !hotel.is_active || hotel.archived_at || !worker?.is_active) continue;
+    for (const recipientId of recipientsFor(worker.role, hotel, workerId)) {
+      alertRows.push({ task_id: task.id, incident_started_at: task.start_time, recipient_id: recipientId });
     }
+  }
 
-    for (const recipientId of recipientIds) {
-      if (recipientId === assigneeId) continue;
-      alertRows.push({
-        task_id: task.id,
-        incident_started_at: task.start_time,
+  for (const shift of shifts) {
+    const hotel = hotelById.get(shift.hotel_id);
+    const worker = userById.get(shift.user_id);
+    if (!hotel || !hotel.is_active || hotel.archived_at || !worker?.is_active) continue;
+    const role = shift.role_at_shift ?? worker.role;
+    const durationHours = Math.max(12, Math.floor((Date.now() - Date.parse(shift.start_time)) / 3_600_000));
+    const recipients = recipientsFor(role, hotel, shift.user_id);
+    for (const recipientId of recipients) {
+      overtimeRows.push({
+        source_type: "shift",
+        source_id: shift.id,
+        incident_started_at: shift.start_time,
+        worker_id: shift.user_id,
+        property_id: hotel.id,
         recipient_id: recipientId,
+        title: "12-hour shift overtime",
+        body: `${worker.full_name || "A team member"} has been on shift at ${hotel.name} for ${durationHours} hours. Shift started ${new Date(shift.start_time).toLocaleString("en-GB")}.`,
       });
     }
   }
 
-  if (!alertRows.length) return;
-  const { error: insertError } = await supabase.from("task_overdue_alerts").upsert(alertRows, {
-    onConflict: "task_id,incident_started_at,recipient_id",
-    ignoreDuplicates: true,
-  });
-  if (insertError) {
-    console.error("[Task Escalation]: Failed to record overdue alert delivery.", insertError);
-    throw new Error("Unable to record overdue task alerts.");
+  const [taskInsert, shiftInsert] = await Promise.all([
+    alertRows.length
+      ? supabase.from("task_overdue_alerts").upsert(alertRows, {
+          onConflict: "task_id,incident_started_at,recipient_id",
+          ignoreDuplicates: true,
+        }).select("task_id, recipient_id")
+      : Promise.resolve({ data: [], error: null }),
+    overtimeRows.length
+      ? supabase.from("workforce_overtime_notifications").upsert(overtimeRows, {
+          onConflict: "source_type,source_id,incident_started_at,recipient_id",
+          ignoreDuplicates: true,
+        }).select("id, recipient_id")
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (taskInsert.error || shiftInsert.error) {
+    console.error("[Task Escalation]: Failed to record overtime alerts.", taskInsert.error ?? shiftInsert.error);
+    throw new Error("Unable to record overtime alerts.");
   }
+
+  const newRecipients = new Set([
+    ...(taskInsert.data ?? []).map((row) => row.recipient_id),
+    ...(shiftInsert.data ?? []).map((row) => row.recipient_id),
+  ]);
+  await Promise.all([...newRecipients].map(async (recipientId) => {
+    try {
+      await dispatchPushNotification({
+        userId: recipientId,
+        title: "Workforce overtime alert",
+        body: "A work task or shift has exceeded 12 hours. Open Crown Operations to review.",
+        url: "/",
+        tag: `overtime-${recipientId}-${Date.now()}`,
+        urgency: "high",
+      });
+    } catch (error) {
+      console.error("[Task Escalation]: Overtime alert push delivery failed.", error);
+    }
+  }));
 }

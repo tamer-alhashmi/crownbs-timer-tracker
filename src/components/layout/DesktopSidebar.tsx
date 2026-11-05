@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Hotel } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { ChevronLeft, ChevronRight, Hotel, Settings } from "lucide-react";
 import { NotificationBell } from "@/components/chat/NotificationBell";
 import { UserProfileMenu } from "./UserProfileMenu";
 import { ThemeToggle } from "./ThemeToggle";
@@ -22,7 +23,9 @@ export function DesktopSidebar<Tab extends string>({
   user?: { name: string; email: string; avatarUrl: string | null; role: string };
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const pathname = usePathname();
   const width = collapsed ? "w-[4.5rem]" : "w-64";
+  const settingsSelected = pathname === "/settings" || pathname.startsWith("/settings/");
   return (
     <aside className={`fixed bottom-0 left-0 top-16 z-30 hidden ${width} flex-col border-r border-line bg-surface text-ink transition-[width] md:flex`}>
       <div className={`flex min-h-16 items-center gap-3 border-b border-line px-3 ${collapsed ? "justify-center" : "px-4"}`}>
@@ -41,6 +44,17 @@ export function DesktopSidebar<Tab extends string>({
             ? <Link key={id} href={href} title={collapsed ? label : undefined} aria-current={selected ? "page" : undefined} className={className}>{content}</Link>
             : <button key={id} id={tabButtonId} type="button" title={collapsed ? label : undefined} role="tab" aria-selected={selected} aria-controls={panelId} onClick={() => onSelect?.(id)} className={className}>{content}</button>;
         })}
+        <Link
+          href="/settings"
+          title={collapsed ? "Settings" : undefined}
+          aria-current={settingsSelected ? "page" : undefined}
+          className={`flex min-h-11 w-full items-center gap-3 rounded-lg border-r-2 px-3 text-left text-sm transition-colors ${
+            settingsSelected ? "border-accent bg-accent/10 font-semibold text-accent" : "border-transparent text-ink-secondary hover:bg-surface-secondary hover:text-ink"
+          } ${collapsed ? "justify-center px-0" : ""}`}
+        >
+          <Settings aria-hidden="true" className="h-4 w-4 shrink-0" />
+          {!collapsed && <span className="truncate">Settings</span>}
+        </Link>
       </nav>
       <div className={`border-t border-line p-3 ${collapsed ? "flex flex-col items-center" : ""}`}>
         <div className={`flex items-center gap-2 ${collapsed ? "flex-col" : "justify-between"}`}>
