@@ -192,7 +192,7 @@ export function PropertySettings({ properties, managers }: { properties: Propert
   return (
     <section id="properties-setup" className="scroll-mt-24 space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-accent">Property setup</p><h2 className="mt-1 text-xl font-bold text-ink">Properties & Hotels</h2><p className="mt-1 text-sm text-ink-secondary">Keep property details, staffing, and service rates together.</p></div>
+        <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-accent">Property setup</p><h2 className="mt-1 text-xl font-bold text-ink">Properties</h2><p className="mt-1 text-sm text-ink-secondary">Keep property details, staffing, and service rates together.</p></div>
         <button type="button" onClick={beginAdd} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-accent-hover"><Plus className="h-4 w-4" /> Add property</button>
       </div>
       <label className="relative block w-full md:max-w-md">

@@ -24,7 +24,7 @@ const tabs: { id: Tab; label: string; icon: typeof UserRound }[] = [
   { id: "profile", label: "Profile & Security", icon: ShieldCheck },
   { id: "payroll", label: "Payroll & History", icon: CalendarDays },
   { id: "users", label: "User Management", icon: UserRound },
-  { id: "properties", label: "Properties & Hotels", icon: Building2 },
+  { id: "properties", label: "Properties", icon: Building2 },
   { id: "billing", label: "Billing & Subscription", icon: Wallet },
 ];
 
