@@ -7,7 +7,7 @@ import type { UserRole } from "@/lib/roles";
 import { SharedWorkspaceShell } from "@/components/layout/SharedWorkspaceShell";
 import type { WorkspaceNavTab } from "@/components/layout/MobileWorkspaceNav";
 
-type Tab = "profile" | "users" | "properties" | "payroll";
+type Tab = "profile" | "users" | "properties" | "payroll" | "billing";
 type Props = {
   role: UserRole;
   user?: { name: string; email: string; avatarUrl: string | null };
@@ -24,17 +24,19 @@ const tabs: { id: Tab; label: string; icon: typeof UserRound }[] = [
   { id: "payroll", label: "Payroll & History", icon: CalendarDays },
   { id: "users", label: "User Management", icon: UserRound },
   { id: "properties", label: "Properties & Hotels", icon: Building2 },
+  { id: "billing", label: "Billing & Subscription", icon: Wallet },
 ];
 
 function isTabVisible(id: Tab, role: UserRole) {
   return id === "profile" ||
     (id === "payroll" && role === "cleaner") ||
     (id === "users" && ["super_admin", "admin", "owner", "manager"].includes(role)) ||
-    (id === "properties" && ["super_admin", "admin", "owner"].includes(role));
+    (id === "properties" && ["super_admin", "admin", "owner"].includes(role)) ||
+    (id === "billing" && role === "owner");
 }
 
 export default function SettingsHub({ role, user, utility, profile, billing, payroll, users, properties }: Props) {
-  const visibleTabs = tabs.filter(({ id }) => isTabVisible(id, role));
+  const visibleTabs = tabs.filter(({ id }) => isTabVisible(id, role) && (id !== "billing" || Boolean(billing)));
   const workspacePath = role === "cleaner" ? "/dashboard"
     : role === "owner" ? "/owner"
       : role === "manager" ? "/manager"
@@ -95,7 +97,7 @@ export default function SettingsHub({ role, user, utility, profile, billing, pay
     };
     window.requestAnimationFrame(scrollToPanel);
   }, [activeTab, requestedHash]);
-  const content: Record<Tab, ReactNode> = { profile, payroll: payroll ?? null, users, properties };
+  const content: Record<Tab, ReactNode> = { profile, payroll: payroll ?? null, users, properties, billing: billing ?? null };
 
   const selectTab = (tab: Tab) => {
     setActiveTab(tab);
@@ -113,7 +115,7 @@ export default function SettingsHub({ role, user, utility, profile, billing, pay
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink-secondary">Account settings</p>
               <h1 className="mt-1 text-2xl font-bold text-ink">Settings</h1>
             </div>
-            <div className="flex shrink-0 items-center gap-2">{billing}{utility}</div>
+            <div className="flex shrink-0 items-center gap-2">{utility}</div>
           </div>
           <nav aria-label="Settings sections" role="tablist" className="no-scrollbar flex gap-2 overflow-x-auto whitespace-nowrap scroll-smooth [-webkit-overflow-scrolling:touch] md:hidden">
             {visibleTabs.map(({ id, label, icon: Icon }) => (
