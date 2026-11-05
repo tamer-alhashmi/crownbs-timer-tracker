@@ -7,6 +7,7 @@ import { Activity, Building2, CheckCheck, ClipboardList, Gauge, History, Images,
 import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
 import { NotificationBell } from "@/components/chat/NotificationBell";
 import { ActiveAssignedTaskCard } from "@/components/dashboard/ActiveAssignedTaskCard";
+import { ShiftDock } from "@/components/dashboard/ShiftDock";
 import { OperationalAuditTable } from "@/components/dashboard/OperationalAuditTable";
 import { HelpCenterButton } from "@/components/help/HelpCenterDrawer";
 import type { WorkspaceNavTab } from "@/components/layout/MobileWorkspaceNav";
@@ -217,6 +218,7 @@ export default function HKAdminDashboardClient({
         </section>
 
         <section id="hk-panel-operations" role="tabpanel" aria-labelledby="hk-tab-operations" hidden={activeTab !== "operations"} className="space-y-5">
+          <ShiftDock role="hk_admin" properties={data.hotels} hasActiveTask={Boolean(data.activeTask)} visible={activeTab === "operations"} />
           <section id="operations-live" className="scroll-mt-24 rounded-2xl border border-line bg-surface p-4 text-ink shadow-sm sm:p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-300">Live status</p><h2 className="mt-1 text-xl font-bold">Cleaner operations</h2><p className="mt-1 text-sm text-ink-secondary">{data.shifts.length} cleaner{data.shifts.length === 1 ? "" : "s"} clocked in across your assigned properties.</p></div>

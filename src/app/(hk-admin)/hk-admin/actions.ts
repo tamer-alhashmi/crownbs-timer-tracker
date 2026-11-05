@@ -15,6 +15,8 @@ export type HousekeepingDashboardData = {
   hotels: {
     id: string;
     name: string;
+    latitude: number | null;
+    longitude: number | null;
     floors: string[];
     rooms: {
       id: string;
@@ -127,7 +129,7 @@ export async function getHKAdminDashboardData(): Promise<HousekeepingDashboardDa
     { data: ownActiveTask, error: ownTaskError },
     { data: logs, error: logsError },
   ] = await Promise.all([
-    supabase.from("hotels").select("id, name, floors_sections").in("id", hotelIds).eq("is_active", true).is("archived_at", null).order("name"),
+    supabase.from("hotels").select("id, name, latitude, longitude, floors_sections").in("id", hotelIds).eq("is_active", true).is("archived_at", null).order("name"),
     supabase.from("rooms").select("id, hotel_id, room_name, category, floor_section, availability_status, housekeeping_status, inspection_notes").in("hotel_id", hotelIds).eq("status", "active").order("floor_section").order("room_name"),
     supabase.from("user_hotel_assignments").select("user_id, hotel_id").in("hotel_id", hotelIds),
     supabase.from("users").select("id, full_name, role, primary_hotel_id").eq("role", "cleaner").order("full_name"),
@@ -215,6 +217,8 @@ export async function getHKAdminDashboardData(): Promise<HousekeepingDashboardDa
     hotels: activeHotels.map((hotel) => ({
       id: hotel.id,
       name: hotel.name,
+      latitude: hotel.latitude,
+      longitude: hotel.longitude,
       floors: Array.isArray(hotel.floors_sections)
         ? hotel.floors_sections.filter((floor: unknown): floor is string => typeof floor === "string")
         : [],

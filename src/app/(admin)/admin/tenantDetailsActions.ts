@@ -698,16 +698,24 @@ export async function updateTenantPropertyAssignments(
   ownerId: string,
   propertyId: string,
   managerId: string | null,
+  housekeepingAdminId: string | null,
   cleanerIds: string[],
 ) {
   if (!ownerId || !propertyId) throw new Error("Tenant and property are required.");
   if (managerId !== null && typeof managerId !== "string") throw new Error("Choose a valid property manager.");
+  if (housekeepingAdminId !== null && typeof housekeepingAdminId !== "string") throw new Error("Choose a valid Housekeeping Admin.");
   if (!Array.isArray(cleanerIds) || cleanerIds.length > 500 || cleanerIds.some((id) => typeof id !== "string" || !id)) {
     throw new Error("Choose a valid set of cleaners.");
   }
   const uniqueCleanerIds = [...new Set(cleanerIds)];
-  if (managerId && uniqueCleanerIds.includes(managerId)) {
-    throw new Error("The property manager cannot also be assigned as a cleaner.");
+  if (managerId && (uniqueCleanerIds.includes(managerId) || managerId === housekeepingAdminId)) {
+    throw new Error("A Property Manager cannot also be assigned to another workforce role.");
+  }
+  if (housekeepingAdminId && uniqueCleanerIds.includes(housekeepingAdminId)) {
+    throw new Error("A Housekeeping Admin cannot also be assigned as a cleaner.");
+  }
+  if (new Set([managerId, housekeepingAdminId].filter((id): id is string => Boolean(id))).size !== [managerId, housekeepingAdminId].filter(Boolean).length) {
+    throw new Error("Choose different people for each workforce role.");
   }
 
   const { session, supabase } = await requireSuperAdmin();
@@ -715,6 +723,7 @@ export async function updateTenantPropertyAssignments(
     p_owner_id: ownerId,
     p_property_id: propertyId,
     p_manager_id: managerId,
+    p_housekeeping_admin_id: housekeepingAdminId,
     p_cleaner_ids: uniqueCleanerIds,
     p_assigned_by: session.userId,
   });

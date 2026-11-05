@@ -53,26 +53,6 @@ async function validateSelection(hotelId: string, serviceId: string, roomIds: st
   return { supabase, service, selectedRooms };
 }
 
-export async function clockIn() {
-  const user = await requireCleaner();
-  const { supabase, shift } = await activeShiftFor(user.userId);
-  if (shift) throw new Error("A master shift is already active.");
-  if (!user.hotelIds.length) throw new Error("Clock-in is unavailable because you have no assigned properties.");
-  const { data: activeHotels, error: activeHotelsError } = await supabase
-    .from("hotels")
-    .select("id")
-    .in("id", user.hotelIds)
-    .eq("is_active", true)
-    .is("archived_at", null)
-    .limit(1);
-  if (activeHotelsError) throw new Error(`Unable to verify your property status: ${activeHotelsError.message}`);
-  if (!activeHotels?.length) throw new Error("Clock-in is unavailable because all assigned properties are suspended.");
-  const { data, error } = await supabase.from("master_shifts").insert({ user_id: user.userId, start_time: new Date().toISOString(), status: "active" }).select("id").single();
-  if (error || !data) throw new Error(error?.message ?? "Unable to start master shift.");
-  revalidatePath("/dashboard");
-  return data.id;
-}
-
 export async function startTask(data: { hotelId: string; serviceId: string; roomIds?: string[]; notes?: string }) {
   const user = await requireCleaner();
   if (!data.hotelId || !user.hotelIds.includes(data.hotelId)) throw new Error("Select one of your assigned properties.");
@@ -99,18 +79,6 @@ export async function endTask(taskId: string, data: { roomIds?: string[]; notes?
   if (!task || task.status !== "active") throw new Error("Active task was not found.");
   if (task.is_locked) throw new Error("Locked tasks cannot be edited.");
   const { error } = await supabase.from("work_logs").update({ end_time: new Date().toISOString(), status: "completed", notes: data.notes?.trim() ?? "", updated_at: new Date().toISOString() }).eq("id", taskId).eq("user_id", user.userId);
-  if (error) throw new Error(error.message);
-  revalidatePath("/dashboard");
-}
-
-export async function clockOut() {
-  const user = await requireCleaner();
-  const { supabase, shift } = await activeShiftFor(user.userId);
-  if (!shift) throw new Error("No active master shift.");
-  const { data: activeTask, error: activeError } = await supabase.from("work_logs").select("id").eq("user_id", user.userId).eq("status", "active").is("end_time", null).limit(1).maybeSingle();
-  if (activeError) throw new Error(activeError.message);
-  if (activeTask) throw new Error("End the active task before clocking out.");
-  const { error } = await supabase.from("master_shifts").update({ end_time: new Date().toISOString(), status: "completed", updated_at: new Date().toISOString() }).eq("id", shift.id).eq("user_id", user.userId);
   if (error) throw new Error(error.message);
   revalidatePath("/dashboard");
 }

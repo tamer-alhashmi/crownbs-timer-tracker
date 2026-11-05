@@ -25,6 +25,7 @@ import { DashboardPagination, useUrlPage, useUrlPageSize } from "@/components/da
 import { WorkspaceFilterBar, useWorkspaceFilters } from "@/components/dashboard/WorkspaceFilterBar";
 import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
 import { ActiveAssignedTaskCard } from "@/components/dashboard/ActiveAssignedTaskCard";
+import { ShiftDock } from "@/components/dashboard/ShiftDock";
 import { showActionToast } from "@/components/ui/ActionToast";
 import type { UserRole } from "@/lib/roles";
 import { isPlatformAdmin } from "@/lib/roles";
@@ -481,6 +482,12 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
         </section>
 
         <section id="panel-operations" role="tabpanel" aria-labelledby="tab-operations" hidden={activeTab !== "operations"} className="space-y-5">
+          {data.userRole === "manager" && <ShiftDock
+            role="manager"
+            properties={data.hotels.map((hotel) => ({ id: hotel.id, name: hotel.name, latitude: hotel.latitude, longitude: hotel.longitude }))}
+            hasActiveTask={data.activeTasks.some((task) => task.user_id === data.currentUserId && task.status === "active" && !task.end_time)}
+            visible={activeTab === "operations"}
+          />}
           <div id="operations-live" className="scroll-mt-24">
           <DashboardHeading title="Live operations & shifts" description="Monitor on-shift cleaners and resolve hanging work with audited interventions." />
           <ActiveOperations shifts={data.activeShifts} tasks={data.activeTasks} canManage={data.canManageActiveOperations} />

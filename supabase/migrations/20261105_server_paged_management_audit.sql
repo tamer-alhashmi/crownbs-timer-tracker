@@ -316,17 +316,7 @@ AS $$
         ELSE 'hourly'
       END AS billing_unit,
       CASE
-        WHEN service.default_rate > 0 THEN service.default_rate
-        WHEN LOWER(COALESCE(log.service_name_snapshot, service.name, '')) = 'cleaning (hourly)' THEN 15
-        WHEN LOWER(COALESCE(log.service_name_snapshot, service.name, '')) = 'cleaning (per room)' THEN 8.5
-        WHEN LOWER(COALESCE(log.service_name_snapshot, service.name, '')) = 'linen distribution' THEN 10
-        WHEN LOWER(COALESCE(log.service_name_snapshot, service.name, '')) = 'maintenance' THEN 18
-        WHEN LOWER(COALESCE(log.service_name_snapshot, service.name, '')) = 'night shift' THEN 20
-        WHEN LOWER(COALESCE(log.service_name_snapshot, service.name, '')) = 'product delivery' THEN 9.5
-        WHEN LOWER(COALESCE(log.service_name_snapshot, service.name, '')) = 'reception' THEN 16
-        ELSE 12
-      CASE
-        WHEN log.cancelled_at IS NOT NULL OR log.status = 'cancelled' THEN 'Cancelled'
+        WHEN log.cancelled_at IS NOT NULL THEN 'Cancelled'
         WHEN log.status = 'active' THEN 'Active'
         WHEN log.status = 'completed' THEN 'Completed'
         ELSE 'Pending'
