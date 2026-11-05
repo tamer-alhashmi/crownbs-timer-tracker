@@ -848,68 +848,6 @@ export async function approveWorkLog(logId: string, role: ApprovalRole) {
   revalidatePath("/admin"); revalidatePath("/owner"); revalidatePath("/manager");
 }
 
-export async function finalizeWorkLogWithoutClockOut(logId: string) {
-  const user = await requireFeatureAccess("work_log_approvals", "edit");
-  if (!isPlatformAdmin(user.role) && !["owner", "manager"].includes(user.role)) throw new Error("Management access required.");
-  if (typeof logId !== "string" || !logId) throw new Error("A work log is required.");
-  const supabase = createPrivilegedServerSupabaseClient();
-  const { data: previous, error: readError } = await supabase.from("work_logs")
-    .select("*")
-    .eq("id", logId)
-    .is("deleted_at", null)
-    .is("cancelled_at", null)
-    .maybeSingle();
-  if (readError || !previous) throw new Error(readError?.message ?? "Work log was not found.");
-  await assertManagementControlsHotel(user, previous.hotel_id);
-  if (previous.is_locked || previous.status !== "active" || previous.end_time) {
-    throw new Error("Only an active, unfinished work log can be finalized.");
-  }
-  const { data: assignee, error: assigneeError } = await supabase.from("users")
-    .select("role")
-    .eq("id", previous.user_id)
-    .maybeSingle();
-  if (assigneeError) throw new Error(`Unable to verify the assigned user's role: ${assigneeError.message}`);
-  if (!assignee) throw new Error("The assigned user could not be found.");
-  if (user.role === "manager" && (previous.user_id === user.userId || !["housekeeping_admin", "hk_admin"].includes(assignee.role))) {
-    throw new Error("Managers can only finalize unfinished HK Admin tasks assigned to their team.");
-  }
-  if (!isPlatformAdmin(user.role) && user.role !== "owner" && assignee.role === "cleaner") {
-    throw new Error("Clock-out bypass is only available for administrative tasks.");
-  }
-  const now = getFinalizationTime(previous.start_time);
-  const autoApproveManager = assignee.role === "manager";
-  const { data: updated, error: updateError } = await supabase.from("work_logs")
-    .update({
-      status: "completed",
-      end_time: now,
-      rooms_completed: Math.max(0, previous.rooms_completed ?? 0),
-      ...(autoApproveManager ? {
-        manager_approved: true,
-        manager_rejected: false,
-        manager_approved_at: now,
-      } : {}),
-      updated_at: now,
-    })
-    .eq("id", logId)
-    .eq("status", "active")
-    .is("end_time", null)
-    .select("*")
-    .maybeSingle();
-  if (updateError) throw new Error(`Unable to finalize the task: ${updateError.message}`);
-  if (!updated) throw new Error("This task was already finalized.");
-  const { error: auditError } = await supabase.from("work_log_audit").insert({
-    work_log_id: logId,
-    actor_id: user.userId,
-    action: autoApproveManager ? "approved" : "edited",
-    previous_values: previous,
-    new_values: autoApproveManager
-      ? { ...updated, audit_note: "Manager approval was recorded automatically when the managerial task was finalized." }
-      : updated,
-  });
-  if (auditError) throw new Error(`Task was finalized, but audit history could not be saved: ${auditError.message}`);
-  for (const path of ["/admin", "/owner", "/manager"]) revalidatePath(path);
-}
-
 export async function forceEndAndApproveManagerTask(taskId: string) {
   const user = await requireFeatureAccess("work_log_approvals", "edit");
   if (!isPlatformAdmin(user.role) && user.role !== "owner") throw new Error("Only a Platform Admin or Property Owner can force-end and approve a Manager task.");

@@ -5,15 +5,13 @@ import Link from "next/link";
 import { useEffect, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { Activity, Building2, CheckCheck, ClipboardList, Gauge, History, Images, Loader2, Settings, UsersRound } from "lucide-react";
 import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
-import { NotificationBell } from "@/components/chat/NotificationBell";
 import { ActiveAssignedTaskCard } from "@/components/dashboard/ActiveAssignedTaskCard";
 import { AttendanceSummaryWidget } from "@/components/dashboard/AttendanceSummaryWidget";
 import { ShiftDock } from "@/components/dashboard/ShiftDock";
 import { OperationalAuditTable } from "@/components/dashboard/OperationalAuditTable";
-import { HelpCenterButton } from "@/components/help/HelpCenterDrawer";
 import type { WorkspaceNavTab } from "@/components/layout/MobileWorkspaceNav";
 import { SharedWorkspaceShell } from "@/components/layout/SharedWorkspaceShell";
-import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { WorkspaceHeader } from "@/components/layout/WorkspaceHeader";
 import { TaskDispatchClient } from "@/app/settings/TaskDispatchClient";
 import { showActionToast } from "@/components/ui/ActionToast";
 import type { getTaskDispatchData } from "@/app/settings/taskActions";
@@ -173,22 +171,12 @@ export default function HKAdminDashboardClient({
 
   return (
     <main className="enterprise-dashboard theme-workspace min-h-screen bg-canvas pb-20 text-ink md:pb-0">
-      <header className="sticky top-0 z-30 border-b border-line bg-surface/95 text-ink backdrop-blur">
-        <div className="mx-auto flex min-h-16 max-w-[1600px] items-center justify-between gap-4 px-4 sm:px-6">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink-secondary">Housekeeping admin</p>
-            <h1 className="text-lg font-bold text-ink">Crown Operations · {data.userName}</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <NotificationBell />
-            <HelpCenterButton role="hk_admin" />
-            <ThemeToggle />
-            <Link href="/settings" className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-line bg-surface-secondary px-3 text-sm font-semibold text-ink-secondary transition-colors hover:border-accent hover:text-ink">
-              <Settings className="h-4 w-4" /> <span className="hidden sm:inline">Profile & Settings</span>
-            </Link>
-          </div>
-        </div>
-      </header>
+      <WorkspaceHeader
+        name={data.userName}
+        email={profile.email}
+        role={profile.role}
+        actions={<Link href="/settings" className="hidden min-h-10 items-center gap-2 rounded-xl border border-line bg-surface-secondary px-3 text-sm font-semibold text-ink-secondary transition-colors hover:border-accent hover:text-ink sm:inline-flex"><Settings className="h-4 w-4" /><span>Settings</span></Link>}
+      />
       <SharedWorkspaceShell role="hk_admin" activeTab={activeTab} onSelect={selectHKTab} tabs={WORKSPACE_TABS} user={{ name: data.userName, email: profile.email, avatarUrl: null, role: profile.role }} />
       <div className="mx-auto max-w-[1600px] space-y-5 p-4 pb-[calc(env(safe-area-inset-bottom,0px)+5rem)] sm:p-6 md:ml-64 md:pb-6">
         {feedback && <p role={feedback.error ? "alert" : "status"} className={`rounded-xl border px-4 py-3 text-sm ${feedback.error ? "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-200" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200"}`}>{feedback.text}</p>}

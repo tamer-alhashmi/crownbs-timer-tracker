@@ -10,7 +10,7 @@ export function SecurityLockOverlay({ reason, countdown }: {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-5 backdrop-blur-md" role="alertdialog" aria-modal="true" aria-labelledby="security-lock-title" aria-describedby="security-lock-description">
-      <section className="w-full max-w-md rounded-3xl border border-white/20 bg-white p-8 text-center shadow-2xl">
+      <section className="w-full max-w-md rounded-3xl border border-line bg-surface p-8 text-center text-ink shadow-2xl">
         <div className="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-rose-50 text-rose-700">
           <ShieldAlert className="h-9 w-9 animate-pulse" aria-hidden="true" />
         </div>

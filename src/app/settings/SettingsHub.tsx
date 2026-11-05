@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Activity, Building2, CalendarDays, ClipboardList, Gauge, History, ShieldCheck, UserRound, Wallet } from "lucide-react";
 import type { UserRole } from "@/lib/roles";
 import { SharedWorkspaceShell } from "@/components/layout/SharedWorkspaceShell";
+import { WorkspaceHeader } from "@/components/layout/WorkspaceHeader";
 import type { WorkspaceNavTab } from "@/components/layout/MobileWorkspaceNav";
 
 type Tab = "profile" | "users" | "properties" | "payroll" | "billing";
@@ -107,15 +108,16 @@ export default function SettingsHub({ role, user, utility, profile, billing, pay
   };
 
   return (
+    <>
+    <WorkspaceHeader name={user?.name ?? "Account"} email={user?.email ?? ""} avatarUrl={user?.avatarUrl} role={role} actions={utility} />
     <main className="theme-workspace min-h-screen overflow-y-auto bg-canvas px-3 pt-5 pb-[calc(env(safe-area-inset-bottom,0px)+5rem)] text-ink sm:px-6 sm:pt-8 md:ml-64 md:pb-8">
       <div className="mx-auto max-w-7xl">
         <header className="mb-5 border-b border-line pb-3 pt-2">
-          <div className="mb-4 flex items-center justify-between gap-4">
+          <div className="mb-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink-secondary">Account settings</p>
               <h1 className="mt-1 text-2xl font-bold text-ink">Settings</h1>
             </div>
-            <div className="flex shrink-0 items-center gap-2">{utility}</div>
           </div>
           <nav aria-label="Settings sections" role="tablist" className="no-scrollbar flex gap-2 overflow-x-auto whitespace-nowrap scroll-smooth [-webkit-overflow-scrolling:touch] md:hidden">
             {visibleTabs.map(({ id, label, icon: Icon }) => (
@@ -176,5 +178,6 @@ export default function SettingsHub({ role, user, utility, profile, billing, pay
         </div>
       </div>
     </main>
+    </>
   );
 }

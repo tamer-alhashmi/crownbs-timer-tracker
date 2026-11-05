@@ -50,7 +50,7 @@ export function UserProfileMenu({ name, email, role, settingsHref, avatarUrl, co
 
   return <div ref={containerRef} className="relative z-50 flex items-center gap-2 overflow-visible">
     {showNotificationBell && <NotificationBell />}
-    {showHelp && avatarRole && <HelpCenterButton role={avatarRole} />}
+    {showHelp && avatarRole && <span className="hidden sm:inline-flex"><HelpCenterButton role={avatarRole} /></span>}
     <button type="button" onClick={toggleMenu} aria-label={`Profile menu for ${name}`} aria-expanded={open} aria-haspopup="menu" className={`inline-flex items-center gap-2 rounded-xl border border-line bg-surface px-2 py-2 text-left text-sm font-semibold text-ink shadow-sm transition hover:bg-surface-secondary ${compact ? "justify-center" : "px-3"}`}>
       <UserAvatar name={name} avatarUrl={avatarUrl} role={avatarRole} className="h-8 w-8 bg-sky-100 text-sm text-sky-800" />
       {!compact && <><span className="hidden max-w-32 truncate sm:block">{name}</span><ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} /></>}

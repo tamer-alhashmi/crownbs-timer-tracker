@@ -46,7 +46,7 @@ export function ActionToastViewport() {
         key={toast.id}
         role={isSuccess ? "status" : "alert"}
         aria-live={isSuccess ? "polite" : "assertive"}
-        className="pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl shadow-slate-950/20"
+        className="pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-2xl border border-line bg-surface p-4 text-ink shadow-2xl shadow-slate-950/20"
       >
         <Icon className={`mt-0.5 h-5 w-5 shrink-0 ${isSuccess ? "text-emerald-600" : "text-rose-600"}`} />
         <div className="min-w-0 flex-1">

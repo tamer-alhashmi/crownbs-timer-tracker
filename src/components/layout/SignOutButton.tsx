@@ -49,7 +49,7 @@ export function SignOutButton() {
     <form action={signOut} onSubmit={(event) => void unlinkDeviceAndSignOut(event)}>
       <button
         type="submit"
-        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+        className="inline-flex items-center gap-2 rounded-xl border border-line bg-surface-secondary px-3 py-2 text-sm font-semibold text-ink-secondary transition hover:bg-surface-elevated hover:text-ink"
       >
         <LogOut className="h-4 w-4" />
         Sign out

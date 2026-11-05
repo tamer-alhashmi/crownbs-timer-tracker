@@ -4,10 +4,9 @@ import { FormEvent, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { BedDouble, BriefcaseBusiness, CalendarDays, Clock3, FileText, MapPin, Pencil, Wrench, ClipboardList } from "lucide-react";
 import { endTask, startTask, switchHotel, updateTask } from "./actions";
-import { UserProfileMenu } from "@/components/layout/UserProfileMenu";
 import type { WorkspaceNavTab } from "@/components/layout/MobileWorkspaceNav";
 import { SharedWorkspaceShell } from "@/components/layout/SharedWorkspaceShell";
-import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { WorkspaceHeader } from "@/components/layout/WorkspaceHeader";
 import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
 import { OperationalBrief } from "@/components/dashboard/OperationalBrief";
 import { DashboardPagination, useUrlPage } from "@/components/dashboard/DashboardPagination";
@@ -255,8 +254,10 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
     };
   };
 
-  return <main className="cleaner-dashboard theme-workspace min-h-dvh overscroll-y-none bg-canvas pb-[calc(env(safe-area-inset-bottom,0px)+5rem)] text-ink md:pb-8"><div className="mx-auto max-w-2xl px-4 pb-8 pt-6 md:ml-64 md:mr-0 md:max-w-[1600px] md:px-8">
-    <header className="mb-5 rounded-3xl border border-line bg-surface p-5 text-ink shadow-lg"><div className="flex items-center justify-between gap-3"><div className="min-w-0"><p className="text-xs uppercase tracking-[0.25em] text-ink-secondary">Cleaner workspace</p><h1 className="mt-1 text-2xl font-bold text-ink">Crown Operations</h1><p className="mt-1 text-sm text-ink-secondary">{user.fullName} · {user.email}</p></div><div className="flex items-center gap-2"><ThemeToggle /><UserProfileMenu name={user.fullName} email={user.email} avatarUrl={user.avatarUrl} role="cleaner" settingsHref="/settings" /></div></div><div className="mt-4 flex items-center justify-between rounded-2xl bg-surface-secondary p-3 text-sm"><span className="flex items-center gap-2 text-ink-secondary"><Clock3 className="h-4 w-4" /> Master shift</span><LiveStatusIndicator isClockedIn={Boolean(currentShift)} className={currentShift ? "font-semibold text-emerald-700" : "font-semibold text-ink-secondary"} /></div><div className="mt-4 rounded-2xl bg-surface-secondary px-4 py-3"><p className="text-xs font-medium uppercase tracking-wide text-ink-secondary">Shift duration</p><p role="timer" aria-label={`Shift duration ${shiftDuration}`} className="mt-1 text-3xl font-semibold tracking-tight text-ink tnum">{shiftDuration}</p></div></header>
+  return <main className="cleaner-dashboard theme-workspace min-h-dvh overscroll-y-none bg-canvas pb-[calc(env(safe-area-inset-bottom,0px)+5rem)] text-ink md:ml-64 md:pb-8">
+    <WorkspaceHeader name={user.fullName} email={user.email} role="cleaner" avatarUrl={user.avatarUrl} offsetSidebar={false} />
+    <div className="mx-auto max-w-2xl px-4 pb-8 pt-6 md:mx-0 md:max-w-[1600px] md:px-8">
+    <section className="mb-5 rounded-3xl border border-line bg-surface p-5 text-ink shadow-lg"><div className="flex items-center justify-between gap-3"><div className="min-w-0"><p className="text-xs uppercase tracking-[0.25em] text-ink-secondary">Shift status</p><div className="mt-2 flex items-center gap-2 text-sm"><Clock3 className="h-4 w-4 text-ink-secondary" /><span className="text-ink-secondary">Master shift</span><LiveStatusIndicator isClockedIn={Boolean(currentShift)} className={currentShift ? "font-semibold text-emerald-700" : "font-semibold text-ink-secondary"} /></div></div></div><div className="mt-4 rounded-2xl bg-surface-secondary px-4 py-3"><p className="text-xs font-medium uppercase tracking-wide text-ink-secondary">Shift duration</p><p role="timer" aria-label={`Shift duration ${shiftDuration}`} className="mt-1 text-3xl font-semibold tracking-tight text-ink tnum">{shiftDuration}</p></div></section>
     <SharedWorkspaceShell role="cleaner" activeTab={activeTab} onSelect={selectCleanerTab} tabs={CLEANER_TABS} user={{ name: user.fullName, email: user.email, avatarUrl: user.avatarUrl, role: "cleaner" }} />
     <section id="operations-panel" role="tabpanel" aria-labelledby="operations-tab" hidden={activeTab !== "operations"}>
     {activeTask && <section className="mb-5 rounded-3xl border border-emerald-200 bg-emerald-50 p-4"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">Active task</p><h2 className="mt-1 text-lg font-bold text-emerald-950">{activeTask.serviceName}</h2><p className="text-sm text-emerald-800">{activeTask.hotelName}{activeTask.room_numbers.length ? ` · ${activeTask.room_numbers.join(", ")}` : ""}</p>{activeTask.room_ids.length > 0 && <RoomMediaCapture workLogId={activeTask.id} rooms={rooms.filter((room) => room.hotel_id === activeTask.hotel_id && activeTask.room_ids.includes(room.id))} initialMedia={roomMedia} storageConfigured={roomMediaConfigured} />}<button type="button" disabled={isPending} onClick={() => run(() => endTask(activeTask.id, { notes }), "Task completed. Start another task when ready.")} className="mt-3 w-full rounded-lg bg-emerald-600 px-4 py-3 text-sm font-medium text-white hover:bg-emerald-500">End task</button></section>}
@@ -313,5 +314,6 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
     </section>
     {selectedTask && <ServiceCard task={selectedTask} onClose={() => setSelectedTask(null)} onEdit={() => { const log = logs.find((item) => item.id === selectedTask.id); if (log && !log.is_locked) { setSelectedTask(null); beginEdit(log); } }} />}
      </section>
-  </div></main>;
+     </div>
+  </main>;
 }

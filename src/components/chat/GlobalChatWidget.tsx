@@ -105,7 +105,7 @@ function GlobalChatWidgetContent({ user, profile }: { user: AppUserSession; prof
           type="button"
           aria-label={`Open team chat${unreadCount ? `, ${unreadCount} unread messages` : ""}`}
           onClick={() => openChat()}
-          className="chat-launcher group fixed bottom-28 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-[#25d366] text-[#063b2a] shadow-2xl shadow-emerald-950/30 transition hover:scale-105 hover:bg-[#20c45e] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 md:bottom-8 md:right-6 md:h-16 md:w-16"
+          className="chat-launcher group fixed bottom-28 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500 text-white shadow-2xl shadow-emerald-950/30 transition hover:scale-105 hover:bg-emerald-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 md:bottom-8 md:right-6 md:h-16 md:w-16"
         >
           <MessageCircle
             aria-hidden="true"
@@ -113,7 +113,7 @@ function GlobalChatWidgetContent({ user, profile }: { user: AppUserSession; prof
             strokeWidth={2.4}
           />
           {unreadCount > 0 && (
-            <span className="chat-unread-badge absolute -right-1 -top-1 flex h-6 min-w-6 items-center justify-center rounded-full border-2 border-white bg-rose-600 px-1 text-[10px] font-bold text-white shadow-md">
+            <span className="chat-unread-badge absolute -right-1 -top-1 flex h-6 min-w-6 items-center justify-center rounded-full border-2 border-surface bg-rose-600 px-1 text-[10px] font-bold text-white shadow-md">
               {unreadCount > 99 ? "99+" : unreadCount}
             </span>
           )}

@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { Activity, Building2, CalendarDays, CheckCircle2, ClipboardList, Clock3, CreditCard, Gauge, History, Loader2, Search, ShieldAlert, Wallet } from "lucide-react";
 import { DashboardPagination } from "@/components/dashboard/DashboardPagination";
 import { SharedWorkspaceShell } from "@/components/layout/SharedWorkspaceShell";
-import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { WorkspaceHeader } from "@/components/layout/WorkspaceHeader";
 import type { WorkspaceNavTab } from "@/components/layout/MobileWorkspaceNav";
 import { showActionToast } from "@/components/ui/ActionToast";
 import { TenantDetailsModal } from "./TenantDetailsModal";
@@ -83,6 +83,8 @@ export default function TenantAccountsHub({ initialData, user }: { initialData: 
   const pageCount = Math.max(1, Math.ceil(data.total / data.pageSize));
 
   return (
+    <>
+    <WorkspaceHeader name={user.name} email={user.email} avatarUrl={user.avatarUrl} role="super_admin" />
     <main className="mx-auto w-full max-w-[1600px] px-4 pt-5 pb-[calc(env(safe-area-inset-bottom,0px)+5rem)] sm:px-6 md:ml-64 md:pb-8 lg:px-8">
       <header className="mb-5 flex flex-col gap-4 rounded-2xl border border-line bg-surface p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
         <div>
@@ -91,7 +93,6 @@ export default function TenantAccountsHub({ initialData, user }: { initialData: 
           <p className="mt-1 text-sm text-ink-secondary">Review usage, property status, and settlements for {data.monthLabel}.</p>
         </div>
         <div className="flex items-center gap-3">
-        <ThemeToggle />
         <label className="relative block w-full sm:max-w-sm">
           <span className="sr-only">Search by owner or hotel</span>
           <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" />
@@ -201,5 +202,6 @@ export default function TenantAccountsHub({ initialData, user }: { initialData: 
 
       {selectedTenant && <TenantDetailsModal key={selectedTenant.id} tenant={selectedTenant} onClose={() => setSelectedTenant(null)} onUpdated={() => setRefreshKey((key) => key + 1)} />}
     </main>
+    </>
   );
 }

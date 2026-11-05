@@ -228,18 +228,18 @@ export function NotificationBell() {
           if (!isOpen) setPopoverTop(event.currentTarget.getBoundingClientRect().bottom);
           setIsOpen((open) => !open);
         }}
-        className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
+        className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-ink-secondary shadow-sm transition hover:bg-surface-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
       >
         <Bell className="h-5 w-5" />
         {unreadCount > 0 && (
-          <span className="chat-unread-badge absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-bold text-white ring-2 ring-white">
+          <span className="chat-unread-badge absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-bold text-white ring-2 ring-surface">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
       </button>
       {isOpen && (
         createPortal(
-        <div ref={dropdownRef} data-back-button-overlay="true" style={{ position: "fixed", right: 12, left: "auto", maxWidth: "calc(100vw - 24px)", top: popoverTop }} className="absolute right-0 top-full mt-2 w-[calc(100vw-1.5rem)] max-w-sm z-50 origin-top-right rounded-2xl border shadow-2xl bg-white dark:bg-slate-900 overflow-hidden sm:w-96 max-h-[calc(85dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-1rem)] overflow-y-auto overscroll-contain border-slate-200 dark:border-slate-700">
+        <div ref={dropdownRef} data-back-button-overlay="true" style={{ position: "fixed", right: 12, left: "auto", maxWidth: "calc(100vw - 24px)", top: popoverTop }} className="absolute right-0 top-full z-50 mt-2 max-h-[calc(85dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-1rem)] w-[calc(100vw-1.5rem)] max-w-sm origin-top-right overflow-y-auto overscroll-contain rounded-2xl border border-line bg-surface text-ink shadow-2xl sm:w-96">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-slate-900">Notifications</p>

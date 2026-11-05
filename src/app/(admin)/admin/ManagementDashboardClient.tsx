@@ -3,15 +3,14 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Activity, Building2, Check, CircleDollarSign, ClipboardList, Clock, Gauge, History, Hotel, Loader2, Pencil, UsersRound, X, Wallet, Columns3, Filter, Search, CreditCard, ShieldAlert } from "lucide-react";
+import { Activity, Building2, Check, CircleDollarSign, ClipboardList, Clock, Gauge, History, Loader2, Pencil, UsersRound, X, Wallet, Columns3, Filter, Search, CreditCard, ShieldAlert } from "lucide-react";
 import { OperationalBrief } from "@/components/dashboard/OperationalBrief";
 import { AttendanceSummaryWidget } from "@/components/dashboard/AttendanceSummaryWidget";
 import { ServiceCard } from "@/components/dashboard/ServiceCard";
 import { OperationalAuditTable } from "@/components/dashboard/OperationalAuditTable";
-import { UserProfileMenu } from "@/components/layout/UserProfileMenu";
 import type { BriefTask, ManagementBrief } from "@/lib/operationalBrief";
 import { calculateTaskCost, resolveBillingUnit, resolveServiceRate } from "@/lib/servicePricing";
-import { approveWorkLog as approveWorkLogAction, finalizeWorkLogWithoutClockOut, forceEndAndApproveManagerTask, getManagementDashboardSummary, getManagementOverrideAuditPage, getManagementResponsibilityHistoryPage, getManagementWorkLogPage, rejectWorkLog, updateWorkLog } from "./actions";
+import { approveWorkLog as approveWorkLogAction, forceEndAndApproveManagerTask, getManagementDashboardSummary, getManagementOverrideAuditPage, getManagementResponsibilityHistoryPage, getManagementWorkLogPage, rejectWorkLog, updateWorkLog } from "./actions";
 import { importRoomsFromGoogleSheet } from "./roomImportActions";
 import { FullEditPanel } from "./FullEditPanel";
 import { AdminPayrollTable } from "./AdminPayrollTable";
@@ -34,7 +33,7 @@ import { formatUserMessage } from "@/lib/userMessages";
 import { StatusBadge, type StatusKind } from "@/components/ui/StatusBadge";
 import { SharedWorkspaceShell } from "@/components/layout/SharedWorkspaceShell";
 import type { WorkspaceNavTab } from "@/components/layout/MobileWorkspaceNav";
-import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { WorkspaceHeader } from "@/components/layout/WorkspaceHeader";
 import type { ManagementHistoryFilters, ManagementHistoryRecord } from "@/lib/managementAudit";
 
 const DASHBOARD_TABS = [
@@ -345,34 +344,20 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
     }
   }), [startTransition]);
 
-  const submitWorkLogAction = useCallback((logId: string, action: "finalize" | "reject", role?: "manager" | "owner", note = "") => startTransition(async () => {
-    const pendingText = action === "finalize"
-      ? "Finalizing task..."
-      : `Saving ${role === "manager" ? "Manager" : "Owner"} rejection...`;
-    setApprovalFeedback((current) => ({ ...current, [logId]: { kind: "pending", text: pendingText } }));
+  const rejectWorkLogRow = useCallback((logId: string, role: "manager" | "owner", note: string) => startTransition(async () => {
+    setApprovalFeedback((current) => ({ ...current, [logId]: { kind: "pending", text: `Saving ${role === "manager" ? "Manager" : "Owner"} rejection...` } }));
     try {
-      if (action === "finalize") {
-        await finalizeWorkLogWithoutClockOut(logId);
-      } else if (role) {
-        await rejectWorkLog(logId, role, note);
-      } else {
-        throw new Error("A rejection role is required.");
-      }
-      const success = action === "finalize"
-        ? "Task finalized and submitted for management approval."
-        : `${role === "manager" ? "Manager" : "Owner"} rejection saved.`;
+      await rejectWorkLog(logId, role, note);
+      const success = `${role === "manager" ? "Manager" : "Owner"} rejection saved.`;
       setApprovalFeedback((current) => ({ ...current, [logId]: { kind: "success", text: success } }));
       showActionToast("success", success);
     } catch (error) {
-      const text = getActionErrorMessage(error, action === "finalize" ? "Unable to finalize task." : "Unable to save rejection.");
+      const text = getActionErrorMessage(error, "Unable to save rejection.");
       setApprovalFeedback((current) => ({ ...current, [logId]: { kind: "error", text } }));
       setMessage(text);
       showActionToast("error", text);
     }
   }), [startTransition]);
-
-  const finalizeWorkLogRow = useCallback((logId: string) => submitWorkLogAction(logId, "finalize"), [submitWorkLogAction]);
-  const rejectWorkLogRow = useCallback((logId: string, role: "manager" | "owner", note: string) => submitWorkLogAction(logId, "reject", role, note), [submitWorkLogAction]);
 
   const openWorkLogDetails = useCallback((logId: string) => {
     const log = displayedWorkLogsRef.current.find((item) => item.id === logId);
@@ -412,11 +397,9 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
       canManager: canManager && !isOwnLog
         && (data.userRole !== "manager" || ["hk_admin", "cleaner"].includes(log.assigneeRole)),
       canOwner: canOwner && !isOwnLog,
-      canBypassClockOut: !isOwnLog && (isPlatformAdmin(data.userRole) || data.userRole === "owner" || ["manager", "housekeeping_admin", "hk_admin"].includes(log.assigneeRole)),
       canForceEndAndApprove: !isOwnLog && (isPlatformAdmin(data.userRole) || data.userRole === "owner") && log.assigneeRole === "manager" && ["assigned", "active"].includes(log.status) && !log.is_locked,
       feedback: approvalFeedback[log.id] ?? null,
       onEdit: openWorkLogDetails,
-      onFinalize: finalizeWorkLogRow,
       onForceEndAndApprove: submitForceEndAndApprove,
       onApprove: submitApproval,
       onReject: rejectWorkLogRow,
@@ -424,12 +407,16 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
   };
 
   return <div className="enterprise-dashboard theme-workspace min-h-screen min-w-0 bg-canvas text-ink">
-      <header className="sticky top-0 z-20 border-b border-line bg-surface/95 backdrop-blur">
-        <div className="flex h-16 items-center justify-between gap-4 px-gutter pt-safe sm:px-6 lg:px-8">
-          <div className="flex min-w-0 items-center gap-3"><span className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-accent sm:flex"><Hotel className="h-5 w-5" /></span><h1 className="truncate whitespace-nowrap text-base font-bold text-ink">Crown Operations</h1><span className="hidden truncate rounded-full border border-line bg-surface-secondary px-2.5 py-1 text-xs font-medium capitalize text-ink-secondary sm:inline-flex">{data.userName} · {data.userRole.replaceAll("_", " ")}</span></div>
-          <div className="flex items-center gap-2">{isPlatformAdmin(data.userRole) && <button type="button" onClick={syncRooms} disabled={isPending} className="hidden min-h-11 rounded-lg border border-line bg-surface px-3 py-2 text-sm font-medium text-ink-secondary hover:bg-surface-secondary sm:inline-flex">Fetch rooms</button>}{data.userRole === "super_admin" && <Link href="/admin/tenant-accounts" aria-label="Billing" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sky-200 bg-sky-50 p-0 text-sky-900 hover:bg-sky-100 md:h-9 md:w-auto md:gap-2 md:px-3 md:py-2"><CreditCard className="h-4 w-4" /><span className="hidden font-medium text-sm md:inline">Billing</span></Link>}<ThemeToggle /><UserProfileMenu name={data.userName} email={data.userEmail} avatarUrl={data.userAvatarUrl} role={data.userRole} settingsHref="/settings" /></div>
-        </div>
-      </header>
+      <WorkspaceHeader
+        name={data.userName}
+        email={data.userEmail}
+        avatarUrl={data.userAvatarUrl}
+        role={data.userRole}
+        actions={<>
+          {isPlatformAdmin(data.userRole) && <button type="button" onClick={syncRooms} disabled={isPending} className="hidden min-h-10 rounded-lg border border-line bg-surface-secondary px-3 text-sm font-medium text-ink-secondary hover:bg-surface-elevated sm:inline-flex">Fetch rooms</button>}
+          {data.userRole === "super_admin" && <Link href="/admin/tenant-accounts" aria-label="Billing" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line bg-surface-secondary text-ink hover:bg-surface-elevated md:w-auto md:gap-2 md:px-3"><CreditCard className="h-4 w-4" /><span className="hidden text-sm font-medium md:inline">Billing</span></Link>}
+        </>}
+      />
       <SharedWorkspaceShell role={data.userRole} activeTab={activeTab} onSelect={selectTab} tabs={WORKSPACE_SHELL_TABS} user={{ name: data.userName, email: data.userEmail, avatarUrl: data.userAvatarUrl, role: data.userRole }} />
       <main className="mx-auto min-w-0 max-w-[1600px] space-y-4 px-gutter pb-[calc(env(safe-area-inset-bottom,0px)+5rem)] pt-4 sm:p-6 md:ml-64 md:pb-6 lg:p-8">
         {message && <p className="rounded-lg border border-line bg-surface px-4 py-3 text-sm text-ink-secondary shadow-sm" role="status">{message}</p>}
@@ -611,11 +598,9 @@ type WorkLogRowProps = {
   isOwnLog: boolean;
   canManager: boolean;
   canOwner: boolean;
-  canBypassClockOut: boolean;
   canForceEndAndApprove: boolean;
   feedback: ApprovalFeedback | null;
   onEdit: (logId: string) => void;
-  onFinalize: (logId: string) => void;
   onForceEndAndApprove: (logId: string) => void;
   onApprove: (logId: string, role: "manager" | "owner") => void;
   onReject: (logId: string, role: "manager" | "owner", note: string) => void;
@@ -630,7 +615,7 @@ function formatWorkLogDate(value: string) {
   return Number.isNaN(date.getTime()) ? "Unknown date" : date.toLocaleString("en-GB", { timeZone: "Africa/Cairo" });
 }
 
-const WorkLogRow = memo(function WorkLogRow({ log, isOwnLog, canManager, canOwner, canBypassClockOut, canForceEndAndApprove, feedback, onEdit, onFinalize, onForceEndAndApprove, onApprove, onReject }: WorkLogRowProps) {
+const WorkLogRow = memo(function WorkLogRow({ log, isOwnLog, canManager, canOwner, canForceEndAndApprove, feedback, onEdit, onForceEndAndApprove, onApprove, onReject }: WorkLogRowProps) {
   const isPending = feedback?.kind === "pending";
   const hours = log.end_time ? durationHours(log.start_time, log.end_time) : null;
   const status: StatusKind = log.cancelled_at ? "cancelled" : log.is_locked ? "approved" : log.status === "active" ? "in_progress" : log.manager_rejected || log.owner_rejected ? "rejected" : log.status === "completed" ? "needs_action" : "pending";
@@ -653,7 +638,7 @@ const WorkLogRow = memo(function WorkLogRow({ log, isOwnLog, canManager, canOwne
           {log.assigneeRole === "manager" && log.status === "completed"
             ? log.manager_approved ? "Approved (Completed)" : "Pending Manager Approval"
             : "Your work log · read only"}
-        </span> : !log.is_locked && (log.status !== "completed" ? <><span className="rounded-lg bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">Clock out required</span>{canBypassClockOut && log.status === "active" && <button type="button" disabled={isPending} onClick={() => onFinalize(log.id)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-semibold text-sky-900 hover:bg-sky-100 disabled:cursor-wait disabled:opacity-60">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Finalizing…" : "Finalize / Bypass Clock-Out"}</button>}</> : <>
+        </span> : !log.is_locked && (log.status !== "completed" ? <span className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-xs font-semibold text-amber-700 dark:text-amber-300">Clock out required</span> : <>
           {canManager && (log.manager_approved ? <ApprovalComplete label="Manager approved" /> : <ApprovalButtons label="Approve (Manager)" onApprove={() => onApprove(log.id, "manager")} onReject={(note) => onReject(log.id, "manager", note)} isPending={isPending} />)}
           {canOwner && (log.owner_approved ? <ApprovalComplete label="Owner approved" /> : <ApprovalButtons label="Approve (Owner)" onApprove={() => onApprove(log.id, "owner")} onReject={(note) => onReject(log.id, "owner", note)} isPending={isPending} />)}
         </>)}
@@ -665,7 +650,7 @@ const WorkLogRow = memo(function WorkLogRow({ log, isOwnLog, canManager, canOwne
 });
 
 export function WorkLogMobileCard(props: WorkLogRowProps) {
-  const { log, isOwnLog, canManager, canOwner, canBypassClockOut, canForceEndAndApprove, feedback, onEdit, onFinalize, onForceEndAndApprove, onApprove, onReject } = props;
+  const { log, isOwnLog, canManager, canOwner, canForceEndAndApprove, feedback, onEdit, onForceEndAndApprove, onApprove, onReject } = props;
   const isPending = feedback?.kind === "pending";
   const hours = log.end_time ? durationHours(log.start_time, log.end_time) : null;
   const dateLabel = formatWorkLogDate(log.start_time);
@@ -716,8 +701,7 @@ export function WorkLogMobileCard(props: WorkLogRowProps) {
         ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-xs font-semibold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">Fully Approved</div>
         : log.status !== "completed"
           ? <div className="space-y-2">
-            <p className="text-center text-xs font-medium text-amber-800">Clock-out required before approval.</p>
-            {canBypassClockOut && log.status === "active" && <button type="button" disabled={isPending} onClick={() => onFinalize(log.id)} className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 text-sm font-semibold text-sky-900 disabled:opacity-60">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Finalizing..." : "Finalize / Bypass Clock-Out"}</button>}
+            <p className="text-center text-xs font-medium text-amber-700 dark:text-amber-300">Clock-out required before approval.</p>
           </div>
           : isOwnLog
             ? <p className="rounded-lg bg-surface-secondary px-3 py-2 text-center text-xs font-medium text-ink-secondary dark:bg-slate-800 dark:text-ink-muted">Your work log · read only</p>

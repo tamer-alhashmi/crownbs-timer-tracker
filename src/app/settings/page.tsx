@@ -4,7 +4,6 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { getSessionUser } from "@/lib/auth";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
-import { UserProfileMenu } from "@/components/layout/UserProfileMenu";
 import { SignOutButton } from "@/components/layout/SignOutButton";
 import { PayrollSummary } from "@/components/dashboard/PayrollSummary";
 import { getSettingsData } from "./actions";
@@ -15,7 +14,6 @@ import SettingsHub from "./SettingsHub";
 import { PropertySettings } from "./AssetSettings";
 import { OwnerBillingSkeleton, OwnerBillingWidget } from "@/components/dashboard/OwnerBillingWidget";
 import { isHousekeepingAdmin, isPlatformAdmin } from "@/lib/roles";
-import { ThemeToggle } from "@/components/layout/ThemeToggle";
 
 export default async function SettingsPage() {
   const user = await getSessionUser();
@@ -38,8 +36,6 @@ export default async function SettingsPage() {
   const utility = (
     <>
       <Link href={backHref} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-line bg-surface px-3 text-sm font-semibold text-ink-secondary hover:bg-surface-secondary"><ArrowLeft className="h-4 w-4" /><span className="hidden sm:inline">Dashboard</span></Link>
-      <ThemeToggle />
-      <UserProfileMenu name={name} email={profile?.email ?? user.email} avatarUrl={profile?.avatar_url ?? null} role={user.role} settingsHref="/settings" />
     </>
   );
 

@@ -58,7 +58,7 @@ type Hotel = {
 type User = { id: string; full_name: string; role: string };
 type TenantUser = { id: string; full_name: string; email: string | null };
 type Assignment = { user_id: string; hotel_id: string };
-type WorkLog = { id: string; user_id: string; hotel_id: string; status: string; created_at: string };
+type WorkLog = { id: string; user_id: string; hotel_id: string; status: string; created_at: string; updated_at: string | null };
 type Shift = { user_id: string; start_time: string; status: string; end_time: string | null };
 type PageResult<T> = { data: T[] | null; error: { message: string } | null };
 
@@ -204,7 +204,7 @@ export async function getRoleScopedIntelligenceData(
     hotelIds.length
       ? readAllRows<WorkLog>("recent work logs", (from, to) =>
           supabase.from("work_logs")
-            .select("id, user_id, hotel_id, status, created_at")
+            .select("id, user_id, hotel_id, status, created_at, updated_at")
             .in("hotel_id", hotelIds)
             .gte("created_at", thirtyDaysAgo)
             .is("deleted_at", null)
@@ -286,7 +286,7 @@ export async function getRoleScopedIntelligenceData(
     for (const assignment of assignments) {
       if (!ownedHotelIds.has(assignment.hotel_id)) continue;
       const assignedUser = usersById.get(assignment.user_id);
-      if (assignedUser?.role === "manager" || assignedUser?.role === "cleaner") {
+      if (assignedUser && ["manager", "housekeeping_admin", "hk_admin", "cleaner"].includes(assignedUser.role)) {
         tenantTeamIds.add(assignedUser.id);
       }
     }
@@ -294,11 +294,23 @@ export async function getRoleScopedIntelligenceData(
     const tenantLogs = scopedLogs.filter((log) => ownedHotelIds.has(log.hotel_id));
     const completedTenantLogs = tenantLogs.filter((log) => log.status === "completed");
     const lastActiveAt = tenantLogs.reduce<string | null>(
-      (latest, log) => !latest || log.created_at > latest ? log.created_at : latest,
+      (latest, log) => {
+        const activityAt = log.updated_at && log.updated_at > log.created_at ? log.updated_at : log.created_at;
+        return !latest || activityAt > latest ? activityAt : latest;
+      },
       null
     );
     const managerCount = [...tenantTeamIds].filter((id) => usersById.get(id)?.role === "manager").length;
     const cleanerCount = [...tenantTeamIds].filter((id) => usersById.get(id)?.role === "cleaner").length;
+    const todayUtc = now.toISOString().slice(0, 10);
+    const hasActivityToday = tenantLogs.some((log) => {
+      const activityAt = log.updated_at && log.updated_at > log.created_at ? log.updated_at : log.created_at;
+      return activityAt.slice(0, 10) === todayUtc;
+    });
+    const hasActiveWorkLog = tenantLogs.some((log) => log.status === "active");
+    const hasActiveShift = scopedShifts.some((shift) =>
+      tenantTeamIds.has(shift.user_id) && shift.status === "active" && !shift.end_time
+    );
 
     return {
       id: tenant.id,
@@ -310,9 +322,11 @@ export async function getRoleScopedIntelligenceData(
       cleanerCount,
       completedTasks: completedTenantLogs.length,
       lastActiveAt,
-      isActive: ownedHotels.some((hotel) => hotel.is_active) &&
+      isActive: hasActivityToday || hasActiveWorkLog || hasActiveShift || (
+        ownedHotels.some((hotel) => hotel.is_active) &&
         tenantTeamIds.size > 0 &&
-        completedTenantLogs.length > 0,
+        completedTenantLogs.length > 0
+      ),
     };
   }).sort((first, second) =>
     second.completedTasks - first.completedTasks ||
