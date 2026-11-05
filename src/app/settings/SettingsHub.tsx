@@ -38,6 +38,7 @@ function isTabVisible(id: Tab, role: UserRole) {
 
 export default function SettingsHub({ role, user, utility, profile, billing, payroll, users, properties }: Props) {
   const visibleTabs = tabs.filter(({ id }) => isTabVisible(id, role) && (id !== "billing" || Boolean(billing)));
+  const useGridTabs = visibleTabs.length <= 3;
   const workspacePath = role === "cleaner" ? "/dashboard"
     : role === "owner" ? "/owner"
       : role === "manager" ? "/manager"
@@ -132,7 +133,11 @@ export default function SettingsHub({ role, user, utility, profile, billing, pay
           <nav
             aria-label="Settings sections"
             role="tablist"
-            className="no-scrollbar mt-4 flex min-w-0 gap-2 overflow-x-auto whitespace-nowrap scroll-smooth rounded-2xl border border-line bg-surface p-2 [-webkit-overflow-scrolling:touch] md:grid md:grid-cols-2 md:overflow-visible md:whitespace-normal lg:grid-cols-3 2xl:grid-cols-5"
+            className={`mt-4 min-w-0 rounded-2xl border border-line p-1.5 ${
+              useGridTabs
+                ? "grid w-full grid-cols-3 gap-1.5 bg-surface-secondary/50"
+                : "no-scrollbar flex gap-2 overflow-x-auto whitespace-nowrap bg-surface scroll-smooth [-webkit-overflow-scrolling:touch]"
+            }`}
           >
             {visibleTabs.map(({ id, label, icon: Icon }) => (
               <button
@@ -143,14 +148,18 @@ export default function SettingsHub({ role, user, utility, profile, billing, pay
                 aria-selected={activeTab === id}
                 aria-controls={`settings-panel-${id}`}
                 onClick={() => selectTab(id)}
-                className={`inline-flex min-h-12 min-w-[10rem] items-center gap-2 rounded-xl border px-3 py-2 text-left text-sm font-semibold transition-colors md:min-w-0 ${
+                className={`flex min-h-12 items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-center text-xs font-medium leading-tight transition-all sm:text-sm ${
+                  useGridTabs ? "w-full min-w-0 flex-1" : "min-w-[10rem] shrink-0"
+                } ${
                   activeTab === id
                     ? "border-accent/30 bg-accent/10 text-accent shadow-sm"
                     : "border-transparent text-ink-secondary hover:border-line hover:bg-surface-secondary hover:text-ink"
                 }`}
               >
                 <Icon className="h-4 w-4 shrink-0" />
-                {role === "cleaner" && id === "profile" ? "Personal Information" : label}
+                <span className={useGridTabs ? "min-w-0 break-words" : "whitespace-nowrap"}>
+                  {role === "cleaner" && id === "profile" ? "Personal Information" : label}
+                </span>
               </button>
             ))}
           </nav>

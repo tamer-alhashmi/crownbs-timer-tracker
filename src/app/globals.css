@@ -1778,7 +1778,7 @@ a[href]:active {
 }
 
 :root {
-  --canvas: #f8fafc;
+  --canvas: #9fb7fb12;
   --surface: #ffffff;
   --surface-secondary: #f1f5f9;
   --surface-elevated: #ffffff;
