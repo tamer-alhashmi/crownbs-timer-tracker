@@ -2104,6 +2104,10 @@ body {
   animation: filter-sheet-rise 180ms ease-out both;
 }
 
+.work-logs-mobile-list {
+  display: none;
+}
+
 @keyframes filter-sheet-rise {
   from {
     transform: translateY(1.5rem);
@@ -2116,6 +2120,13 @@ body {
 }
 
 @media (max-width: 767px) {
+  #work-logs-mobile-list {
+    display: grid;
+  }
+
+  #work-logs-table {
+    display: none;
+  }
   .workspace-table-scroll {
     max-height: none;
     overflow: visible;

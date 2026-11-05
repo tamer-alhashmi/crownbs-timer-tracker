@@ -509,6 +509,11 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
             <label className="flex min-h-10 items-center gap-2 self-end rounded-lg border border-line px-3 text-xs font-semibold text-ink-secondary"><input type="checkbox" checked={sortAscending} onChange={(event) => changeWorkFilters({ ascending: event.target.checked ? "true" : "" })} className="h-4 w-4 accent-sky-700" />Ascending</label>
           </WorkspaceFilterBar>
     <section className="rounded-2xl border border-line bg-surface p-4 shadow-sm sm:p-5">
+      <div id="work-logs-mobile-list" className="work-logs-mobile-list space-y-3">
+        {visibleWorkLogs.length > 0
+          ? visibleWorkLogs.map((log) => <WorkLogMobileCard key={log.id} {...workLogRowProps(log)} />)
+          : <p className="rounded-xl border border-line bg-surface-secondary p-4 text-center text-sm text-ink-muted">No logs match your filter criteria.</p>}
+      </div>
       <div id="work-logs-table" className="workspace-table-scroll mobile-card-table-wrapper scroll-mt-24 rounded-lg border border-line [-webkit-overflow-scrolling:touch]">
         <table aria-label="Work logs" aria-rowcount={(serverWorkLogPage?.totalCount ?? 0) + 1} className="mobile-card-table min-w-[1360px] w-full table-fixed text-left text-sm">
           <colgroup><col style={{ width: "180px" }} /><col style={{ width: "155px" }} /><col style={{ width: "170px" }} /><col style={{ width: "180px" }} /><col style={{ width: "110px" }} /><col style={{ width: "75px" }} /><col style={{ width: "190px" }} /><col style={{ width: "300px" }} /></colgroup>
