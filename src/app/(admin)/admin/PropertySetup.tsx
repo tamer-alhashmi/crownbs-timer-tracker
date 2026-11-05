@@ -1,8 +1,8 @@
 "use client";
 
-import { forwardRef, useCallback, useImperativeHandle, useState, useTransition, type FormEvent } from "react";
+import { forwardRef, useCallback, useImperativeHandle, useRef, useState, useTransition, type FormEvent } from "react";
 import { Loader2, MapPin, Pencil, Plus, Power, X } from "lucide-react";
-import { createProperty, getPropertyRooms, updateProperty, type PropertyRecord, type RoomSetupInput } from "./propertyActions";
+import { createProperty, getPropertyRooms, resolvePropertyCoordinates, updateProperty, type PropertyRecord, type RoomSetupInput } from "./propertyActions";
 import { showActionToast } from "@/components/ui/ActionToast";
 
 type Assignee = { id: string; name: string; role: "owner" | "manager" };
@@ -40,6 +40,7 @@ export type PropertySetupHandle = { openCreate: () => void };
 export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties: PropertyRecord[]; assignees: Assignee[]; canManage?: boolean }>(function PropertySetup({ initialProperties, assignees, canManage = true }, ref) {
   const [properties, setProperties] = useState(initialProperties);
   const [editing, setEditing] = useState<PropertyRecord | null>(null);
+  const editingPropertyId = useRef<string | null>(null);
   const [form, setForm] = useState<PropertyForm>(EMPTY_FORM);
   const [newFloor, setNewFloor] = useState("");
   const [roomRange, setRoomRange] = useState({ from: "101", to: "120" });
@@ -52,6 +53,7 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
   const managerNames = new Map(managers.map((person) => [person.id, person.name]));
 
   const openCreate = useCallback(() => {
+    editingPropertyId.current = null;
     setEditing(null);
     setForm(EMPTY_FORM);
     setNewFloor("");
@@ -62,6 +64,7 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
   useImperativeHandle(ref, () => ({ openCreate }), [openCreate]);
 
   const openEdit = (property: PropertyRecord) => {
+    editingPropertyId.current = property.id;
     setEditing(property);
     setForm({
       name: property.name,
@@ -85,6 +88,19 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
         setMessage({ text: message, error: true });
         showActionToast("error", message);
       }
+      if (property.latitude === null || property.longitude === null) {
+        try {
+          const coordinates = await resolvePropertyCoordinates(property.id);
+          if (editingPropertyId.current === property.id) {
+            setForm((current) => current.location === (property.location ?? "") ? { ...current, ...coordinates } : current);
+            setEditing((current) => current?.id === property.id ? { ...current, ...coordinates } : current);
+            setProperties((current) => current.map((item) => item.id === property.id ? { ...item, ...coordinates } : item));
+          }
+        } catch (error) {
+          const locationMessage = error instanceof Error ? error.message : "Unable to resolve this property's map location.";
+          setMessage({ text: locationMessage, error: true });
+        }
+      }
     });
   };
 
@@ -107,6 +123,7 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
         return next.sort((left, right) => left.name.localeCompare(right.name));
       });
       setFormOpen(false);
+      editingPropertyId.current = null;
       setMessage({ text: `${saved.name} saved.`, error: false });
       showActionToast("success", `${saved.name} ${editing ? "updated" : "created"}.`);
       try {
@@ -212,10 +229,10 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
       </div>
     {canManage && formOpen && <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-labelledby="property-form-title">
       <form onSubmit={saveProperty} className="my-auto max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto overscroll-contain rounded-2xl border border-line bg-surface p-5 text-ink shadow-2xl sm:p-6">
-        <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-800">Property setup</p><h3 id="property-form-title" className="mt-1 text-lg font-bold text-ink">{editing ? "Edit property" : "Add property"}</h3></div><button type="button" onClick={() => setFormOpen(false)} aria-label="Close form" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-ink-muted hover:bg-surface-secondary hover:text-ink"><X className="h-4 w-4" /></button></div>
+        <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-800">Property setup</p><h3 id="property-form-title" className="mt-1 text-lg font-bold text-ink">{editing ? "Edit property" : "Add property"}</h3></div>        <button type="button" onClick={() => { editingPropertyId.current = null; setFormOpen(false); }} aria-label="Close form" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-ink-muted hover:bg-surface-secondary hover:text-ink"><X className="h-4 w-4" /></button></div>
         <div className="mt-5 grid gap-4">
           <label className="text-sm font-medium text-ink-secondary">Property name<input required maxLength={120} value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} className="mt-1.5 min-h-11 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-ink outline-none focus:border-cyan-700" /></label>
-          <div className="text-sm font-medium text-ink-secondary"><label htmlFor="property-location">Address / location</label><div className="mt-1.5 flex gap-2"><input id="property-location" required maxLength={240} value={form.location} onChange={(event) => setForm((current) => ({ ...current, location: event.target.value }))} className="min-h-11 min-w-0 flex-1 rounded-xl border border-line bg-surface px-3 py-2.5 text-ink outline-none focus:border-cyan-700" /><button type="button" onClick={locateProperty} aria-label="Detect property location" title="Detect current location" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-line text-cyan-800 hover:bg-cyan-50"><MapPin className="h-5 w-5" /></button></div>{form.latitude !== null && form.longitude !== null && <p className="mt-1 text-xs text-ink-muted">GPS: {form.latitude.toFixed(5)}, {form.longitude.toFixed(5)}</p>}</div>
+          <div className="text-sm font-medium text-ink-secondary"><label htmlFor="property-location">Address / location</label><div className="mt-1.5 flex gap-2"><input id="property-location" required maxLength={240} value={form.location} onChange={(event) => setForm((current) => ({ ...current, location: event.target.value, latitude: null, longitude: null }))} className="min-h-11 min-w-0 flex-1 rounded-xl border border-line bg-surface px-3 py-2.5 text-ink outline-none focus:border-cyan-700" /><button type="button" onClick={locateProperty} aria-label="Detect property location" title="Detect current location" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-line text-cyan-800 hover:bg-cyan-50"><MapPin className="h-5 w-5" /></button></div>{form.latitude !== null && form.longitude !== null && <p className="mt-1 text-xs text-ink-muted">GPS: {form.latitude.toFixed(5)}, {form.longitude.toFixed(5)}</p>}</div>
           <section className="rounded-xl border border-line p-3">
             <h4 className="text-sm font-semibold text-ink-secondary">Floors and sections</h4>
             <div className="mt-2 flex gap-2"><input value={newFloor} onChange={(event) => setNewFloor(event.target.value)} maxLength={80} placeholder="e.g. Ground Floor" className="min-h-10 min-w-0 flex-1 rounded-lg border border-line px-3 py-2 text-sm" /><button type="button" onClick={() => { const name = newFloor.trim(); if (name && !form.floors_sections.includes(name)) setForm((current) => ({ ...current, floors_sections: [...current.floors_sections, name] })); setNewFloor(""); }} className="inline-flex min-h-10 items-center gap-1 rounded-lg bg-surface-secondary px-3 text-sm font-medium text-ink-secondary"><Plus className="h-4 w-4" />Add</button></div>

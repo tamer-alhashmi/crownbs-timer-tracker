@@ -34,6 +34,7 @@ Turn task delegation from a reactive headache into an automated, proactive workf
 ### 3. Comprehensive Property, Named Floors & Room Setup
 Manage complex physical real estate with unmatched granularity:
 * **Automated GPS & Geolocation Pinning**: Onboard new hotels or facilities instantly using one-click GPS location detection and automated reverse-geocoding.
+* **Address-to-GPS Persistence**: Property creation and edits resolve missing coordinates from the saved address and store the result for geofenced clock-ins. Configure `GOOGLE_GEOCODING_API_KEY` (or `GOOGLE_MAPS_API_KEY`) for Google Geocoding; OpenStreetMap Nominatim is used when no Google key is configured. If an address cannot be resolved, use the map picker to set its exact location.
 * **Named Floors & Architectural Sections**: Define custom floor plans (e.g., *Ground Floor*, *Mezzanine*, *Executive Wing*, *Annex B*) rather than generic numeric counters.
 * **Pre-Save Batch Room Configuration**:
   * Define room numbers, room categories (Standard, Deluxe, Executive Suite, Studio), and occupancy thresholds (Adults / Children capacity).

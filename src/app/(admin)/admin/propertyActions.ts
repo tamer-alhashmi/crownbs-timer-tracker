@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireFeatureAccess } from "@/lib/featureAccess";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { isPlatformAdmin } from "@/lib/roles";
+import { geocodePropertyAddress } from "@/lib/propertyGeocoding";
 
 export type PropertyRecord = {
   id: string;
@@ -60,8 +61,10 @@ async function validateProperty(supabase: Awaited<ReturnType<typeof requireAdmin
   const managerId = input.manager_id || null;
   if (!name || name.length > 120) throw new Error("Property name is required and must be 120 characters or fewer.");
   if (!location || location.length > 240) throw new Error("Property location is required and must be 240 characters or fewer.");
-  if ((input.latitude !== undefined && input.latitude !== null && (!Number.isFinite(input.latitude) || input.latitude < -90 || input.latitude > 90))
-    || (input.longitude !== undefined && input.longitude !== null && (!Number.isFinite(input.longitude) || input.longitude < -180 || input.longitude > 180))) {
+  const latitude = input.latitude ?? null;
+  const longitude = input.longitude ?? null;
+  if ((latitude !== null && (!Number.isFinite(latitude) || latitude < -90 || latitude > 90))
+    || (longitude !== null && (!Number.isFinite(longitude) || longitude < -180 || longitude > 180))) {
     throw new Error("Property coordinates must be valid numbers.");
   }
   const floors = [...new Set((input.floors_sections ?? []).map((floor) => floor.trim()).filter(Boolean))];
@@ -92,13 +95,62 @@ async function validateProperty(supabase: Awaited<ReturnType<typeof requireAdmin
       location,
       owner_id: ownerId,
       manager_id: managerId,
-      latitude: input.latitude ?? null,
-      longitude: input.longitude ?? null,
+      latitude,
+      longitude,
       floors_sections: floors,
       total_rooms: totalRooms,
     },
     rooms: input.rooms ?? [],
   };
+}
+
+async function resolveRequiredCoordinates(values: Awaited<ReturnType<typeof validateProperty>>["values"]) {
+  if (values.latitude !== null && values.longitude !== null) return values;
+  const coordinates = await geocodePropertyAddress(values.location);
+  if (!coordinates) {
+    throw new Error("We couldn't find coordinates for this address. Use the property's exact location or map picker.");
+  }
+  return { ...values, ...coordinates };
+}
+
+export async function resolvePropertyCoordinates(id: string) {
+  const supabase = await requireAdmin("edit");
+  if (!id) throw new Error("Property id is required.");
+  const { data: property, error } = await supabase.from("hotels")
+    .select("id, location, latitude, longitude")
+    .eq("id", id)
+    .is("archived_at", null)
+    .maybeSingle();
+  if (error || !property) throw new Error(error?.message ?? "Property was not found.");
+  if (property.latitude !== null && property.longitude !== null) {
+    return { latitude: property.latitude, longitude: property.longitude };
+  }
+  const coordinates = await geocodePropertyAddress(property.location ?? "");
+  if (!coordinates) {
+    throw new Error("We couldn't find coordinates for this address. Set the property's exact location using the map picker.");
+  }
+  const { data: updated, error: updateError } = await supabase.from("hotels")
+    .update(coordinates)
+    .eq("id", id)
+    .is("archived_at", null)
+    .or("latitude.is.null,longitude.is.null")
+    .select("id")
+    .maybeSingle();
+  if (updateError) throw new Error(updateError.message);
+  if (!updated) {
+    const { data: refreshed, error: refreshError } = await supabase.from("hotels")
+      .select("latitude, longitude")
+      .eq("id", id)
+      .is("archived_at", null)
+      .maybeSingle();
+    if (refreshError) throw new Error(refreshError.message);
+    if (refreshed?.latitude === null || refreshed?.longitude === null || !refreshed) {
+      throw new Error("Property was not found or its map location could not be saved.");
+    }
+    return { latitude: refreshed.latitude, longitude: refreshed.longitude };
+  }
+  revalidatePropertyViews();
+  return coordinates;
 }
 
 async function saveRooms(supabase: Awaited<ReturnType<typeof requireAdmin>>, hotelId: string, rooms: RoomSetupInput[]) {
@@ -178,7 +230,8 @@ function revalidatePropertyViews() {
 
 export async function createProperty(input: PropertyInput): Promise<PropertyRecord> {
   const supabase = await requireAdmin("create");
-  const { values, rooms } = await validateProperty(supabase, input);
+  const { values: rawValues, rooms } = await validateProperty(supabase, input);
+  const values = await resolveRequiredCoordinates(rawValues);
   const { data, error } = await supabase.from("hotels").insert(values).select(PROPERTY_COLUMNS).single();
   if (error || !data) throw new Error(error?.message ?? "Unable to create property.");
   await saveRooms(supabase, data.id, rooms);
@@ -192,7 +245,10 @@ export async function updateProperty(id: string, updates: PropertyInput & { is_a
   if (updates.is_active !== undefined && typeof updates.is_active !== "boolean") {
     throw new Error("Property active status must be true or false.");
   }
-  const { values, rooms } = await validateProperty(supabase, updates);
+  const { values: rawValues, rooms } = await validateProperty(supabase, updates);
+  const values = updates.is_active === undefined
+    ? await resolveRequiredCoordinates(rawValues)
+    : rawValues;
   const { data, error } = await supabase.from("hotels").update({
     ...values,
     ...(updates.is_active === undefined ? {} : { is_active: updates.is_active }),

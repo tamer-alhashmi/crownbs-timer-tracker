@@ -5,6 +5,7 @@ import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { FEATURE_KEYS, type FeatureKey, type FeaturePermission } from "./permissionConfig";
 import { requireFeatureAccess, type FeatureAction } from "@/lib/featureAccess";
 import { isPlatformAdmin, isSuperAdmin, isUserRole, normalizeUserRole, USER_ROLES, type UserRole } from "@/lib/roles";
+import { geocodePropertyAddress } from "@/lib/propertyGeocoding";
 
 export type ManagedUser = {
   id: string;
@@ -705,6 +706,47 @@ function validateProperty(input: PropertyInput) {
   return { name, location, latitude, longitude, roomCount: input.roomCount, floorCount: input.floorCount, managerId: input.managerId || null };
 }
 
+async function resolveRequiredPropertyCoordinates(values: ReturnType<typeof validateProperty>) {
+  if (values.latitude !== null && values.longitude !== null) return values;
+  const coordinates = await geocodePropertyAddress(values.location);
+  if (!coordinates) {
+    throw new Error("We couldn't find coordinates for this address. Use the map picker to set the property's exact location.");
+  }
+  return { ...values, ...coordinates };
+}
+
+export async function resolveOwnedPropertyCoordinates(propertyId: string): Promise<
+  { success: true; latitude: number; longitude: number } | { success: false; error: string }
+> {
+  try {
+    const context = await requireTenantAssetAccess("edit");
+    const hotel = context.visibleHotels.find((item) => item.id === propertyId);
+    if (!hotel) throw new Error("Property not found in your account.");
+    if (hotel.latitude !== null && hotel.longitude !== null) {
+      return { success: true, latitude: hotel.latitude, longitude: hotel.longitude };
+    }
+    const coordinates = await geocodePropertyAddress(hotel.location);
+    if (!coordinates) {
+      throw new Error("We couldn't find coordinates for this address. Use the map picker to set the property's exact location.");
+    }
+    let query = context.supabase.from("hotels")
+      .update({ latitude: coordinates.latitude, longitude: coordinates.longitude })
+      .eq("id", propertyId)
+      .is("archived_at", null)
+      .or("latitude.is.null,longitude.is.null")
+      .select("id");
+    if (!isPlatformAdmin(context.actor.role)) query = query.eq("owner_id", context.actor.userId);
+    const { data, error } = await query.maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) throw new Error("Property was not found or its location was already updated.");
+    revalidatePath("/settings");
+    return { success: true, ...coordinates };
+  } catch (error) {
+    console.error("Property coordinate recovery failed:", error);
+    return { success: false, error: errorMessage(error, "Unable to resolve this property's map location.") };
+  }
+}
+
 async function validateManagerAssignment(
   managerId: string | null,
   context: Awaited<ReturnType<typeof requireTenantAssetAccess>>
@@ -742,7 +784,7 @@ function validateService(input: ServiceInput) {
 export async function createOwnedProperty(input: PropertyInput): Promise<ActionResult> {
   try {
     const context = await requireTenantAssetAccess("create");
-    const values = validateProperty(input);
+    const values = await resolveRequiredPropertyCoordinates(validateProperty(input));
     await validateManagerAssignment(values.managerId, context);
     const { error } = await context.supabase.from("hotels").insert({
       name: values.name,
@@ -767,7 +809,7 @@ export async function createOwnedProperty(input: PropertyInput): Promise<ActionR
 export async function updateOwnedProperty(propertyId: string, input: PropertyInput): Promise<ActionResult> {
   try {
     const context = await requireTenantAssetAccess("edit");
-    const values = validateProperty(input);
+    const values = await resolveRequiredPropertyCoordinates(validateProperty(input));
     await validateManagerAssignment(values.managerId, context);
     if (!context.visibleHotels.some((hotel) => hotel.id === propertyId)) {
       throw new Error("Property not found in your account.");

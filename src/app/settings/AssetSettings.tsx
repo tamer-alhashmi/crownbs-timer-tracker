@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, type ReactNode } from "react";
+import { useEffect, useState, useTransition, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -13,6 +13,7 @@ import {
   archiveServiceConfiguration,
   createOwnedProperty,
   createServiceConfiguration,
+  resolveOwnedPropertyCoordinates,
   updateOwnedProperty,
   updateServiceConfiguration,
 } from "./actions";
@@ -122,6 +123,26 @@ export function PropertySettings({ properties, managers }: { properties: Propert
     form.reset({ name: property.name, location: property.location, roomCount: String(property.roomCount), floorCount: String(property.floorCount), managerId: property.managerId ?? "" });
     setMessage("");
   };
+  useEffect(() => {
+    if (!editing || (editing.latitude !== null && editing.longitude !== null)) return;
+    let cancelled = false;
+    startTransition(async () => {
+      const result = await resolveOwnedPropertyCoordinates(editing.id);
+      if (cancelled) return;
+      if (!result.success) {
+        const locationMessage = result.error;
+        setMessage(locationMessage);
+        showActionToast("error", locationMessage);
+        return;
+      }
+      if (form.getValues("location") !== editing.location) return;
+      setCoordinates({ latitude: result.latitude, longitude: result.longitude });
+      setEditing((current) => current?.id === editing.id
+        ? { ...current, latitude: result.latitude, longitude: result.longitude }
+        : current);
+    });
+    return () => { cancelled = true; };
+  }, [editing, form, startTransition]);
   const beginAdd = () => {
     setEditing(null);
     setAdding(true);
