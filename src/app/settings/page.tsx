@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
-import { Suspense } from "react";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, CreditCard } from "lucide-react";
 import { getSessionUser } from "@/lib/auth";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { SignOutButton } from "@/components/layout/SignOutButton";
@@ -12,7 +11,6 @@ import SystemAccessPanel from "./SystemAccessPanel";
 import PersonalProfileSettings from "./PersonalProfileSettings";
 import SettingsHub from "./SettingsHub";
 import { PropertySettings } from "./AssetSettings";
-import { OwnerBillingSkeleton, OwnerBillingWidget } from "@/components/dashboard/OwnerBillingWidget";
 import { isHousekeepingAdmin, isPlatformAdmin } from "@/lib/roles";
 
 export default async function SettingsPage() {
@@ -82,7 +80,18 @@ export default async function SettingsPage() {
       role={data.actorRole}
       user={{ name: data.actorName, email: data.actorEmail, avatarUrl: data.actorAvatarUrl }}
       utility={utility}
-      billing={user.role === "owner" ? <Suspense fallback={<OwnerBillingSkeleton />}><OwnerBillingWidget ownerId={user.userId} /></Suspense> : null}
+      billing={data.actorRole === "super_admin" ? (
+        <section className="rounded-2xl border border-line bg-surface p-6 shadow-sm">
+          <div className="flex items-start gap-4">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent/10 text-accent"><CreditCard className="h-5 w-5" /></span>
+            <div>
+              <h2 className="font-bold text-ink">Platform billing & settlements</h2>
+              <p className="mt-1 text-sm text-ink-secondary">Review tenant usage and manage monthly settlements from the platform billing hub.</p>
+              <Link href="/admin/tenant-accounts" className="mt-4 inline-flex min-h-11 items-center rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-hover">Open tenant billing</Link>
+            </div>
+          </div>
+        </section>
+      ) : null}
       profile={<PersonalProfileSettings fullName={profile?.full_name ?? user.email} email={profile?.email ?? user.email} phoneNumber={profile?.phone_number ?? null} avatarUrl={profile?.avatar_url ?? null} languagePreference={profile?.language_preference ?? "en"} role={user.role} {...emailSettings} />}
       users={<><UserSettingsClient actorRole={data.actorRole} hotels={data.hotels} users={data.users} />{isPlatformAdmin(data.actorRole) && <SystemAccessPanel users={data.users} permissions={data.permissions} />}</>}
       properties={<PropertySettings properties={data.properties} managers={data.managers} />}

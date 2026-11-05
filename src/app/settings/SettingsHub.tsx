@@ -33,7 +33,7 @@ function isTabVisible(id: Tab, role: UserRole) {
     (id === "payroll" && role === "cleaner") ||
     (id === "users" && ["super_admin", "admin", "owner", "manager"].includes(role)) ||
     (id === "properties" && ["super_admin", "admin", "owner"].includes(role)) ||
-    (id === "billing" && role === "owner");
+    (id === "billing" && role === "super_admin");
 }
 
 export default function SettingsHub({ role, user, utility, profile, billing, payroll, users, properties }: Props) {
@@ -71,7 +71,11 @@ export default function SettingsHub({ role, user, utility, profile, billing, pay
       if (requestedTab === "overview") {
         url.searchParams.set("tab", "profile");
         window.history.replaceState(window.history.state, "", url);
-      } else if (requestedTab && tabs.some(({ id }) => id === requestedTab && isTabVisible(id, role))) {
+      } else if (requestedTab === "billing" && role !== "super_admin") {
+        url.searchParams.set("tab", "profile");
+        window.history.replaceState(window.history.state, "", url);
+        setActiveTab("profile");
+      } else if (requestedTab && tabs.some(({ id }) => id === requestedTab && isTabVisible(id, role) && (id !== "billing" || Boolean(billing)))) {
         setActiveTab(requestedTab as Tab);
       }
       setRequestedHash(url.hash);
@@ -83,7 +87,7 @@ export default function SettingsHub({ role, user, utility, profile, billing, pay
       window.removeEventListener("help-center-navigate", syncFromUrl);
       window.removeEventListener("popstate", syncFromUrl);
     };
-  }, [role]);
+  }, [billing, role]);
   useEffect(() => {
     if (!requestedHash) return;
     let attempts = 0;
@@ -98,7 +102,13 @@ export default function SettingsHub({ role, user, utility, profile, billing, pay
     };
     window.requestAnimationFrame(scrollToPanel);
   }, [activeTab, requestedHash]);
-  const content: Record<Tab, ReactNode> = { profile, payroll: payroll ?? null, users, properties, billing: billing ?? null };
+  const content: Record<Tab, ReactNode> = {
+    profile,
+    payroll: payroll ?? null,
+    users,
+    properties,
+    billing: role === "super_admin" ? billing ?? null : null,
+  };
 
   const selectTab = (tab: Tab) => {
     setActiveTab(tab);
