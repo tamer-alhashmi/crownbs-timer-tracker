@@ -266,84 +266,84 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
   };
 
   return (
-    <section className="space-y-5 p-1 text-slate-900 sm:p-2">
+    <section className="space-y-5 p-1 text-ink sm:p-2">
       <div className="mx-auto max-w-7xl">
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md">
+        <div className="overflow-hidden rounded-2xl border border-line bg-surface shadow-sm transition-shadow hover:shadow-md">
           <button
             type="button"
             aria-expanded={isAccordionOpen}
             aria-controls="managed-user-form"
             onClick={toggleCreateUserForm}
-            className="flex min-h-20 w-full items-center justify-between gap-4 px-4 py-4 text-left transition hover:bg-slate-50 active:scale-[0.99] sm:px-6"
+            className="flex min-h-20 w-full items-center justify-between gap-4 px-4 py-4 text-left transition hover:bg-surface-secondary active:scale-[0.99] sm:px-6"
           >
             <span className="flex min-w-0 items-center gap-3">
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-sky-50 text-sky-700"><UserPlus className="h-5 w-5" /></span>
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent/10 text-accent"><UserPlus className="h-5 w-5" /></span>
               <span className="min-w-0">
-                <span className="block font-semibold text-slate-900">{editingId ? "Edit User" : "Add New User"}</span>
-                <span className="mt-0.5 block text-sm text-slate-500">{editingId ? "Update account details and property permissions" : "Create account, assign role, and set property permissions"}</span>
+                <span className="block font-semibold text-ink">{editingId ? "Edit User" : "Add New User"}</span>
+                <span className="mt-0.5 block text-sm text-ink-secondary">{editingId ? "Update account details and property permissions" : "Create account, assign role, and set property permissions"}</span>
               </span>
             </span>
-            <span className="shrink-0 text-slate-500">{isAccordionOpen ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}</span>
+            <span className="shrink-0 text-ink-secondary">{isAccordionOpen ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}</span>
           </button>
           <div id="managed-user-form" aria-hidden={!isAccordionOpen} inert={!isAccordionOpen} className={`overflow-hidden transition-all duration-300 ease-in-out ${isAccordionOpen ? "max-h-[1200px] opacity-100" : "max-h-0 opacity-0"}`}>
-            <form onSubmit={save} noValidate className="space-y-4 border-t border-slate-200 bg-slate-50 p-4 sm:p-6">
-              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="mb-4"><h3 className="font-semibold text-slate-900">Personal &amp; Access</h3><p className="mt-1 text-xs text-slate-500">Contact information and access role.</p></div>
+            <form onSubmit={save} noValidate className="space-y-4 border-t border-line bg-surface-secondary p-4 sm:p-6">
+              <section className="rounded-2xl border border-line bg-surface p-4 shadow-sm">
+                <div className="mb-4"><h3 className="font-semibold text-ink">Personal &amp; Access</h3><p className="mt-1 text-xs text-ink-secondary">Contact information and access role.</p></div>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                  <Field label="Full name" error={form.formState.errors.fullName?.message}><input {...form.register("fullName")} placeholder="Full name" autoComplete="name" className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" /></Field>
-                  <Field label="Email" error={form.formState.errors.email?.message}><input {...emailRegistration} onChange={(event) => { form.clearErrors("email"); void emailRegistration.onChange(event); }} type="email" placeholder="Email" autoComplete="email" aria-invalid={Boolean(form.formState.errors.email)} className={`mt-1 min-h-11 w-full rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-900 ${form.formState.errors.email ? "border-rose-500 focus:border-rose-500 focus:outline-rose-500" : "border-slate-200"}`} /></Field>
-                  <Field label="Phone number" error={form.formState.errors.phoneNumber?.message}><input {...form.register("phoneNumber")} type="tel" placeholder="Phone number" autoComplete="tel" className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" /></Field>
+                  <Field label="Full name" error={form.formState.errors.fullName?.message}><input {...form.register("fullName")} placeholder="Full name" autoComplete="name" className="mt-1 min-h-11 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm text-ink" /></Field>
+                  <Field label="Email" error={form.formState.errors.email?.message}><input {...emailRegistration} onChange={(event) => { form.clearErrors("email"); void emailRegistration.onChange(event); }} type="email" placeholder="Email" autoComplete="email" aria-invalid={Boolean(form.formState.errors.email)} className={`mt-1 min-h-11 w-full rounded-xl border bg-surface px-3 py-2.5 text-sm text-ink ${form.formState.errors.email ? "border-rose-500 focus:border-rose-500 focus:outline-rose-500" : "border-line"}`} /></Field>
+                  <Field label="Phone number" error={form.formState.errors.phoneNumber?.message}><input {...form.register("phoneNumber")} type="tel" placeholder="Phone number" autoComplete="tel" className="mt-1 min-h-11 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm text-ink" /></Field>
                 </div>
                 <div className="mt-4 max-w-md">
-                  <Field label="Role" error={form.formState.errors.role?.message}><select {...form.register("role")} className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900">{roles.map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}</select></Field>
+                  <Field label="Role" error={form.formState.errors.role?.message}><select {...form.register("role")} className="mt-1 min-h-11 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm text-ink">{roles.map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}</select></Field>
                 </div>
               </section>
 
-              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="mb-3"><h3 className="font-semibold text-slate-900">Property assignments</h3><p className="mt-1 text-xs text-slate-500">Select the properties this user can access and choose a primary property.</p></div>
+              <section className="rounded-2xl border border-line bg-surface p-4 shadow-sm">
+                <div className="mb-3"><h3 className="font-semibold text-ink">Property assignments</h3><p className="mt-1 text-xs text-ink-secondary">Select the properties this user can access and choose a primary property.</p></div>
                 <div className="mb-3 flex flex-wrap gap-2">
                   {selectedHotelIds.length ? selectedHotelIds.map((hotelId) => {
                     const hotel = hotels.find((item) => item.id === hotelId);
                     if (!hotel) return null;
-                    return <span key={hotel.id} className="inline-flex max-w-full items-center gap-1 rounded-full bg-sky-50 py-1 pl-3 pr-1 text-xs font-medium text-sky-800">
+                    return <span key={hotel.id} className="inline-flex max-w-full items-center gap-1 rounded-full bg-accent/10 py-1 pl-3 pr-1 text-xs font-medium text-accent">
                       <span className="max-w-56 truncate">{hotel.name}</span>
-                      <button type="button" aria-label={`Remove ${hotel.name}`} onClick={() => toggleHotelSelection(hotel.id)} className="grid h-6 w-6 shrink-0 place-items-center rounded-full hover:bg-sky-100"><X className="h-3.5 w-3.5" /></button>
+                      <button type="button" aria-label={`Remove ${hotel.name}`} onClick={() => toggleHotelSelection(hotel.id)} className="grid h-6 w-6 shrink-0 place-items-center rounded-full hover:bg-accent/10"><X className="h-3.5 w-3.5" /></button>
                     </span>;
-                  }) : <span className="text-xs text-slate-500">No properties selected.</span>}
+                  }) : <span className="text-xs text-ink-secondary">No properties selected.</span>}
                 </div>
                 <div className="mb-2 flex items-center justify-between gap-3">
-                  <span className="text-xs font-semibold text-slate-600">{selectedHotelIds.length} of {hotels.length} selected</span>
+                  <span className="text-xs font-semibold text-ink-secondary">{selectedHotelIds.length} of {hotels.length} selected</span>
                   <div className="flex gap-3">
-                    <button type="button" onClick={() => setHotelSelection(hotels.map((hotel) => hotel.id))} className="text-xs font-semibold text-sky-800 hover:text-sky-950">Select All</button>
-                    <button type="button" onClick={() => setHotelSelection([])} className="text-xs font-semibold text-slate-600 hover:text-slate-900">Clear All</button>
+                    <button type="button" onClick={() => setHotelSelection(hotels.map((hotel) => hotel.id))} className="text-xs font-semibold text-accent hover:text-ink">Select All</button>
+                    <button type="button" onClick={() => setHotelSelection([])} className="text-xs font-semibold text-ink-secondary hover:text-ink">Clear All</button>
                   </div>
                 </div>
-                <div className="max-h-52 overflow-y-auto rounded-xl border border-slate-200 p-3">
-                  <label className="sticky top-0 z-10 mb-2 block bg-white pb-2">
+                <div className="max-h-52 overflow-y-auto rounded-xl border border-line p-3">
+                  <label className="sticky top-0 z-10 mb-2 block bg-surface pb-2">
                     <span className="sr-only">Filter properties</span>
-                    <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                    <input value={propertySearch} onChange={(event) => setPropertySearch(event.target.value)} placeholder="Filter properties..." className="min-h-10 w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-900" />
+                    <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-ink-muted" />
+                    <input value={propertySearch} onChange={(event) => setPropertySearch(event.target.value)} placeholder="Filter properties..." className="min-h-10 w-full rounded-lg border border-line bg-surface py-2 pl-9 pr-3 text-sm text-ink" />
                   </label>
                   <div className="space-y-1">
                     {hotels.filter((hotel) => hotel.name.toLowerCase().includes(propertySearch.trim().toLowerCase())).map((hotel) => {
                       const assigned = selectedHotelIds.includes(hotel.id);
-                      return <div key={hotel.id} className={`flex items-center gap-3 rounded-lg px-3 py-2 ${assigned ? "bg-sky-50" : "hover:bg-slate-50"}`}>
-                        <input id={`assign-${hotel.id}`} type="checkbox" checked={assigned} onChange={() => toggleHotelSelection(hotel.id)} className="h-4 w-4 rounded border-slate-300 text-sky-700 focus:ring-sky-600" />
-                        <label htmlFor={`assign-${hotel.id}`} className="min-w-0 flex-1 cursor-pointer truncate text-sm text-slate-800">{hotel.name}</label>
-                        {assigned && <label className="flex shrink-0 items-center gap-1 text-xs font-medium text-sky-800"><input type="radio" name="primaryHotel" checked={primaryHotelId === hotel.id} onChange={() => form.setValue("primaryHotelId", hotel.id, { shouldDirty: true, shouldValidate: true })} aria-label={`${hotel.name} is primary property`} />Primary</label>}
-                        {assigned && <Check className="h-4 w-4 shrink-0 text-sky-700" aria-hidden="true" />}
+                      return <div key={hotel.id} className={`flex items-center gap-3 rounded-lg px-3 py-2 ${assigned ? "bg-accent/10" : "hover:bg-surface-secondary"}`}>
+                        <input id={`assign-${hotel.id}`} type="checkbox" checked={assigned} onChange={() => toggleHotelSelection(hotel.id)} className="h-4 w-4 rounded border-line text-accent focus:ring-accent" />
+                        <label htmlFor={`assign-${hotel.id}`} className="min-w-0 flex-1 cursor-pointer truncate text-sm text-ink">{hotel.name}</label>
+                        {assigned && <label className="flex shrink-0 items-center gap-1 text-xs font-medium text-accent"><input type="radio" name="primaryHotel" checked={primaryHotelId === hotel.id} onChange={() => form.setValue("primaryHotelId", hotel.id, { shouldDirty: true, shouldValidate: true })} aria-label={`${hotel.name} is primary property`} />Primary</label>}
+                        {assigned && <Check className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />}
                       </div>;
                     })}
-                    {hotels.filter((hotel) => hotel.name.toLowerCase().includes(propertySearch.trim().toLowerCase())).length === 0 && <p className="px-3 py-6 text-center text-sm text-slate-500">No properties match your filter.</p>}
+                    {hotels.filter((hotel) => hotel.name.toLowerCase().includes(propertySearch.trim().toLowerCase())).length === 0 && <p className="px-3 py-6 text-center text-sm text-ink-secondary">No properties match your filter.</p>}
                   </div>
                 </div>
               </section>
 
-              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="mb-4"><h3 className="font-semibold text-slate-900">Credentials</h3><p className="mt-1 text-xs text-slate-500">Set a PIN or password for account access.</p></div>
+              <section className="rounded-2xl border border-line bg-surface p-4 shadow-sm">
+                <div className="mb-4"><h3 className="font-semibold text-ink">Credentials</h3><p className="mt-1 text-xs text-ink-secondary">Set a PIN or password for account access.</p></div>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <Field label="4-digit PIN" error={form.formState.errors.pinCode?.message}><input {...form.register("pinCode")} inputMode="numeric" maxLength={4} placeholder={editingId ? "Leave blank to keep current PIN" : "PIN"} className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" />{editingId && <span className="mt-1 block text-xs text-slate-500">{editingUser?.hasPin ? "PIN is set. Enter a new PIN to replace it." : "No PIN is currently set."}</span>}</Field>
-                  <Field label="Password" error={form.formState.errors.password?.message}><input {...form.register("password")} type="password" placeholder={editingId ? "New password (optional)" : "Password (optional with PIN)"} autoComplete="new-password" className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900" /></Field>
+                  <Field label="4-digit PIN" error={form.formState.errors.pinCode?.message}><input {...form.register("pinCode")} inputMode="numeric" maxLength={4} placeholder={editingId ? "Leave blank to keep current PIN" : "PIN"} className="mt-1 min-h-11 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm text-ink" />{editingId && <span className="mt-1 block text-xs text-ink-secondary">{editingUser?.hasPin ? "PIN is set. Enter a new PIN to replace it." : "No PIN is currently set."}</span>}</Field>
+                  <Field label="Password" error={form.formState.errors.password?.message}><input {...form.register("password")} type="password" placeholder={editingId ? "New password (optional)" : "Password (optional with PIN)"} autoComplete="new-password" className="mt-1 min-h-11 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm text-ink" /></Field>
                 </div>
                 {editingId && editingUser?.hasPin && <button type="button" disabled={isPending} onClick={() => startTransition(async () => {
                   try {
@@ -359,8 +359,8 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
               </section>
               {message && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{message}</p>}
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                <button type="button" onClick={closeUserForm} disabled={isPending} className="min-h-11 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-50">Cancel</button>
-                <button type="submit" disabled={isPending} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+                <button type="button" onClick={closeUserForm} disabled={isPending} className="min-h-11 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-semibold text-ink-secondary disabled:opacity-50">Cancel</button>
+                <button type="submit" disabled={isPending} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-ink px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
                   {isPending ? <><Loader2 className="h-4 w-4 animate-spin" />{editingId ? "Saving..." : "Creating..."}</> : editingId ? "Save changes" : "Create user"}
                 </button>
               </div>
@@ -368,74 +368,74 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
           </div>
         </div>
 
-        <section id="managed-users" className="scroll-mt-24 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-6">
+        <section id="managed-users" className="scroll-mt-24 rounded-2xl border border-line/80 bg-surface p-4 shadow-sm sm:p-6">
           <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div><h2 className="text-lg font-bold text-slate-900">Managed users</h2><p className="text-sm text-slate-500">{filteredUsers.length} matching {users.length} total accounts</p></div>
+            <div><h2 className="text-lg font-bold text-ink">Managed users</h2><p className="text-sm text-ink-secondary">{filteredUsers.length} matching {users.length} total accounts</p></div>
           </div>
           <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <p className="text-sm font-medium text-slate-600">Search and manage user access</p>
+            <p className="text-sm font-medium text-ink-secondary">Search and manage user access</p>
             <label className="relative block w-full md:max-w-sm">
               <span className="sr-only">Search users</span>
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search name, email, phone, or role" className="min-h-11 w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm text-slate-900" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" />
+              <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search name, email, phone, or role" className="min-h-11 w-full rounded-xl border border-line bg-surface-secondary py-2.5 pl-9 pr-3 text-sm text-ink" />
             </label>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             {visibleUsers.map((user) => (
-              <article key={user.id} className="rounded-xl border border-slate-200 p-4">
+              <article key={user.id} className="rounded-xl border border-line p-4">
                 <div className="flex min-w-0 items-start gap-3">
-                  <UserAvatar name={user.full_name} avatarUrl={user.avatar_url} role={user.role} className="h-11 w-11 shrink-0 bg-sky-100 text-sm font-semibold text-sky-800" />
+                  <UserAvatar name={user.full_name} avatarUrl={user.avatar_url} role={user.role} className="h-11 w-11 shrink-0 bg-accent/10 text-sm font-semibold text-accent" />
                   <div className="min-w-0 flex-1">
-                    <p className="break-words font-semibold text-slate-900">{user.full_name}</p>
-                    <p className="break-all text-xs text-slate-500">{user.email}</p>
+                    <p className="break-words font-semibold text-ink">{user.full_name}</p>
+                    <p className="break-all text-xs text-ink-secondary">{user.email}</p>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{ROLE_LABELS[user.role]}</span>
+                      <span className="rounded-full bg-surface-secondary px-2.5 py-1 text-xs font-semibold text-ink-secondary">{ROLE_LABELS[user.role]}</span>
                       <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${user.is_active ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>{user.is_active ? "Active" : "Deactivated"}</span>
                       <LiveStatusIndicator isClockedIn={user.is_clocked_in ?? false} className="text-xs" />
                     </div>
                   </div>
                 </div>
                 <div className="mt-4">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Assigned properties</p>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-secondary">Assigned properties</p>
                   <div className="flex flex-wrap gap-1.5">
                     {user.assignedHotels.length ? user.assignedHotels.map((hotel) => (
-                      <span key={hotel.id} className="inline-flex max-w-full rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-800">{hotel.name}</span>
-                    )) : <span className="text-xs text-slate-500">No assigned property</span>}
+                      <span key={hotel.id} className="inline-flex max-w-full rounded-full bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent">{hotel.name}</span>
+                    )) : <span className="text-xs text-ink-secondary">No assigned property</span>}
                   </div>
                 </div>
-                {user.phone_number && <p className="mt-3 text-sm text-slate-600">{user.phone_number}</p>}
+                {user.phone_number && <p className="mt-3 text-sm text-ink-secondary">{user.phone_number}</p>}
                 <div className="mt-4 space-y-2">
-                  <button type="button" onClick={() => { setAssigningId(assigningId === user.id ? null : user.id); setAssignmentHotelId(""); }} className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-lg border border-sky-200 bg-white px-3 py-2 text-sm font-semibold text-sky-800"><Plus className="h-4 w-4" /> Assign hotel</button>
-                  {assigningId === user.id && <div className="flex flex-col gap-2 rounded-xl border border-sky-100 bg-sky-50 p-3">
-                    <select value={assignmentHotelId} onChange={(event) => setAssignmentHotelId(event.target.value)} className="min-h-11 w-full min-w-0 rounded-lg border border-sky-200 bg-white px-3 text-sm text-slate-900"><option value="">Select hotel</option>{hotels.filter((hotel) => !user.assignedHotels.some((assigned) => assigned.id === hotel.id)).map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select>
-                    <button type="button" onClick={() => assignHotel(user.id)} disabled={isPending} className="min-h-11 w-full rounded-lg bg-sky-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">Assign</button>
+                  <button type="button" onClick={() => { setAssigningId(assigningId === user.id ? null : user.id); setAssignmentHotelId(""); }} className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-lg border border-accent/30 bg-surface px-3 py-2 text-sm font-semibold text-accent"><Plus className="h-4 w-4" /> Assign hotel</button>
+                  {assigningId === user.id && <div className="flex flex-col gap-2 rounded-xl border border-accent/30 bg-accent/10 p-3">
+                    <select value={assignmentHotelId} onChange={(event) => setAssignmentHotelId(event.target.value)} className="min-h-11 w-full min-w-0 rounded-lg border border-accent/30 bg-surface px-3 text-sm text-ink"><option value="">Select hotel</option>{hotels.filter((hotel) => !user.assignedHotels.some((assigned) => assigned.id === hotel.id)).map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select>
+                    <button type="button" onClick={() => assignHotel(user.id)} disabled={isPending} className="min-h-11 w-full rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">Assign</button>
                   </div>}
                   <div className="grid grid-cols-2 gap-2">
-                    {user.assignedHotels.length > 0 && <button type="button" onClick={() => { setUnlinkTarget({ userId: user.id, userName: user.full_name, hotels: user.assignedHotels }); setUnlinkHotelId(user.assignedHotels[0].id); }} className="inline-flex min-h-11 items-center justify-center gap-1 rounded-lg border border-amber-200 bg-white px-2 py-2 text-xs font-semibold text-amber-800"><ShieldAlert className="h-3.5 w-3.5" /> Unlink</button>}
-                    <button type="button" onClick={() => edit(user)} className="inline-flex min-h-11 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-700"><Pencil className="h-3.5 w-3.5" /> Edit</button>
+                    {user.assignedHotels.length > 0 && <button type="button" onClick={() => { setUnlinkTarget({ userId: user.id, userName: user.full_name, hotels: user.assignedHotels }); setUnlinkHotelId(user.assignedHotels[0].id); }} className="inline-flex min-h-11 items-center justify-center gap-1 rounded-lg border border-amber-200 bg-surface px-2 py-2 text-xs font-semibold text-amber-800"><ShieldAlert className="h-3.5 w-3.5" /> Unlink</button>}
+                    <button type="button" onClick={() => edit(user)} className="inline-flex min-h-11 items-center justify-center gap-1 rounded-lg border border-line bg-surface px-2 py-2 text-xs font-semibold text-ink-secondary"><Pencil className="h-3.5 w-3.5" /> Edit</button>
                   </div>
-                  {actorRole === "super_admin" && user.is_active && <button type="button" onClick={() => deactivate(user)} disabled={isPending} className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 disabled:opacity-50"><UserX className="h-4 w-4" /> Deactivate</button>}
+                  {actorRole === "super_admin" && user.is_active && <button type="button" onClick={() => deactivate(user)} disabled={isPending} className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-lg border border-red-200 bg-surface px-3 py-2 text-sm font-semibold text-red-700 disabled:opacity-50"><UserX className="h-4 w-4" /> Deactivate</button>}
                 </div>
               </article>
             ))}
-            {visibleUsers.length === 0 && <p className="rounded-xl border border-slate-200 px-4 py-8 text-center text-sm text-slate-500">No users match your search.</p>}
+            {visibleUsers.length === 0 && <p className="rounded-xl border border-line px-4 py-8 text-center text-sm text-ink-secondary">No users match your search.</p>}
           </div>
-          <div className="mt-5 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-slate-500">Showing {visibleUsers.length ? (currentPage - 1) * PAGE_SIZE + 1 : 0}-{Math.min(currentPage * PAGE_SIZE, filteredUsers.length)} of {filteredUsers.length} accounts</p>
+          <div className="mt-5 flex flex-col gap-3 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-ink-secondary">Showing {visibleUsers.length ? (currentPage - 1) * PAGE_SIZE + 1 : 0}-{Math.min(currentPage * PAGE_SIZE, filteredUsers.length)} of {filteredUsers.length} accounts</p>
             <div className="flex items-center gap-1">
-              <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={currentPage === 1} aria-label="Previous page" className="flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 text-slate-600 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
-              <span className="px-2 text-sm text-slate-600">Page {currentPage} of {pageCount}</span>
-              <button type="button" onClick={() => setPage((current) => Math.min(pageCount, current + 1))} disabled={currentPage === pageCount} aria-label="Next page" className="flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 text-slate-600 disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
+              <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={currentPage === 1} aria-label="Previous page" className="flex h-11 w-11 items-center justify-center rounded-lg border border-line text-ink-secondary disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
+              <span className="px-2 text-sm text-ink-secondary">Page {currentPage} of {pageCount}</span>
+              <button type="button" onClick={() => setPage((current) => Math.min(pageCount, current + 1))} disabled={currentPage === pageCount} aria-label="Next page" className="flex h-11 w-11 items-center justify-center rounded-lg border border-line text-ink-secondary disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
             </div>
           </div>
         </section>
-        {message && !isAccordionOpen && <p role="status" className="mt-4 rounded-xl bg-slate-900 px-3 py-2 text-sm text-white">{message}</p>}
-        {unlinkTarget && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-labelledby="unlink-title"><div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"><div className="flex items-start gap-3"><div className="rounded-xl bg-amber-100 p-2 text-amber-700"><ShieldAlert className="h-5 w-5" /></div><div className="min-w-0"><h2 id="unlink-title" className="text-lg font-bold text-slate-900">Unlink hotel?</h2><p className="mt-2 text-sm leading-6 text-slate-600">Are you sure you want to unlink this hotel from <strong>{unlinkTarget.userName}</strong>?</p><select value={unlinkHotelId} onChange={(event) => setUnlinkHotelId(event.target.value)} className="mt-3 min-h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900">{unlinkTarget.hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select><p className="mt-2 text-xs text-slate-500">This changes the user&apos;s property access but does not delete the hotel or work history.</p></div></div><div className="mt-6 flex justify-end gap-2"><button type="button" onClick={() => setUnlinkTarget(null)} disabled={isPending} className="min-h-11 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700">Cancel</button><button type="button" onClick={confirmUnlink} disabled={isPending} className="min-h-11 rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{isPending ? "Unlinking..." : "Confirm unlink"}</button></div></div></div>}
+        {message && !isAccordionOpen && <p role="status" className="mt-4 rounded-xl bg-ink px-3 py-2 text-sm text-white">{message}</p>}
+        {unlinkTarget && <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4" role="dialog" aria-modal="true" aria-labelledby="unlink-title"><div className="w-full max-w-md rounded-2xl bg-surface p-6 shadow-2xl"><div className="flex items-start gap-3"><div className="rounded-xl bg-amber-100 p-2 text-amber-700"><ShieldAlert className="h-5 w-5" /></div><div className="min-w-0"><h2 id="unlink-title" className="text-lg font-bold text-ink">Unlink hotel?</h2><p className="mt-2 text-sm leading-6 text-ink-secondary">Are you sure you want to unlink this hotel from <strong>{unlinkTarget.userName}</strong>?</p><select value={unlinkHotelId} onChange={(event) => setUnlinkHotelId(event.target.value)} className="mt-3 min-h-11 w-full rounded-xl border border-line bg-surface-secondary px-3 py-2.5 text-sm text-ink">{unlinkTarget.hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select><p className="mt-2 text-xs text-ink-secondary">This changes the user&apos;s property access but does not delete the hotel or work history.</p></div></div><div className="mt-6 flex justify-end gap-2"><button type="button" onClick={() => setUnlinkTarget(null)} disabled={isPending} className="min-h-11 rounded-xl border border-line px-4 py-2.5 text-sm font-semibold text-ink-secondary">Cancel</button><button type="button" onClick={confirmUnlink} disabled={isPending} className="min-h-11 rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{isPending ? "Unlinking..." : "Confirm unlink"}</button></div></div></div>}
       </div>
     </section>
   );
 }
 
 function Field({ label, error, children }: { label: string; error?: string; children: ReactNode }) {
-  return <label className="block text-sm font-medium text-slate-700">{label}{children}{error && <span role="alert" className="mt-1 block text-xs text-rose-700">{error}</span>}</label>;
+  return <label className="block text-sm font-medium text-ink-secondary">{label}{children}{error && <span role="alert" className="mt-1 block text-xs text-rose-700">{error}</span>}</label>;
 }

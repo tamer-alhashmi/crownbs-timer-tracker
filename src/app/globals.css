@@ -1339,24 +1339,9 @@
     }
   }
 }
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-}
 html {
   min-height: 100%;
-  background-color: #0f172a;
+  background-color: var(--canvas);
   padding-top: env(safe-area-inset-top, 0px);
 }
 .chat-panel {
@@ -1793,15 +1778,22 @@ a[href]:active {
 }
 
 :root {
-  --canvas: #f6f7f9;
-  --surface: #fdfdfe;
-  --surface-2: #f1f3f6;
-  --line: #e3e7ed;
-  --ink: #1b2230;
-  --ink-secondary: #4a5568;
-  --brand: #5b4fe0;
-  --brand-hover: #4a3fc7;
+  --canvas: #f8fafc;
+  --surface: #ffffff;
+  --surface-secondary: #f1f5f9;
+  --surface-elevated: #ffffff;
+  --border: #e2e8f0;
+  --border-focus: #5b4fe0;
+  --ink: #0f172a;
+  --ink-secondary: #475569;
+  --ink-muted: #94a3b8;
+  --accent: #5b4fe0;
+  --accent-hover: #4a3fc7;
   --brand-soft: #f1f0fe;
+  --surface-2: var(--surface-secondary);
+  --line: var(--border);
+  --brand: var(--accent);
+  --brand-hover: var(--accent-hover);
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
@@ -1809,20 +1801,50 @@ a[href]:active {
   color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --canvas: #0f1217;
-    --surface: #161a21;
-    --surface-2: #1c212a;
-    --line: #2a3140;
-    --ink: #e6e9ef;
-    --ink-secondary: #a9b2c1;
-    --brand: #8d84ff;
-    --brand-hover: #a49dff;
-    --brand-soft: #262342;
-    color-scheme: dark;
-  }
+:root[data-theme="dark"],
+:root.dark,
+.dark {
+  --canvas: #0f1217;
+  --surface: #161a21;
+  --surface-secondary: #1e232d;
+  --surface-elevated: #222834;
+  --border: #2a3140;
+  --border-focus: #6c5ce7;
+  --ink: #f8fafc;
+  --ink-secondary: #94a3b8;
+  --ink-muted: #64748b;
+  --accent: #6c5ce7;
+  --accent-hover: #5b4fe0;
+  --brand-soft: #282443;
+  color-scheme: dark;
 }
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-secondary: var(--surface-secondary);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-line: var(--border);
+  --color-border-focus: var(--border-focus);
+  --color-ink: var(--ink);
+  --color-ink-secondary: var(--ink-secondary);
+  --color-ink-muted: var(--ink-muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+}
+
+.bg-canvas { background-color: var(--canvas); }
+.bg-surface { background-color: var(--surface); }
+.bg-surface-secondary { background-color: var(--surface-secondary); }
+.bg-surface-elevated { background-color: var(--surface-elevated); }
+.border-line { border-color: var(--border); }
+.border-accent { border-color: var(--accent); }
+.text-ink { color: var(--ink); }
+.text-ink-secondary { color: var(--ink-secondary); }
+.text-ink-muted { color: var(--ink-muted); }
+.text-accent { color: var(--accent); }
+.focus-accent:focus { border-color: var(--accent); outline: 1px solid var(--accent); }
+.theme-workspace { background-color: var(--canvas); color: var(--ink); }
 
 .brand-accent {
   background-color: var(--brand);
@@ -1895,43 +1917,114 @@ body {
   color: var(--ink);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) body {
-    background-color: var(--canvas);
-    color: var(--ink);
-  }
+:root[data-theme="dark"] body,
+:root.dark body {
+  background-color: var(--canvas);
+  color: var(--ink);
+}
 
-  :root:not([data-theme="light"]) .enterprise-dashboard .bg-white {
-    background-color: var(--surface);
-  }
+:root[data-theme="dark"] .theme-workspace .bg-white,
+:root.dark .theme-workspace .bg-white {
+  background-color: var(--surface);
+}
 
-  :root:not([data-theme="light"]) .enterprise-dashboard .bg-slate-50,
-  :root:not([data-theme="light"]) .enterprise-dashboard .bg-slate-100 {
-    background-color: var(--surface-2);
-  }
+:root[data-theme="dark"] .theme-workspace [class~="bg-white/95"],
+:root[data-theme="dark"] .theme-workspace [class~="bg-white/90"],
+:root.dark .theme-workspace [class~="bg-white/95"],
+:root.dark .theme-workspace [class~="bg-white/90"] {
+  background-color: color-mix(in srgb, var(--surface) 95%, transparent);
+}
 
-  :root:not([data-theme="light"]) .enterprise-dashboard .text-slate-900,
-  :root:not([data-theme="light"]) .enterprise-dashboard .text-slate-950,
-  :root:not([data-theme="light"]) .enterprise-dashboard .text-slate-800 {
-    color: var(--ink);
-  }
+:root[data-theme="dark"] .theme-workspace [class~="bg-slate-50/60"],
+:root[data-theme="dark"] .theme-workspace [class~="bg-slate-50/70"],
+:root[data-theme="dark"] .theme-workspace [class~="bg-slate-50/80"],
+:root.dark .theme-workspace [class~="bg-slate-50/60"],
+:root.dark .theme-workspace [class~="bg-slate-50/70"],
+:root.dark .theme-workspace [class~="bg-slate-50/80"] {
+  background-color: var(--surface-secondary);
+}
 
-  :root:not([data-theme="light"]) .enterprise-dashboard .text-slate-700,
-  :root:not([data-theme="light"]) .enterprise-dashboard .text-slate-600,
-  :root:not([data-theme="light"]) .enterprise-dashboard .text-slate-500 {
-    color: var(--ink-secondary);
-  }
+:root[data-theme="dark"] .theme-workspace .bg-slate-50,
+:root[data-theme="dark"] .theme-workspace .bg-slate-100,
+:root.dark .theme-workspace .bg-slate-50,
+:root.dark .theme-workspace .bg-slate-100 {
+  background-color: var(--surface-secondary);
+}
 
-  :root:not([data-theme="light"]) .enterprise-dashboard .border-slate-100,
-  :root:not([data-theme="light"]) .enterprise-dashboard .border-slate-200,
-  :root:not([data-theme="light"]) .enterprise-dashboard .ring-slate-200 {
-    border-color: var(--line);
-  }
+:root[data-theme="dark"] .theme-workspace .text-slate-950,
+:root[data-theme="dark"] .theme-workspace .text-slate-900,
+:root[data-theme="dark"] .theme-workspace .text-slate-800,
+:root.dark .theme-workspace .text-slate-950,
+:root.dark .theme-workspace .text-slate-900,
+:root.dark .theme-workspace .text-slate-800 {
+  color: var(--ink);
+}
 
-  :root:not([data-theme="light"]) .enterprise-dashboard .hover\:bg-slate-50:hover,
-  :root:not([data-theme="light"]) .enterprise-dashboard .hover\:bg-slate-100:hover {
-    background-color: var(--surface-2);
-  }
+:root[data-theme="dark"] .theme-workspace .text-slate-700,
+:root[data-theme="dark"] .theme-workspace .text-slate-600,
+:root[data-theme="dark"] .theme-workspace .text-slate-500,
+:root.dark .theme-workspace .text-slate-700,
+:root.dark .theme-workspace .text-slate-600,
+:root.dark .theme-workspace .text-slate-500 {
+  color: var(--ink-secondary);
+}
+
+:root[data-theme="dark"] .theme-workspace .border-slate-100,
+:root[data-theme="dark"] .theme-workspace .border-slate-200,
+:root[data-theme="dark"] .theme-workspace .ring-slate-200,
+:root.dark .theme-workspace .border-slate-100,
+:root.dark .theme-workspace .border-slate-200,
+:root.dark .theme-workspace .ring-slate-200 {
+  border-color: var(--border);
+}
+
+:root[data-theme="dark"] .theme-workspace .hover\:bg-slate-50:hover,
+:root[data-theme="dark"] .theme-workspace .hover\:bg-slate-100:hover,
+:root.dark .theme-workspace .hover\:bg-slate-50:hover,
+:root.dark .theme-workspace .hover\:bg-slate-100:hover {
+  background-color: var(--surface-secondary);
+}
+
+.theme-workspace input:not([type="checkbox"]):not([type="radio"]),
+.theme-workspace select,
+.theme-workspace textarea {
+  border-color: var(--border);
+  background-color: var(--surface-secondary);
+  color: var(--ink);
+}
+
+.theme-workspace input::placeholder,
+.theme-workspace textarea::placeholder {
+  color: var(--ink-muted);
+}
+
+.theme-workspace input:focus,
+.theme-workspace select:focus,
+.theme-workspace textarea:focus {
+  border-color: var(--accent);
+  outline-color: var(--accent);
+}
+
+.theme-workspace .selectable-card[aria-pressed="true"],
+.theme-workspace .selectable-card[aria-selected="true"] {
+  border-color: var(--accent);
+  background-color: var(--surface-secondary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent);
+  color: var(--ink);
+}
+
+.payroll-disclaimer {
+  border: 1px solid rgb(217 119 6 / 0.25);
+  border-radius: 0.75rem;
+  background: rgb(245 158 11 / 0.1);
+  color: #713f12;
+  padding: 0.75rem 1rem;
+}
+
+:root[data-theme="dark"] .payroll-disclaimer,
+:root.dark .payroll-disclaimer {
+  border-color: rgb(245 158 11 / 0.2);
+  color: #fde68a;
 }
 
 .workspace-table-scroll {
@@ -2046,46 +2139,13 @@ body {
   padding-bottom: var(--safe-bottom);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .cleaner-dashboard {
-    background-color: var(--canvas);
-    color: var(--ink);
-  }
-
-  :root:not([data-theme="light"]) .cleaner-dashboard .bg-white {
-    background-color: var(--surface);
-  }
-
-  :root:not([data-theme="light"]) .cleaner-dashboard .bg-slate-50,
-  :root:not([data-theme="light"]) .cleaner-dashboard .bg-slate-100 {
-    background-color: var(--surface-2);
-  }
-
-  :root:not([data-theme="light"]) .cleaner-dashboard .text-slate-900,
-  :root:not([data-theme="light"]) .cleaner-dashboard .text-slate-800 {
-    color: var(--ink);
-  }
-
-  :root:not([data-theme="light"]) .cleaner-dashboard .text-slate-700,
-  :root:not([data-theme="light"]) .cleaner-dashboard .text-slate-600,
-  :root:not([data-theme="light"]) .cleaner-dashboard .text-slate-500 {
-    color: var(--ink-secondary);
-  }
-
-  :root:not([data-theme="light"]) .cleaner-dashboard .border-slate-100,
-  :root:not([data-theme="light"]) .cleaner-dashboard .border-slate-200,
-  :root:not([data-theme="light"]) .cleaner-dashboard .ring-slate-200 {
-    border-color: var(--line);
-  }
+:root[data-theme="dark"] .mobile-workspace-nav,
+:root.dark .mobile-workspace-nav {
+  border-color: var(--border);
+  background-color: var(--surface);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .mobile-workspace-nav {
-    border-color: var(--line);
-    background-color: var(--surface);
-  }
-
-  :root:not([data-theme="light"]) .mobile-workspace-nav .nav-inactive {
-    color: var(--ink-secondary);
-  }
+:root[data-theme="dark"] .mobile-workspace-nav .nav-inactive,
+:root.dark .mobile-workspace-nav .nav-inactive {
+  color: var(--ink-secondary);
 }

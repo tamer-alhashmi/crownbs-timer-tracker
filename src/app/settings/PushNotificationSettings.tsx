@@ -146,13 +146,13 @@ export function PushNotificationSettings({ publicKey }: Props) {
   };
 
   return (
-    <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+    <section className="mt-5 rounded-2xl border border-line bg-surface p-4 sm:p-5">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-start gap-3">
           <span className="rounded-xl bg-violet-50 p-2 text-violet-700"><Smartphone className="h-5 w-5" /></span>
           <div>
-            <h3 className="font-bold text-slate-950">Instant task alerts</h3>
-            <p className="mt-1 text-sm leading-5 text-slate-600">Receive task assignments on this device, including lock-screen alerts where supported.</p>
+            <h3 className="font-bold text-ink">Instant task alerts</h3>
+            <p className="mt-1 text-sm leading-5 text-ink-secondary">Receive task assignments on this device, including lock-screen alerts where supported.</p>
           </div>
         </div>
         <button
@@ -162,9 +162,9 @@ export function PushNotificationSettings({ publicKey }: Props) {
           aria-label="Instant task alerts"
           disabled={busy || permission === "denied" || permission === "unsupported" || (!publicKey && !enabled)}
           onClick={() => void togglePush()}
-          className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-40 ${enabled && permission === "granted" ? "bg-sky-700" : "bg-slate-300"}`}
+          className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-40 ${enabled && permission === "granted" ? "bg-accent" : "bg-surface-secondary"}`}
         >
-          {busy ? <LoaderCircle className="absolute left-1/2 h-4 w-4 -translate-x-1/2 animate-spin text-white" /> : <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${enabled && permission === "granted" ? "translate-x-6" : "translate-x-1"}`} />}
+          {busy ? <LoaderCircle className="absolute left-1/2 h-4 w-4 -translate-x-1/2 animate-spin text-white" /> : <span className={`inline-block h-5 w-5 rounded-full bg-surface shadow transition-transform ${enabled && permission === "granted" ? "translate-x-6" : "translate-x-1"}`} />}
         </button>
       </div>
       {permission === "denied" && (
@@ -175,10 +175,10 @@ export function PushNotificationSettings({ publicKey }: Props) {
           </button>
         </div>
       )}
-      {permission === "unsupported" && <p className="mt-3 text-xs text-slate-500">This browser does not support web push notifications.</p>}
-      {!publicKey && <p className="mt-3 text-xs text-slate-500">Push service configuration is required before this device can subscribe.</p>}
+      {permission === "unsupported" && <p className="mt-3 text-xs text-ink-secondary">This browser does not support web push notifications.</p>}
+      {!publicKey && <p className="mt-3 text-xs text-ink-secondary">Push service configuration is required before this device can subscribe.</p>}
       {notice && <p role="status" className="mt-3 text-sm text-rose-700">{notice}</p>}
-      {permission === "granted" && !subscribed && !notice && <p className="mt-3 text-xs text-slate-500">Registering this device for task alerts…</p>}
+      {permission === "granted" && !subscribed && !notice && <p className="mt-3 text-xs text-ink-secondary">Registering this device for task alerts…</p>}
     </section>
   );
 }

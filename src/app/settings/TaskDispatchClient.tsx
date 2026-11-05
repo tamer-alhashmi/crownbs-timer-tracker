@@ -65,13 +65,13 @@ const defaultValues: DispatchValues = {
   dueAt: "",
   notes: "",
 };
-const fieldClass = "min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900";
+const fieldClass = "min-h-11 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink";
 const MAX_ATTACHMENT_SIZE = 4.5 * 1024 * 1024;
 const IMAGE_TOO_LARGE_MESSAGE = "The selected image exceeds 4.5MB. Please choose a smaller photo or compress it before attaching.";
 const IMAGE_TOO_LARGE_NOTICE = `Image Too Large: ${IMAGE_TOO_LARGE_MESSAGE}`;
 const priorities = [
-  { value: "low", label: "Low", classes: "border-slate-300 bg-slate-100 text-slate-700" },
-  { value: "medium", label: "Medium", classes: "border-blue-200 bg-blue-50 text-blue-800" },
+  { value: "low", label: "Low", classes: "border-line bg-surface-secondary text-ink-secondary" },
+  { value: "medium", label: "Medium", classes: "border-accent/30 bg-accent/10 text-accent" },
   { value: "high", label: "High", classes: "border-amber-200 bg-amber-50 text-amber-900" },
   { value: "urgent", label: "Urgent / Critical", classes: "border-red-200 bg-red-50 text-red-800" },
 ] as const;
@@ -112,11 +112,15 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
 
   useEffect(() => {
     const url = new URL(window.location.href);
+    let openTimer: number | undefined;
     if (url.searchParams.get("dispatch") === "1") {
-      setIsOpen(true);
+      openTimer = window.setTimeout(() => setIsOpen(true), 0);
       url.searchParams.delete("dispatch");
       window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
     }
+    return () => {
+      if (openTimer !== undefined) window.clearTimeout(openTimer);
+    };
   }, []);
 
   useEffect(() => {
@@ -215,31 +219,31 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
   }));
 
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+    <section className="rounded-3xl border border-line bg-surface p-5 shadow-sm sm:p-6">
       <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-sky-700">Quick task dispatch</p>
-          <h2 className="mt-1 text-xl font-bold text-slate-950">Keep work moving</h2>
-          <p className="mt-1 text-sm text-slate-600">Assign hotel work directly to the right person. New tasks stay pending until started.</p>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-accent">Quick task dispatch</p>
+          <h2 className="mt-1 text-xl font-bold text-ink">Keep work moving</h2>
+          <p className="mt-1 text-sm text-ink-secondary">Assign hotel work directly to the right person. New tasks stay pending until started.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Stat label="Pending" value={stats.pending} tone="amber" onClick={() => setTaskListStatus("assigned")} />
           <Stat label="Active" value={stats.active} tone="blue" onClick={() => setTaskListStatus("active")} />
           <Stat label="Completed today" value={stats.completedToday} tone="emerald" onClick={() => setTaskListStatus("completed")} />
-          <button type="button" onClick={() => { setNotice(""); setIsOpen(true); }} disabled={!hotels.length} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="button" onClick={() => { setNotice(""); setIsOpen(true); }} disabled={!hotels.length} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-ink px-5 text-sm font-bold text-white shadow-sm transition hover:bg-ink disabled:cursor-not-allowed disabled:opacity-50">
             <Plus className="h-4 w-4" /> Assign Task
           </button>
         </div>
       </div>
-      {notice && <p role={notice.startsWith("Task assigned") ? "status" : "alert"} className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">{notice}</p>}
+      {notice && <p role={notice.startsWith("Task assigned") ? "status" : "alert"} className="mt-4 rounded-xl border border-line bg-surface-secondary px-4 py-3 text-sm text-ink">{notice}</p>}
       {!hotels.length && <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">No active properties are available in your assignment scope.</p>}
 
       {isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-950/45 p-0 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setIsOpen(false); }}>
-          <section ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="dispatch-title" className="max-h-[94vh] w-full max-w-3xl overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl sm:p-7">
+        <div className="fixed inset-0 z-[100] flex items-end justify-center bg-ink/45 p-0 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setIsOpen(false); }}>
+          <section ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="dispatch-title" className="max-h-[94vh] w-full max-w-3xl overflow-y-auto rounded-t-3xl bg-surface p-5 shadow-2xl sm:rounded-3xl sm:p-7">
             <div className="mb-5 flex items-start justify-between gap-4">
-              <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-sky-700">New assignment</p><h2 id="dispatch-title" className="mt-1 text-xl font-bold text-slate-950">Assign a task</h2><p className="mt-1 text-sm text-slate-600">Choose a property, service, and assignee to get started.</p></div>
-              <button type="button" onClick={() => setIsOpen(false)} aria-label="Close task assignment" className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50"><X className="h-4 w-4" /></button>
+              <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-accent">New assignment</p><h2 id="dispatch-title" className="mt-1 text-xl font-bold text-ink">Assign a task</h2><p className="mt-1 text-sm text-ink-secondary">Choose a property, service, and assignee to get started.</p></div>
+              <button type="button" onClick={() => setIsOpen(false)} aria-label="Close task assignment" className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-line text-ink-secondary hover:bg-surface-secondary"><X className="h-4 w-4" /></button>
             </div>
             <form onSubmit={submit} className="space-y-5" noValidate>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -250,37 +254,37 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
               </div>
 
               <fieldset>
-                <legend className="mb-2 text-sm font-semibold text-slate-800">Priority</legend>
-                <div className="flex flex-wrap gap-2">{priorities.map((priority) => <label key={priority.value} className={`cursor-pointer rounded-full border px-3 py-2 text-xs font-bold ${priority.classes} has-[:checked]:ring-2 has-[:checked]:ring-offset-1 has-[:checked]:ring-slate-600`}><input type="radio" className="sr-only" value={priority.value} {...form.register("priority")} />{priority.label}</label>)}</div>
+                <legend className="mb-2 text-sm font-semibold text-ink">Priority</legend>
+                <div className="flex flex-wrap gap-2">{priorities.map((priority) => <label key={priority.value} className={`cursor-pointer rounded-full border px-3 py-2 text-xs font-bold ${priority.classes} has-[:checked]:ring-2 has-[:checked]:ring-offset-1 has-[:checked]:ring-accent`}><input type="radio" className="sr-only" value={priority.value} {...form.register("priority")} />{priority.label}</label>)}</div>
               </fieldset>
 
               {perRoom && (
                 <section className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4">
-                  <h3 className="text-sm font-bold text-slate-900">Room assignment</h3>
+                  <h3 className="text-sm font-bold text-ink">Room assignment</h3>
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <Field label="Floor / section" error={errors.floorSection?.message}><input {...form.register("floorSection")} className={fieldClass} placeholder="e.g. Floor 2, east wing" /></Field>
                     <div>
-                      <p className="mb-2 text-sm font-medium text-slate-700">Rooms</p>
-                      <div className="max-h-32 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2">
-                        {propertyRooms.length ? propertyRooms.map((room) => <label key={room.id} className="flex min-h-9 items-center gap-2 px-2 text-sm text-slate-700"><input type="checkbox" value={room.id} {...form.register("roomIds")} /><span>{room.room_name}{room.category ? ` · ${room.category}` : ""}{room.floor_section ? <span className="ml-1 text-xs text-slate-500">({room.floor_section})</span> : ""}</span></label>) : <p className="px-2 py-2 text-sm text-slate-500">No rooms are configured for this property.</p>}
+                      <p className="mb-2 text-sm font-medium text-ink-secondary">Rooms</p>
+                      <div className="max-h-32 overflow-y-auto rounded-xl border border-line bg-surface p-2">
+                        {propertyRooms.length ? propertyRooms.map((room) => <label key={room.id} className="flex min-h-9 items-center gap-2 px-2 text-sm text-ink-secondary"><input type="checkbox" value={room.id} {...form.register("roomIds")} /><span>{room.room_name}{room.category ? ` · ${room.category}` : ""}{room.floor_section ? <span className="ml-1 text-xs text-ink-secondary">({room.floor_section})</span> : ""}</span></label>) : <p className="px-2 py-2 text-sm text-ink-secondary">No rooms are configured for this property.</p>}
                       </div>
                       {errors.roomIds?.message && <p role="alert" className="mt-1 text-xs text-rose-700">{errors.roomIds.message}</p>}
                     </div>
                   </div>
-                  <fieldset className="mt-3"><legend className="mb-2 text-sm font-medium text-slate-700">Linen checklist</legend><div className="flex flex-wrap gap-3">{(["sheets", "towels", "robes"] as const).map((item) => <label key={item} className="inline-flex items-center gap-2 text-sm capitalize text-slate-700"><input type="checkbox" value={item} {...form.register("linenChecklist")} />{item}</label>)}</div></fieldset>
+                  <fieldset className="mt-3"><legend className="mb-2 text-sm font-medium text-ink-secondary">Linen checklist</legend><div className="flex flex-wrap gap-3">{(["sheets", "towels", "robes"] as const).map((item) => <label key={item} className="inline-flex items-center gap-2 text-sm capitalize text-ink-secondary"><input type="checkbox" value={item} {...form.register("linenChecklist")} />{item}</label>)}</div></fieldset>
                 </section>
               )}
 
-              {hourly && <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-4"><Field label="Estimated duration / target shift hours" error={errors.durationHours?.message}><input {...form.register("durationHours")} type="number" min="0.25" max="168" step="0.25" className={fieldClass} placeholder="e.g. 3.5 hours" /></Field></div>}
+              {hourly && <div className="rounded-2xl border border-accent/20 bg-accent/5 p-4"><Field label="Estimated duration / target shift hours" error={errors.durationHours?.message}><input {...form.register("durationHours")} type="number" min="0.25" max="168" step="0.25" className={fieldClass} placeholder="e.g. 3.5 hours" /></Field></div>}
 
               {maintenance && (
                 <section className="rounded-2xl border border-amber-100 bg-amber-50/50 p-4">
-                  <h3 className="text-sm font-bold text-slate-900">Issue details</h3>
+                  <h3 className="text-sm font-bold text-ink">Issue details</h3>
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <Field label="Issue description" error={errors.issueDescription?.message}><textarea {...form.register("issueDescription")} className={`${fieldClass} min-h-20`} placeholder="Describe the issue or repair needed" /></Field>
                     <div className="space-y-3">
                       <Field label="Fixture / asset ID" error={errors.assetId?.message}><input {...form.register("assetId")} className={fieldClass} placeholder="Optional asset reference" /></Field>
-                      <label className="block text-sm font-medium text-slate-700">Photo attachment <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => {
+                      <label className="block text-sm font-medium text-ink-secondary">Photo attachment <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => {
                         const file = event.target.files?.[0] ?? null;
                         if (file && file.size > MAX_ATTACHMENT_SIZE) {
                           setPhotoError(IMAGE_TOO_LARGE_MESSAGE);
@@ -300,8 +304,8 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
                         setPhotoError("");
                         setNotice("");
                         setPhoto(file);
-                      }} className="mt-1 block w-full text-xs text-slate-600 file:mr-3 file:min-h-10 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:font-semibold" /></label>
-                      {photo && <p className="text-xs text-slate-600">Selected: {photo.name}</p>}
+                      }} className="mt-1 block w-full text-xs text-ink-secondary file:mr-3 file:min-h-10 file:rounded-lg file:border-0 file:bg-surface-secondary file:px-3 file:font-semibold" /></label>
+                      {photo && <p className="text-xs text-ink-secondary">Selected: {photo.name}</p>}
                       {photoError === IMAGE_TOO_LARGE_MESSAGE
                         ? <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-800"><p className="text-xs font-bold">Image Too Large</p><p className="mt-0.5 text-xs">{IMAGE_TOO_LARGE_MESSAGE}</p></div>
                         : photoError && <p role="alert" className="text-xs text-rose-700">{photoError}</p>}
@@ -312,8 +316,8 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
 
               <Field label="Notes for the assignee" error={errors.notes?.message}><textarea {...form.register("notes")} className={`${fieldClass} min-h-20`} placeholder="Optional instructions or context" /></Field>
               {notice && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{notice}</p>}
-              <div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:justify-end">
-                <button type="button" onClick={() => setIsOpen(false)} className="min-h-11 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700">Cancel</button>
+              <div className="flex flex-col-reverse gap-2 border-t border-line pt-4 sm:flex-row sm:justify-end">
+                <button type="button" onClick={() => setIsOpen(false)} className="min-h-11 rounded-xl border border-line px-4 text-sm font-semibold text-ink-secondary">Cancel</button>
                 <button type="submit" disabled={isPending} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 text-sm font-bold text-white hover:bg-emerald-800 disabled:opacity-50">{isPending ? <><Loader2 className="h-4 w-4 animate-spin" /> Assigning…</> : <><ClipboardCheck className="h-4 w-4" /> Assign task</>}</button>
               </div>
             </form>
@@ -332,10 +336,10 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
 }
 
 function Field({ label, error, children }: { label: string; error?: string; children: ReactNode }) {
-  return <label className="block text-sm font-medium text-slate-700">{label}{children}<span className="sr-only">{error}</span>{error && <span role="alert" className="mt-1 block text-xs text-rose-700">{error}</span>}</label>;
+  return <label className="block text-sm font-medium text-ink-secondary">{label}{children}<span className="sr-only">{error}</span>{error && <span role="alert" className="mt-1 block text-xs text-rose-700">{error}</span>}</label>;
 }
 
 function Stat({ label, value, tone, onClick }: { label: string; value: number; tone: "amber" | "blue" | "emerald"; onClick: () => void }) {
-  const colors = { amber: "bg-amber-50 text-amber-900 ring-amber-200", blue: "bg-blue-50 text-blue-900 ring-blue-200", emerald: "bg-emerald-50 text-emerald-900 ring-emerald-200" };
+  const colors = { amber: "bg-amber-50 text-amber-900 ring-amber-200", blue: "bg-accent/10 text-accent ring-accent/30", emerald: "bg-emerald-50 text-emerald-900 ring-emerald-200" };
   return <button type="button" onClick={onClick} aria-label={`Open ${label} tasks`} className={`min-w-24 cursor-pointer rounded-xl px-3 py-2 text-center ring-1 transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-700 ${colors[tone]}`}><p className="text-lg font-bold leading-5">{value}</p><p className="mt-1 whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide">{label}</p></button>;
 }

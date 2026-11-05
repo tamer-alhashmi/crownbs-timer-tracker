@@ -5,6 +5,7 @@ import { getSessionUser } from "@/lib/auth";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { isHousekeepingAdmin, normalizeUserRole, type UserRole } from "@/lib/roles";
 import type { ActiveAssignedTaskDetails } from "@/components/dashboard/ActiveAssignedTaskCard";
+import { fetchManagementAuditPage, type ManagementAuditPage, type ManagementAuditPageRequest } from "@/lib/managementAudit";
 
 export type HousekeepingStatus = "dirty" | "in_progress" | "inspect_ready" | "clean";
 
@@ -279,6 +280,11 @@ export async function getHKAdminDashboardData(): Promise<HousekeepingDashboardDa
     ].sort((left, right) => Date.parse(right.start_time) - Date.parse(left.start_time)).slice(0, 100),
     evidence,
   };
+}
+
+export async function getHKAdminAuditPage(request: ManagementAuditPageRequest): Promise<ManagementAuditPage> {
+  const { supabase, hotelIds } = await getHKAdminContext();
+  return fetchManagementAuditPage(supabase, hotelIds, request);
 }
 
 export async function updateHKRoomStatus(roomId: string, status: HousekeepingStatus, inspectionNotes: string) {

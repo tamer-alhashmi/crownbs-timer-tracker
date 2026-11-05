@@ -2,8 +2,10 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { Building2, CalendarDays, ShieldCheck, UserRound } from "lucide-react";
+import { Activity, Building2, CalendarDays, ClipboardList, Gauge, History, ShieldCheck, UserRound, Wallet } from "lucide-react";
 import type { UserRole } from "@/lib/roles";
+import { SharedWorkspaceShell } from "@/components/layout/SharedWorkspaceShell";
+import type { WorkspaceNavTab } from "@/components/layout/MobileWorkspaceNav";
 
 type Tab = "profile" | "users" | "properties" | "payroll";
 type Props = {
@@ -32,6 +34,30 @@ function isTabVisible(id: Tab, role: UserRole) {
 
 export default function SettingsHub({ role, utility, profile, billing, payroll, users, properties }: Props) {
   const visibleTabs = tabs.filter(({ id }) => isTabVisible(id, role));
+  const workspacePath = role === "cleaner" ? "/dashboard"
+    : role === "owner" ? "/owner"
+      : role === "manager" ? "/manager"
+        : ["hk_admin", "housekeeping_admin"].includes(role) ? "/hk-admin"
+          : "/admin";
+  const workspaceTabs: readonly WorkspaceNavTab<string>[] = role === "cleaner"
+    ? [
+      { id: "operations", label: "My shifts", Icon: Activity, href: `${workspacePath}#operations-panel` },
+      { id: "history", label: "History", Icon: ClipboardList, href: `${workspacePath}#history-panel` },
+    ]
+    : ["hk_admin", "housekeeping_admin"].includes(role)
+      ? [
+        { id: "overview", label: "Overview", Icon: Gauge, href: `${workspacePath}?tab=overview` },
+        { id: "operations", label: "Live", Icon: Activity, href: `${workspacePath}?tab=operations` },
+        { id: "rooms", label: "Rooms", Icon: Building2, href: `${workspacePath}?tab=rooms` },
+        { id: "history", label: "Logs", Icon: ClipboardList, href: `${workspacePath}?tab=history` },
+      ]
+      : [
+        { id: "overview", label: "Overview", Icon: Gauge, href: `${workspacePath}?tab=overview` },
+        { id: "operations", label: "Live", Icon: Activity, href: `${workspacePath}?tab=operations` },
+        { id: "work-logs", label: "Logs", Icon: ClipboardList, href: `${workspacePath}?tab=work-logs` },
+        { id: "financials", label: "Financials", Icon: Wallet, href: `${workspacePath}?tab=financials` },
+        { id: "audit", label: "Audit", Icon: History, href: `${workspacePath}?tab=audit` },
+      ];
   const [activeTab, setActiveTab] = useState<Tab>("profile");
   const [requestedHash, setRequestedHash] = useState("");
   useEffect(() => {
@@ -61,8 +87,8 @@ export default function SettingsHub({ role, utility, profile, billing, payroll, 
       const target = document.getElementById(decodeURIComponent(requestedHash.slice(1)));
       if (target && target.getClientRects().length > 0) {
         target.scrollIntoView({ behavior: "smooth", block: "start" });
-        target.classList.add("ring-2", "ring-sky-400", "ring-offset-2");
-        window.setTimeout(() => target.classList.remove("ring-2", "ring-sky-400", "ring-offset-2"), 1800);
+        target.classList.add("ring-2", "ring-accent", "ring-offset-2");
+        window.setTimeout(() => target.classList.remove("ring-2", "ring-accent", "ring-offset-2"), 1800);
         setRequestedHash("");
       } else if (attempts++ < 10) window.requestAnimationFrame(scrollToPanel);
     };
@@ -78,13 +104,13 @@ export default function SettingsHub({ role, utility, profile, billing, payroll, 
   };
 
   return (
-    <main className="min-h-screen overflow-y-auto bg-slate-50 px-3 py-5 text-slate-900 sm:px-6 sm:py-8">
+    <main className="theme-workspace min-h-screen overflow-y-auto bg-canvas px-3 py-5 text-ink sm:px-6 sm:py-8">
       <div className="mx-auto max-w-7xl">
-        <header className="mb-5 border-b border-slate-200 pb-3 pt-2">
+        <header className="mb-5 border-b border-line pb-3 pt-2">
           <div className="mb-4 flex items-center justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Account settings</p>
-              <h1 className="mt-1 text-2xl font-bold text-slate-950">Settings</h1>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink-secondary">Account settings</p>
+              <h1 className="mt-1 text-2xl font-bold text-ink">Settings</h1>
             </div>
             <div className="flex shrink-0 items-center gap-2">{billing}{utility}</div>
           </div>
@@ -100,8 +126,8 @@ export default function SettingsHub({ role, utility, profile, billing, payroll, 
                 onClick={() => selectTab(id)}
                 className={`inline-flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${
                   activeTab === id
-                    ? "bg-slate-900 text-white shadow-sm"
-                    : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+                    ? "bg-accent text-white shadow-sm"
+                    : "border border-line bg-surface text-ink-secondary hover:bg-surface-secondary hover:text-ink"
                 }`}
               >
                 <Icon className="h-4 w-4" />
@@ -110,6 +136,7 @@ export default function SettingsHub({ role, utility, profile, billing, payroll, 
             ))}
           </nav>
         </header>
+        <SharedWorkspaceShell role={role} activeTab={null} tabs={workspaceTabs} />
         {visibleTabs.map(({ id }) => (
           <section
             key={id}

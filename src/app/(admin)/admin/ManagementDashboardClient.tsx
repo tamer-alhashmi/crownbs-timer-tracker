@@ -2,16 +2,18 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition, type ReactNode } from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Activity, Building2, Check, CircleDollarSign, ClipboardList, Clock, Gauge, History, Hotel, Loader2, Pencil, UsersRound, X, Wallet, Columns3, Filter, Search, CreditCard, ShieldAlert } from "lucide-react";
 import { OperationalBrief } from "@/components/dashboard/OperationalBrief";
 import { ServiceCard } from "@/components/dashboard/ServiceCard";
+import { OperationalAuditTable } from "@/components/dashboard/OperationalAuditTable";
 import { UserProfileMenu } from "@/components/layout/UserProfileMenu";
 import type { BriefTask, ManagementBrief } from "@/lib/operationalBrief";
-import { calculateTaskCost, resolveBillingUnit, resolveServiceRate, type ServicePricing } from "@/lib/servicePricing";
-import { approveWorkLog as approveWorkLogAction, finalizeWorkLogWithoutClockOut, forceEndAndApproveManagerTask, rejectWorkLog, updateWorkLog } from "./actions";
+import { calculateTaskCost, resolveBillingUnit, resolveServiceRate } from "@/lib/servicePricing";
+import { approveWorkLog as approveWorkLogAction, finalizeWorkLogWithoutClockOut, forceEndAndApproveManagerTask, getManagementDashboardSummary, getManagementOverrideAuditPage, getManagementResponsibilityHistoryPage, getManagementWorkLogPage, rejectWorkLog, updateWorkLog } from "./actions";
 import { importRoomsFromGoogleSheet } from "./roomImportActions";
 import { FullEditPanel } from "./FullEditPanel";
-import { AdminPayrollTable, type PayrollLog } from "./AdminPayrollTable";
+import { AdminPayrollTable } from "./AdminPayrollTable";
 import { ActiveOperations } from "./ActiveOperations";
 import type { PropertyRecord } from "./propertyActions";
 import { TaskDispatchClient } from "@/app/settings/TaskDispatchClient";
@@ -19,7 +21,7 @@ import type { getTaskDispatchData } from "@/app/settings/taskActions";
 import type { ServiceRecord } from "./serviceActions";
 import { useWorkLogRealtimeRefresh } from "@/lib/useWorkLogRealtimeRefresh";
 import type { LucideIcon } from "lucide-react";
-import { DashboardPagination } from "@/components/dashboard/DashboardPagination";
+import { DashboardPagination, useUrlPage, useUrlPageSize } from "@/components/dashboard/DashboardPagination";
 import { WorkspaceFilterBar, useWorkspaceFilters } from "@/components/dashboard/WorkspaceFilterBar";
 import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
 import { ActiveAssignedTaskCard } from "@/components/dashboard/ActiveAssignedTaskCard";
@@ -28,7 +30,10 @@ import type { UserRole } from "@/lib/roles";
 import { isPlatformAdmin } from "@/lib/roles";
 import { formatUserMessage } from "@/lib/userMessages";
 import { StatusBadge, type StatusKind } from "@/components/ui/StatusBadge";
-import { MobileWorkspaceNav } from "@/components/layout/MobileWorkspaceNav";
+import { SharedWorkspaceShell } from "@/components/layout/SharedWorkspaceShell";
+import type { WorkspaceNavTab } from "@/components/layout/MobileWorkspaceNav";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import type { ManagementHistoryFilters, ManagementHistoryRecord } from "@/lib/managementAudit";
 
 const DASHBOARD_TABS = [
   { id: "overview", label: "Overview", icon: Gauge },
@@ -39,7 +44,14 @@ const DASHBOARD_TABS = [
 ] as const;
 type DashboardTab = typeof DASHBOARD_TABS[number]["id"];
 const DASHBOARD_TAB_CHANGE = "management-dashboard-tab-change";
-const RECORDS_PER_PAGE = 30;
+const RECORDS_PER_PAGE = 20;
+const WORKSPACE_SHELL_TABS: readonly WorkspaceNavTab<DashboardTab>[] = DASHBOARD_TABS.map(({ id, label, icon: Icon }) => ({
+  id,
+  label: id === "operations" ? "Live" : id === "work-logs" ? "Logs" : id === "financials" ? "Financials" : id === "audit" ? "Audit" : label,
+  Icon,
+  tabButtonId: `tab-${id}`,
+  panelId: `panel-${id}`,
+}));
 
 function readDashboardTab(): DashboardTab {
   const value = new URLSearchParams(window.location.search).get("tab");
@@ -59,15 +71,14 @@ function useDashboardTab(): DashboardTab {
   return useSyncExternalStore<DashboardTab>(subscribeDashboardTab, readDashboardTab, () => "overview");
 }
 
-type Log = { id: string; user_id: string; hotel_id: string; service_id: string | null; cleanerName: string; hotelName: string; assigneeRole: string; start_time: string; end_time: string | null; task_date: string; status: string; cancelled_at?: string | null; rooms_completed: number; room_number: string | null; room_numbers: string[]; roomDetails?: { name: string; floor: string }[]; service_name_snapshot: string | null; service_description_snapshot: string | null; notes: string | null; cost_override?: number | string | null; owner_id: string | null; owner_name: string | null; manager_id: string | null; manager_name: string | null; responsibility_recorded_at: string | null; manager_approved: boolean; owner_approved: boolean; manager_rejected: boolean; owner_rejected: boolean; is_locked: boolean; rejection_notes?: string | null; services_config?: { name: string; default_rate: number; unit?: string }[] };
+type Log = ManagementHistoryRecord;
 type Room = { id: string; hotel_id: string; room_name: string; floor_section?: string | null; category: string; status?: string };
 type DispatchData = Awaited<ReturnType<typeof getTaskDispatchData>>;
-type Props = { data: { userRole: string; currentUserId: string; userName: string; userEmail: string; userAvatarUrl: string | null; canManagePayrollTasks: boolean; canManageActiveOperations: boolean; hotels: PropertyRecord[]; services: ServiceRecord[]; cleaners: { id: string; name: string; primary_hotel_id: string | null }[]; propertyAssignees: { id: string; name: string; role: string }[]; rooms: Room[]; workLogs: Log[]; auditLogs: Log[]; payroll: PayrollLog[]; activeShifts: { id: string; user_id: string; start_time: string; cleanerName: string; task: Log | null }[]; activeTasks: Log[]; overrideAudit: OverrideAuditRecord[]; brief: ManagementBrief }; dispatchData?: DispatchData; tenantIntelligence?: ReactNode };
-type AuditDetail = { label: string; value: string };
-type OverrideAuditRecord = { id: string; entity_type: "task" | "shift"; action: string; actor_name: string; target_label: string; override_reason: string; previous_details: AuditDetail[]; new_details: AuditDetail[]; created_at: string };
+type Props = { data: { userRole: string; currentUserId: string; userName: string; userEmail: string; userAvatarUrl: string | null; canManagePayrollTasks: boolean; canManageActiveOperations: boolean; hotels: PropertyRecord[]; services: ServiceRecord[]; cleaners: { id: string; name: string; primary_hotel_id: string | null }[]; propertyAssignees: { id: string; name: string; role: string }[]; rooms: Room[]; workLogs: Log[]; activeShifts: { id: string; user_id: string; start_time: string; cleanerName: string; task: Log | null }[]; activeTasks: Log[]; summary: Awaited<ReturnType<typeof getManagementDashboardSummary>>; brief: ManagementBrief }; dispatchData?: DispatchData; tenantIntelligence?: ReactNode };
 type Draft = { hotelId: string; serviceId: string; roomId: string; roomsCompleted: string; roomNumber: string; notes: string; startTime: string; endTime: string; status: "assigned" | "active" | "completed" };
 type WorkLogSortColumn = "date" | "cleaner" | "hotel" | "service" | "status";
 type ApprovalFeedback = { kind: "pending" | "success" | "error"; text: string };
+type SnapshotFilterOptions = Record<string, string[]>;
 
 function inputTime(value: string | null) {
   if (!value) return "";
@@ -128,17 +139,38 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
   const [isPending, startTransition] = useTransition();
   const [editing, setEditing] = useState<Log | null>(null);
   const [selectedTask, setSelectedTask] = useState<BriefTask | null>(null);
+  const [selectedAuditLog, setSelectedAuditLog] = useState<Log | null>(null);
   const [selectedTaskFromAudit, setSelectedTaskFromAudit] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [optimisticPayrollLogs, setOptimisticPayrollLogs] = useState<PayrollLog[]>([]);
   const [message, setMessage] = useState("");
   const [approvalFeedback, setApprovalFeedback] = useState<Record<string, ApprovalFeedback>>({});
   const [approvalOverrides, setApprovalOverrides] = useState<Record<string, Partial<Log>>>({});
-  const [workLogPage, setWorkLogPage] = useState(1);
+  const [workLogPage, setWorkLogPage] = useUrlPage(RECORDS_PER_PAGE);
+  const [serverWorkLogResult, setServerWorkLogResult] = useState<{ key: string; result: Awaited<ReturnType<typeof getManagementWorkLogPage>> } | null>(null);
+  const [serverWorkLogFailure, setServerWorkLogFailure] = useState<{ key: string; message: string } | null>(null);
   const [propertySearch, setPropertySearch] = useState("");
   const { filters: workFilters, updateFilters: updateWorkFilters, clearFilters: clearWorkFilters } = useWorkspaceFilters("work");
   const today = new Date().toISOString().slice(0, 10);
   const { filters: payrollFilters } = useWorkspaceFilters("payroll", { from: `${today.slice(0, 7)}-01`, to: today });
+  const summaryRequest = useMemo(() => ({
+    from: payrollFilters.from || undefined,
+    to: payrollFilters.to || undefined,
+    property: payrollFilters.property || undefined,
+    worker: data.userRole === "owner" ? undefined : payrollFilters.worker || undefined,
+    tenant: data.userRole === "super_admin" ? payrollFilters.tenant || undefined : undefined,
+  }), [payrollFilters.from, payrollFilters.to, payrollFilters.property, payrollFilters.worker, payrollFilters.tenant, data.userRole]);
+  const summaryRequestKey = JSON.stringify(summaryRequest);
+  const [serverSummary, setServerSummary] = useState<{ key: string; result: Props["data"]["summary"] } | null>(null);
+  const dashboardSummary = serverSummary?.key === summaryRequestKey ? serverSummary.result : data.summary;
+  useEffect(() => {
+    let active = true;
+    getManagementDashboardSummary(summaryRequest).then((result) => {
+      if (active) setServerSummary({ key: summaryRequestKey, result });
+    }).catch((error: unknown) => {
+      if (active) showActionToast("error", getActionErrorMessage(error, "Unable to load dashboard summary."));
+    });
+    return () => { active = false; };
+  }, [summaryRequest, summaryRequestKey]);
   const cleanerFilter = data.userRole === "owner" ? "" : workFilters.worker;
   const hotelFilter = workFilters.property;
   const serviceFilter = workFilters.service;
@@ -151,12 +183,11 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
     : "date";
   const sortAscending = workFilters.ascending === "true";
   const changeWorkFilters = (changes: Partial<typeof workFilters>) => {
-    setWorkLogPage(1);
     updateWorkFilters(changes);
   };
   const canManager = isPlatformAdmin(data.userRole) || data.userRole === "manager";
   const canOwner = isPlatformAdmin(data.userRole) || data.userRole === "owner";
-  const pageSize = RECORDS_PER_PAGE;
+  const pageSize = useUrlPageSize(RECORDS_PER_PAGE);
   const displayedWorkLogs = useMemo(
     () => (Array.isArray(data.workLogs) ? data.workLogs : []).map((log) => approvalOverrides[log.id] ? { ...log, ...approvalOverrides[log.id] } : log),
     [data.workLogs, approvalOverrides],
@@ -167,72 +198,73 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
     displayedWorkLogsRef.current = displayedWorkLogs;
     approvalOverridesRef.current = approvalOverrides;
   }, [approvalOverrides, displayedWorkLogs]);
-  const displayedPayrollLogs = [...data.payroll, ...optimisticPayrollLogs.filter((optimistic) => !data.payroll.some((log) => log.id === optimistic.id))];
-  const payrollApprovalsPendingSync = optimisticPayrollLogs.filter((optimistic) => !data.payroll.some((log) => log.id === optimistic.id)).length;
-  const filteredWorkLogs = displayedWorkLogs.filter((log) => {
-    const status = log.cancelled_at ? "Cancelled" : log.status === "active" ? "Active" : log.is_locked ? "Approved" : log.manager_rejected || log.owner_rejected ? "Rejected" : "Pending approval";
-    return (!fromDate || log.task_date >= fromDate)
-      && (!toDate || log.task_date <= toDate)
-      && (!needsActionOnly || (log.status === "completed" && !log.is_locked))
-      && (!cleanerFilter || log.user_id === cleanerFilter)
-      && (!hotelFilter || log.hotel_id === hotelFilter)
-      && (data.userRole !== "super_admin" || !workFilters.tenant || log.owner_id === workFilters.tenant)
-      && (!serviceFilter || log.service_id === serviceFilter)
-      && (!statusFilter || status === statusFilter);
-  }).sort((left, right) => {
-    const value = (log: Log) => {
-      if (sortColumn === "cleaner") return log.cleanerName;
-      if (sortColumn === "hotel") return log.hotelName;
-      if (sortColumn === "service") return log.service_name_snapshot ?? log.services_config?.[0]?.name ?? "Service";
-      if (sortColumn === "status") return log.status === "active" ? "Active" : log.is_locked ? "Approved" : log.manager_rejected || log.owner_rejected ? "Rejected" : "Pending approval";
-      return log.task_date;
-    };
-    const comparison = value(left).localeCompare(value(right), "en", { numeric: true });
-    return comparison * (sortAscending ? 1 : -1);
-  });
-  const pageCount = Math.max(1, Math.ceil(filteredWorkLogs.length / pageSize));
-  const currentPage = Math.max(1, Math.min(Math.floor(workLogPage), pageCount));
-  const pageStart = (currentPage - 1) * pageSize;
-  const visibleWorkLogs = filteredWorkLogs.slice(pageStart, pageStart + pageSize);
-  const filteredWorkLogTotals = filteredWorkLogs.reduce((totals, log) => ({
+  const workLogPageRequest = useMemo(() => ({
+    page: workLogPage,
+    pageSize,
+    from: fromDate || undefined,
+    to: toDate || undefined,
+    worker: cleanerFilter || undefined,
+    property: hotelFilter || undefined,
+    service: serviceFilter || undefined,
+    status: statusFilter || undefined,
+    tenant: data.userRole === "super_admin" ? workFilters.tenant || undefined : undefined,
+    needsAction: needsActionOnly,
+    sort: sortColumn,
+    ascending: sortAscending,
+  }), [workLogPage, pageSize, fromDate, toDate, cleanerFilter, hotelFilter, serviceFilter, statusFilter, data.userRole, workFilters.tenant, needsActionOnly, sortColumn, sortAscending]);
+  const workLogPageRequestKey = JSON.stringify(workLogPageRequest);
+  const serverWorkLogPage = serverWorkLogResult?.key === workLogPageRequestKey ? serverWorkLogResult.result : null;
+  const serverWorkLogError = serverWorkLogFailure?.key === workLogPageRequestKey ? serverWorkLogFailure.message : "";
+  useEffect(() => {
+    let active = true;
+    getManagementWorkLogPage(workLogPageRequest).then((result) => {
+      if (!active) return;
+      setServerWorkLogResult({ key: workLogPageRequestKey, result });
+      if (result.page !== workLogPage) setWorkLogPage(result.page);
+    }).catch((error: unknown) => {
+      if (!active) return;
+      const text = getActionErrorMessage(error, "Unable to load this work-log page.");
+      setServerWorkLogFailure({ key: workLogPageRequestKey, message: text });
+      showActionToast("error", text);
+    });
+    return () => { active = false; };
+  }, [workLogPageRequest, workLogPageRequestKey, workLogPage, setWorkLogPage]);
+  useEffect(() => {
+    if (!serverWorkLogPage) return;
+    const recordsById = new Map([...displayedWorkLogs, ...serverWorkLogPage.records].map((log) => [log.id, log]));
+    displayedWorkLogsRef.current = [...recordsById.values()];
+  }, [displayedWorkLogs, serverWorkLogPage]);
+  const pageCount = serverWorkLogPage?.pageCount ?? 1;
+  const currentPage = serverWorkLogPage?.page ?? Math.max(1, Math.min(Math.floor(workLogPage), pageCount));
+  const visibleWorkLogs = serverWorkLogPage?.records ?? [];
+  const filteredWorkLogTotals = visibleWorkLogs.reduce((totals, log) => ({
     rooms: totals.rooms + log.rooms_completed,
     hours: totals.hours + (log.end_time ? durationHours(log.start_time, log.end_time) : 0),
   }), { rooms: 0, hours: 0 });
-  const activeCleanerCount = data.activeShifts.length;
+  const activeCleanerCount = dashboardSummary.activeStaff;
   const periodServiceCost = data.brief.hotels.reduce((total, hotel) => total + hotel.cost, 0);
-  const filteredHotelLogs = hotelFilter
-    ? displayedWorkLogs.filter((log) => log.hotel_id === hotelFilter)
-    : displayedWorkLogs;
-  const cleanerOptions = data.cleaners.filter((cleaner) => (!hotelFilter || cleaner.primary_hotel_id === hotelFilter) || filteredHotelLogs.some((log) => log.user_id === cleaner.id));
-  const serviceOptions = data.services.filter((service) => filteredHotelLogs.some((log) => log.service_id === service.id));
-  const completedLogs = displayedWorkLogs.filter((log) => log.status === "completed");
-  const filteredFinancialLogs = completedLogs.filter((log) =>
-    (!payrollFilters.from || log.task_date >= payrollFilters.from)
-    && (!payrollFilters.to || log.task_date <= payrollFilters.to)
-    && (!payrollFilters.property || log.hotel_id === payrollFilters.property)
-    && (data.userRole !== "super_admin" || !payrollFilters.tenant || log.owner_id === payrollFilters.tenant)
-    && (data.userRole === "owner" || !payrollFilters.worker || log.user_id === payrollFilters.worker)
-  );
-  const totalLaborCost = filteredFinancialLogs.reduce((total, log) => total + getLogLaborCost(log), 0);
-  const completedRooms = filteredFinancialLogs.reduce((total, log) => total + log.rooms_completed, 0);
-  const filteredFinancialPayroll = displayedPayrollLogs.filter((log) =>
-    (!payrollFilters.from || log.task_date >= payrollFilters.from)
-    && (!payrollFilters.to || log.task_date <= payrollFilters.to)
-    && (!payrollFilters.property || log.hotel_id === payrollFilters.property)
-    && (data.userRole !== "super_admin" || !payrollFilters.tenant || log.owner_id === payrollFilters.tenant)
-    && (data.userRole === "owner" || !payrollFilters.worker || log.user_id === payrollFilters.worker)
-  );
-  const lockedPayrollLiability = filteredFinancialPayroll.reduce((total, log) => {
-    const hours = log.end_time ? durationHours(log.start_time, log.end_time) : 0;
-    const service = log.services_config?.[0] ?? {};
-    return total + calculateTaskCost(hours, log.rooms_completed, service, log.cost_override);
-  }, 0);
+  const totalLaborCost = dashboardSummary.laborCost;
+  const completedRooms = dashboardSummary.completedRooms;
+  const lockedPayrollLiability = dashboardSummary.lockedPayrollLiability;
+  const propertySummary = new Map(dashboardSummary.properties.map((property) => [property.id, property]));
   const propertyFinancials = data.hotels.map((hotel) => {
-    const logs = filteredFinancialLogs.filter((log) => log.hotel_id === hotel.id);
-    const rooms = logs.reduce((total, log) => total + log.rooms_completed, 0);
-    const cost = logs.reduce((total, log) => total + getLogLaborCost(log), 0);
+    const summary = propertySummary.get(hotel.id);
+    const rooms = summary?.rooms ?? 0;
+    const cost = summary?.cost ?? 0;
     return { id: hotel.id, name: hotel.name, rooms, cost, costPerRoom: rooms ? cost / rooms : 0 };
   }).sort((left, right) => right.cost - left.cost);
+  const cleanerOptions = data.cleaners;
+  const serviceOptions = data.services;
+  const auditFilterOptions: SnapshotFilterOptions = {
+    worker: data.cleaners.map((cleaner) => cleaner.name),
+    facility: data.hotels.map((hotel) => hotel.name),
+    owner: [...data.propertyAssignees.filter((assignee) => assignee.role === "owner").map((assignee) => assignee.name), "Unassigned owner"],
+    manager: [...data.propertyAssignees.filter((assignee) => assignee.role === "manager").map((assignee) => assignee.name), "Unassigned manager"],
+    service: data.services.map((service) => service.name),
+    status: ["Cancelled", "Active", "Completed", "Pending"],
+    approvals: ["Approved", "Pending", "Rejected"].flatMap((manager) => ["Approved", "Pending", "Rejected"].map((owner) => `Manager: ${manager} · Owner: ${owner}`)),
+    room: data.rooms.map((room) => `${room.room_name}${room.floor_section ? ` · ${room.floor_section}` : ""}`),
+  };
   const filteredPropertyFinancials = propertyFinancials.filter((property) =>
     property.name.toLowerCase().includes(propertySearch.trim().toLowerCase())
   );
@@ -258,30 +290,6 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
       ? { manager_approved: true, manager_rejected: false, rejection_notes: null, is_locked: managerApproved && ownerApproved }
       : { owner_approved: true, owner_rejected: false, rejection_notes: null, is_locked: managerApproved && ownerApproved };
     setApprovalOverrides((current) => ({ ...current, [log.id]: { ...current[log.id], ...optimistic } }));
-    const willLock = managerApproved && ownerApproved;
-    if (willLock) {
-      const payrollServices: [ServicePricing] = [log.services_config?.[0] ?? { name: log.service_name_snapshot ?? "Service", default_rate: 0, unit: "hourly" }];
-      const payrollLog: PayrollLog = {
-        id: log.id,
-        user_id: log.user_id,
-        hotel_id: log.hotel_id,
-        cleanerName: log.cleanerName,
-        hotelName: log.hotelName,
-        start_time: log.start_time,
-        end_time: log.end_time,
-        task_date: log.task_date,
-        rooms_completed: log.rooms_completed,
-        room_number: log.room_number,
-        notes: log.notes,
-        owner_id: log.owner_id,
-        owner_name: log.owner_name,
-        manager_id: log.manager_id,
-        manager_name: log.manager_name,
-        responsibility_recorded_at: log.responsibility_recorded_at,
-        services_config: payrollServices,
-      };
-      setOptimisticPayrollLogs((current) => [payrollLog, ...current.filter((item) => item.id !== log.id)]);
-    }
     try {
       await approveWorkLogAction(log.id, role);
     } catch (error) {
@@ -291,7 +299,6 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
         else delete next[log.id];
         return next;
       });
-      if (willLock) setOptimisticPayrollLogs((current) => current.filter((item) => item.id !== log.id));
       throw error;
     }
   }, []);
@@ -414,18 +421,16 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
     };
   };
 
-  return <div className="enterprise-dashboard min-h-screen min-w-0 bg-slate-50 text-slate-900">
-      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
+  return <div className="enterprise-dashboard theme-workspace min-h-screen min-w-0 bg-canvas text-ink">
+      <header className="sticky top-0 z-20 border-b border-line bg-surface/95 backdrop-blur">
         <div className="flex h-16 items-center justify-between gap-4 px-gutter pt-safe sm:px-6 lg:px-8">
-          <div className="flex min-w-0 items-center gap-3"><span className="hidden h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-white sm:flex"><Hotel className="h-5 w-5" /></span><div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">{data.userRole} workspace</p><h1 className="text-lg font-semibold text-slate-950">Crown Operations</h1></div></div>
-          <div className="flex items-center gap-2">{isPlatformAdmin(data.userRole) && <button type="button" onClick={syncRooms} disabled={isPending} className="hidden min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:inline-flex">Fetch rooms</button>}{data.userRole === "super_admin" && <Link href="/admin/tenant-accounts" aria-label="Billing" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sky-200 bg-sky-50 p-0 text-sky-900 hover:bg-sky-100 md:h-9 md:w-auto md:gap-2 md:px-3 md:py-2"><CreditCard className="h-4 w-4" /><span className="hidden font-medium text-sm md:inline">Billing</span></Link>}<UserProfileMenu name={data.userName} email={data.userEmail} avatarUrl={data.userAvatarUrl} role={data.userRole} settingsHref="/settings" /></div>
+          <div className="flex min-w-0 items-center gap-3"><span className="hidden h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-white sm:flex"><Hotel className="h-5 w-5" /></span><div><p className="text-xs font-medium uppercase tracking-wide text-ink-secondary">{data.userRole.replaceAll("_", " ")} workspace</p><h1 className="text-lg font-semibold text-ink">Crown Operations</h1></div></div>
+          <div className="flex items-center gap-2">{isPlatformAdmin(data.userRole) && <button type="button" onClick={syncRooms} disabled={isPending} className="hidden min-h-11 rounded-lg border border-line bg-surface px-3 py-2 text-sm font-medium text-ink-secondary hover:bg-surface-secondary sm:inline-flex">Fetch rooms</button>}{data.userRole === "super_admin" && <Link href="/admin/tenant-accounts" aria-label="Billing" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sky-200 bg-sky-50 p-0 text-sky-900 hover:bg-sky-100 md:h-9 md:w-auto md:gap-2 md:px-3 md:py-2"><CreditCard className="h-4 w-4" /><span className="hidden font-medium text-sm md:inline">Billing</span></Link>}<ThemeToggle /><UserProfileMenu name={data.userName} email={data.userEmail} avatarUrl={data.userAvatarUrl} role={data.userRole} settingsHref="/settings" /></div>
         </div>
-        <nav aria-label="Dashboard tabs" role="tablist" className="dashboard-tab-scrollbar hidden min-w-0 max-w-full gap-1 overflow-x-auto border-t border-slate-100 px-3 py-2 [-webkit-overflow-scrolling:touch] md:flex sm:px-6 lg:px-8">
-          {DASHBOARD_TABS.map(({ id, label, icon: Icon }) => <button key={id} id={`tab-${id}`} type="button" role="tab" aria-selected={activeTab === id} aria-controls={`panel-${id}`} onClick={() => selectTab(id)} className={`inline-flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition sm:text-sm ${activeTab === id ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"}`}><Icon aria-hidden="true" className="h-4 w-4" />{label}</button>)}
-        </nav>
       </header>
+      <SharedWorkspaceShell role={data.userRole} activeTab={activeTab} onSelect={selectTab} tabs={WORKSPACE_SHELL_TABS} />
       <main className="mx-auto min-w-0 max-w-[1600px] space-y-4 px-gutter pb-20 pt-4 sm:p-6 md:pb-6 lg:p-8">
-        {message && <p className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm" role="status">{message}</p>}
+        {message && <p className="rounded-lg border border-line bg-surface px-4 py-3 text-sm text-ink-secondary shadow-sm" role="status">{message}</p>}
         <section id="panel-overview" role="tabpanel" aria-labelledby="tab-overview" hidden={activeTab !== "overview"} className="space-y-5">
           {data.userRole === "manager" && (() => {
             const task = data.activeTasks.find((item) => item.user_id === data.currentUserId && item.status === "active" && !item.end_time);
@@ -444,31 +449,32 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
           <DashboardHeading title="Executive overview" description="Portfolio performance, approvals, and operating costs at a glance." />
           <section className="grid grid-cols-2 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <Metric label="Properties" value={data.hotels.length} icon={Building2} tone="sky" />
-            <Metric label="Completed work logs" value={completedLogs.length} icon={ClipboardList} tone="emerald" />
-            <Metric label="Awaiting approval" value={data.workLogs.filter((log) => !log.is_locked && log.status === "completed").length} icon={ShieldAlert} tone="amber" />
+            <Metric label="Total work logs" value={dashboardSummary.totalLogs} icon={ClipboardList} tone="violet" />
+            <Metric label="Completed work logs" value={dashboardSummary.completedLogs} icon={ClipboardList} tone="emerald" />
+            <Metric label="Awaiting approval" value={dashboardSummary.awaitingApprovalLogs} icon={ShieldAlert} tone="amber" />
             <Metric label="Active cleaners" value={activeCleanerCount} icon={UsersRound} tone="violet" />
             <Metric label="Operational labor cost" value={formatGBP(totalLaborCost)} icon={CircleDollarSign} tone="violet" />
             <Metric label="Cost per cleaned room" value={formatGBP(completedRooms ? totalLaborCost / completedRooms : 0)} icon={CircleDollarSign} tone="sky" />
             <Metric label="Locked payroll liability*" value={formatGBP(lockedPayrollLiability)} icon={Wallet} tone="amber" />
             <Metric label="Service costs · brief period" value={formatGBP(periodServiceCost)} icon={CircleDollarSign} tone="emerald" />
           </section>
-          <section aria-label="Live staff activity" className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm">
+          <section aria-label="Live staff activity" className="rounded-2xl border border-emerald-100 bg-surface p-4 shadow-sm">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-sm font-semibold text-slate-900">Live staff activity</h2>
+              <h2 className="text-sm font-semibold text-ink">Live staff activity</h2>
               {data.activeShifts.length === 0 ? (
-                <span className="text-sm text-slate-500">No cleaners are currently on shift.</span>
+                <span className="text-sm text-ink-muted">No cleaners are currently on shift.</span>
               ) : (
                 data.activeShifts.map((shift) => (
                   <span key={shift.id} className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-sm">
-                    <span className="font-medium text-slate-800">{shift.cleanerName}</span>
+                    <span className="font-medium text-ink-secondary">{shift.cleanerName}</span>
                     <LiveStatusIndicator isClockedIn showLabel={false} />
                   </span>
                 ))
               )}
             </div>
           </section>
-          <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-950">*Payroll settlement status is not stored in the current data model. This figure is the value of locked payroll records, not a verified unpaid balance.</p>
-          <section className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-slate-200/70 sm:p-6">
+          <p className="payroll-disclaimer text-xs leading-5">*Payroll settlement status is not stored in the current data model. This figure is the value of locked payroll records, not a verified unpaid balance.</p>
+          <section className="rounded-3xl bg-surface p-4 shadow-sm ring-1 ring-line sm:p-6">
             <DashboardHeading title="Operational brief" description={`Operating summary · ${data.brief.periodLabel}`} />
             <OperationalBrief brief={data.brief} />
           </section>
@@ -482,14 +488,16 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
         </section>
 
         <section id="panel-work-logs" role="tabpanel" aria-labelledby="tab-work-logs" hidden={activeTab !== "work-logs"} className="space-y-5">
-          <DashboardHeading title="Work logs & history" description={`${filteredWorkLogs.length} matching records · review approvals, task details, and shift history.`} />
+          <DashboardHeading title="Work logs & history" description={`${serverWorkLogPage?.totalCount ?? 0} matching records · review approvals, task details, and shift history.`} />
+          {serverWorkLogError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{serverWorkLogError}</p>}
+          {!serverWorkLogPage && !serverWorkLogError && <p role="status" className="text-sm text-ink-secondary">Loading this page of work logs…</p>}
           <WorkspaceFilterBar
             filters={workFilters}
             onChange={(changes) => {
               if (changes.property !== undefined) changeWorkFilters({ ...changes, worker: "" });
               else changeWorkFilters(changes);
             }}
-            onReset={() => { clearWorkFilters(); setWorkLogPage(1); }}
+            onReset={clearWorkFilters}
             properties={data.hotels.map(({ id, name }) => ({ id, name }))}
             services={data.services.map(({ id, name }) => ({ id, name }))}
             tenants={data.propertyAssignees.filter((assignee) => assignee.role === "owner").map(({ id, name }) => ({ id, name }))}
@@ -499,16 +507,16 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
             showWorkers={data.userRole !== "owner"}
             label="Work log filters"
           >
-            <label className="text-xs font-semibold text-slate-600">Service<select value={serviceFilter} onChange={(event) => changeWorkFilters({ service: event.target.value })} className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"><option value="">All services</option>{serviceOptions.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select></label>
+            <label className="text-xs font-semibold text-ink-secondary">Service<select value={serviceFilter} onChange={(event) => changeWorkFilters({ service: event.target.value })} className="mt-1 min-h-10 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink-secondary"><option value="">All services</option>{serviceOptions.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select></label>
             <label className="flex min-h-10 items-center gap-2 self-end rounded-lg border border-amber-200 bg-amber-50 px-3 text-xs font-semibold text-amber-900"><input type="checkbox" checked={needsActionOnly} onChange={(event) => changeWorkFilters({ needsAction: event.target.checked ? "true" : "" })} className="h-4 w-4 accent-amber-700" />Needs action</label>
-            <label className="text-xs font-semibold text-slate-600">Sort by<select value={sortColumn} onChange={(event) => changeWorkFilters({ sort: event.target.value })} className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"><option value="date">Date</option><option value="cleaner">Cleaner</option><option value="hotel">Property</option><option value="service">Service</option><option value="status">Status</option></select></label>
-            <label className="flex min-h-10 items-center gap-2 self-end rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700"><input type="checkbox" checked={sortAscending} onChange={(event) => changeWorkFilters({ ascending: event.target.checked ? "true" : "" })} className="h-4 w-4 accent-sky-700" />Ascending</label>
+            <label className="text-xs font-semibold text-ink-secondary">Sort by<select value={sortColumn} onChange={(event) => changeWorkFilters({ sort: event.target.value })} className="mt-1 min-h-10 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink-secondary"><option value="date">Date</option><option value="cleaner">Cleaner</option><option value="hotel">Property</option><option value="service">Service</option><option value="status">Status</option></select></label>
+            <label className="flex min-h-10 items-center gap-2 self-end rounded-lg border border-line px-3 text-xs font-semibold text-ink-secondary"><input type="checkbox" checked={sortAscending} onChange={(event) => changeWorkFilters({ ascending: event.target.checked ? "true" : "" })} className="h-4 w-4 accent-sky-700" />Ascending</label>
           </WorkspaceFilterBar>
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-      <div id="work-logs-table" className="workspace-table-scroll mobile-card-table-wrapper scroll-mt-24 rounded-lg border border-slate-200 [-webkit-overflow-scrolling:touch]">
-        <table aria-label="Work logs" aria-rowcount={filteredWorkLogs.length + 1} className="mobile-card-table min-w-[1360px] w-full table-fixed text-left text-sm">
+    <section className="rounded-2xl border border-line bg-surface p-4 shadow-sm sm:p-5">
+      <div id="work-logs-table" className="workspace-table-scroll mobile-card-table-wrapper scroll-mt-24 rounded-lg border border-line [-webkit-overflow-scrolling:touch]">
+        <table aria-label="Work logs" aria-rowcount={(serverWorkLogPage?.totalCount ?? 0) + 1} className="mobile-card-table min-w-[1360px] w-full table-fixed text-left text-sm">
           <colgroup><col style={{ width: "180px" }} /><col style={{ width: "155px" }} /><col style={{ width: "170px" }} /><col style={{ width: "180px" }} /><col style={{ width: "110px" }} /><col style={{ width: "75px" }} /><col style={{ width: "190px" }} /><col style={{ width: "300px" }} /></colgroup>
-          <thead className="sticky top-0 z-10 bg-white/95 text-slate-600 shadow-sm backdrop-blur">
+          <thead className="sticky top-0 z-10 bg-surface/95 text-ink-secondary shadow-sm backdrop-blur">
             <tr>
               <th className="sticky-column-start px-3 py-3 font-semibold">Cleaner</th>
               <th className="px-3 py-3 font-semibold">Date / time</th>
@@ -520,22 +528,22 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
               <th className="sticky-column-end px-3 py-3 text-right font-semibold">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-line">
             {visibleWorkLogs.length > 0
               ? visibleWorkLogs.map((log) => <WorkLogRow key={log.id} {...workLogRowProps(log)} />)
-              : <tr><td colSpan={8} className="px-3 py-8 text-center text-slate-500">No logs match your filter criteria.</td></tr>}
+              : <tr><td colSpan={8} className="px-3 py-8 text-center text-ink-muted">No logs match your filter criteria.</td></tr>}
           </tbody>
-          {visibleWorkLogs.length > 0 && <tfoot className="sticky bottom-0 z-10 bg-white font-semibold text-slate-900 shadow-[0_-1px_0_#e2e8f0]">
+          {visibleWorkLogs.length > 0 && <tfoot className="sticky bottom-0 z-10 bg-surface font-semibold text-ink shadow-[0_-1px_0_#e2e8f0]">
             <tr>
-              <td colSpan={4} className="px-3 py-3">Filtered totals ({filteredWorkLogs.length})</td>
+              <td colSpan={4} className="px-3 py-3">Current page totals ({visibleWorkLogs.length})</td>
               <td className="px-3 py-3 text-right tabular-nums">{filteredWorkLogTotals.hours.toFixed(2)} hrs</td>
               <td className="px-3 py-3 text-right tabular-nums">{filteredWorkLogTotals.rooms}</td>
-              <td colSpan={2} className="px-3 py-3">All matching rows</td>
+              <td colSpan={2} className="px-3 py-3">Page subtotal</td>
             </tr>
           </tfoot>}
         </table>
       </div>
-      <DashboardPagination currentPage={currentPage} pageCount={pageCount} total={filteredWorkLogs.length} pageSize={pageSize} label="work logs" onPageChange={setWorkLogPage} />
+      <DashboardPagination currentPage={currentPage} pageCount={pageCount} total={serverWorkLogPage?.totalCount ?? 0} pageSize={pageSize} label="work logs" onPageChange={setWorkLogPage} />
     </section>
         </section>
 
@@ -546,27 +554,25 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
             <Metric label="Cost per completed room" value={formatGBP(completedRooms ? totalLaborCost / completedRooms : 0)} icon={Activity} tone="sky" />
             <Metric label="Locked payroll liability*" value={formatGBP(lockedPayrollLiability)} icon={Wallet} tone="amber" />
           </section>
-          <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-950">*This is the total value of locked payroll records. The current schema does not track payment/settlement, so it cannot confirm unpaid balances.</p>
-          <section id="property-labor-breakdown" className="scroll-mt-24 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/70">
-            <div className="mb-4 flex flex-wrap items-end justify-between gap-2"><div><h3 className="font-semibold text-slate-950">Property labor cost breakdown</h3><p className="mt-1 text-sm text-slate-600">Completed work logs and task-level overrides across your visible properties.</p></div><span className="text-xs text-slate-500">Revenue is not tracked in the current model</span></div>
+          <p className="payroll-disclaimer text-xs leading-5">*This is the total value of locked payroll records. The current schema does not track payment/settlement, so it cannot confirm unpaid balances.</p>
+          <section id="property-labor-breakdown" className="scroll-mt-24 rounded-2xl bg-surface p-5 shadow-sm ring-1 ring-line">
+            <div className="mb-4 flex flex-wrap items-end justify-between gap-2"><div><h3 className="font-semibold text-ink">Property labor cost breakdown</h3><p className="mt-1 text-sm text-ink-secondary">Completed work logs and task-level overrides across your visible properties.</p></div><span className="text-xs text-ink-muted">Revenue is not tracked in the current model</span></div>
             <label className="relative mb-2 block">
               <span className="sr-only">Filter properties</span>
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-              <input value={propertySearch} onChange={(event) => setPropertySearch(event.target.value)} placeholder="Filter properties..." className="min-h-11 w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-900" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" aria-hidden="true" />
+              <input value={propertySearch} onChange={(event) => setPropertySearch(event.target.value)} placeholder="Filter properties..." className="min-h-11 w-full rounded-lg border border-line bg-surface py-2 pl-9 pr-3 text-sm text-ink" />
             </label>
-            <div className="admin-config-scroll max-h-72 overflow-y-auto rounded-xl border border-slate-200 p-2">
-              {filteredPropertyFinancials.map((property) => <article key={property.id} className="grid gap-2 border-b border-slate-100 px-3 py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:items-center sm:gap-6">
-                <p className="truncate font-medium text-slate-900">{property.name}</p>
-                <p className="text-sm text-slate-600">{property.rooms} units</p>
-                <p className="text-sm font-semibold tabular-nums text-slate-900">GBP {property.cost.toFixed(2)}</p>
-                <p className="text-xs tabular-nums text-slate-500">GBP {property.costPerRoom.toFixed(2)} / unit</p>
+            <div className="admin-config-scroll max-h-72 overflow-y-auto rounded-xl border border-line p-2">
+              {filteredPropertyFinancials.map((property) => <article key={property.id} className="grid gap-2 border-b border-line px-3 py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:items-center sm:gap-6">
+                <p className="truncate font-medium text-ink">{property.name}</p>
+                <p className="text-sm text-ink-secondary">{property.rooms} units</p>
+                <p className="text-sm font-semibold tabular-nums text-ink">GBP {property.cost.toFixed(2)}</p>
+                <p className="text-xs tabular-nums text-ink-muted">GBP {property.costPerRoom.toFixed(2)} / unit</p>
               </article>)}
-              {!filteredPropertyFinancials.length && <p className="p-6 text-center text-sm text-slate-500">No properties match your filter</p>}
+              {!filteredPropertyFinancials.length && <p className="p-6 text-center text-sm text-ink-muted">No properties match your filter</p>}
             </div>
           </section>
-          {payrollApprovalsPendingSync > 0 && <p className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-900"><Check className="h-4 w-4 shrink-0" />Latest approval is reflected in this payroll preview while the saved totals refresh.</p>}
           <AdminPayrollTable
-      logs={displayedPayrollLogs}
       services={data.services}
       hotels={data.hotels.map(({ id, name }) => ({ id, name }))}
       cleaners={data.cleaners}
@@ -580,15 +586,14 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
         <section id="panel-audit" role="tabpanel" aria-labelledby="tab-audit" hidden={activeTab !== "audit"} className="space-y-5">
           <DashboardHeading title="Audit & compliance" description="Historical responsibility snapshots for work logs in your role-scoped property set." />
           <div id="audit-trail" className="scroll-mt-24 space-y-5">
-            <SnapshotTransparency logs={data.auditLogs} onOpen={(log) => { setSelectedTaskFromAudit(true); setSelectedTask(toBriefTask(log)); }} />
-            <OverrideAuditTable entries={data.overrideAudit} />
+            <SnapshotTransparency filterOptions={auditFilterOptions} onOpen={(log) => { setSelectedTaskFromAudit(true); setSelectedAuditLog(log); setSelectedTask(toBriefTask(log)); }} />
+            <OperationalAuditTable loadPage={getManagementOverrideAuditPage} />
           </div>
         </section>
 
-    {selectedTask && <ServiceCard task={selectedTask} onClose={() => setSelectedTask(null)} editLabel={selectedTaskFromAudit ? "Edit Record" : "Edit"} onEdit={selectedTaskFromAudit && !isPlatformAdmin(data.userRole) ? undefined : () => { const logs = selectedTaskFromAudit ? data.auditLogs : data.workLogs; const log = logs.find((item) => item.id === selectedTask.id); if (log) { setSelectedTask(null); beginEdit(log); } }} />}
+    {selectedTask && <ServiceCard task={selectedTask} onClose={() => { setSelectedTask(null); setSelectedAuditLog(null); }} editLabel={selectedTaskFromAudit ? "Edit Record" : "Edit"} onEdit={selectedTaskFromAudit && !isPlatformAdmin(data.userRole) ? undefined : () => { const log = selectedTaskFromAudit ? selectedAuditLog : displayedWorkLogsRef.current.find((item) => item.id === selectedTask.id); if (log) { setSelectedTask(null); setSelectedAuditLog(null); beginEdit(log); } }} />}
     {editing && draft && <FullEditPanel draft={draft} setDraft={setDraft} services={data.services} hotels={data.hotels} rooms={data.rooms} saving={isPending} canEditStatus={isPlatformAdmin(data.userRole)} statusDisabled={Boolean(editing.cancelled_at)} onCancel={() => { setEditing(null); setDraft(null); }} onSave={saveEdit}/>}
       </main>
-      <MobileWorkspaceNav activeTab={activeTab} onSelect={selectTab} />
   </div>;
 }
 
@@ -624,18 +629,18 @@ const WorkLogRow = memo(function WorkLogRow({ log, isOwnLog, canManager, canOwne
   const hotelName = typeof log.hotelName === "string" && log.hotelName.trim() ? log.hotelName : "Unknown property";
   const cleanerName = typeof log.cleanerName === "string" && log.cleanerName.trim() ? log.cleanerName : "Unknown worker";
   const serviceName = log.service_name_snapshot ?? log.services_config?.[0]?.name ?? "Service";
-  return <tr className="align-top transition-colors hover:bg-slate-50">
-    <td data-label="Cleaner" className="sticky-column-start break-words px-3 py-4 font-medium text-slate-900">{cleanerName}</td>
-    <td data-label="Date / time" className="whitespace-nowrap px-3 py-4 text-slate-600">{formatWorkLogDate(log.start_time)}</td>
-    <td data-label="Property" className="break-words px-3 py-4 font-medium text-slate-800">{hotelName}</td>
-    <td data-label="Service / task" className="break-words px-3 py-4 text-slate-700">{serviceName}</td>
-    <td data-label="Duration" className="whitespace-nowrap px-3 py-4 text-right tnum text-slate-700">{hours === null || !Number.isFinite(hours) ? "In progress" : `${hours.toFixed(2)} hrs`}</td>
-    <td data-label="Rooms" className="whitespace-nowrap px-3 py-4 text-right tnum text-slate-700">{Number.isFinite(log.rooms_completed) ? log.rooms_completed : 0}</td>
-    <td data-label="Status" className="px-3 py-4"><StatusBadge status={status} label={statusLabel} /><div className="mt-1 text-[11px] text-slate-500">Manager: {log.manager_approved ? "Approved" : log.manager_rejected ? "Rejected" : "Pending"} · Owner: {log.owner_approved ? "Approved" : log.owner_rejected ? "Rejected" : "Pending"}</div></td>
+  return <tr className="align-top transition-colors hover:bg-surface-secondary">
+    <td data-label="Cleaner" className="sticky-column-start break-words px-3 py-4 font-medium text-ink">{cleanerName}</td>
+    <td data-label="Date / time" className="whitespace-nowrap px-3 py-4 text-ink-secondary">{formatWorkLogDate(log.start_time)}</td>
+    <td data-label="Property" className="break-words px-3 py-4 font-medium text-ink-secondary">{hotelName}</td>
+    <td data-label="Service / task" className="break-words px-3 py-4 text-ink-secondary">{serviceName}</td>
+    <td data-label="Duration" className="whitespace-nowrap px-3 py-4 text-right tnum text-ink-secondary">{hours === null || !Number.isFinite(hours) ? "In progress" : `${hours.toFixed(2)} hrs`}</td>
+    <td data-label="Rooms" className="whitespace-nowrap px-3 py-4 text-right tnum text-ink-secondary">{Number.isFinite(log.rooms_completed) ? log.rooms_completed : 0}</td>
+    <td data-label="Status" className="px-3 py-4"><StatusBadge status={status} label={statusLabel} /><div className="mt-1 text-[11px] text-ink-muted">Manager: {log.manager_approved ? "Approved" : log.manager_rejected ? "Rejected" : "Pending"} · Owner: {log.owner_approved ? "Approved" : log.owner_rejected ? "Rejected" : "Pending"}</div></td>
     <td data-label="Actions" className="sticky-column-end px-3 py-4">
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" onClick={() => onEdit(log.id)} className="min-h-9 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">View details</button>
-        {isOwnLog ? <span className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700">
+        <button type="button" onClick={() => onEdit(log.id)} className="min-h-9 rounded-lg border border-line bg-surface-secondary px-3 text-xs font-semibold text-ink hover:border-accent">View details</button>
+        {isOwnLog ? <span className="rounded-lg border border-line bg-surface-secondary px-2.5 py-1.5 text-xs font-semibold text-ink-secondary">
           {log.assigneeRole === "manager" && log.status === "completed"
             ? log.manager_approved ? "Approved (Completed)" : "Pending Manager Approval"
             : "Your work log · read only"}
@@ -645,7 +650,7 @@ const WorkLogRow = memo(function WorkLogRow({ log, isOwnLog, canManager, canOwne
         </>)}
         {canForceEndAndApprove && <button type="button" disabled={isPending} onClick={() => onForceEndAndApprove(log.id)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-semibold text-rose-900 hover:bg-rose-100 disabled:cursor-wait disabled:opacity-60">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Finalizing…" : "Force End & Approve"}</button>}
       </div>
-      {feedback && <p role={feedback.kind === "error" ? "alert" : "status"} className={`mt-2 text-xs ${feedback.kind === "error" ? "font-medium text-rose-700" : feedback.kind === "success" ? "text-emerald-700" : "text-slate-500"}`}>{feedback.text}</p>}
+      {feedback && <p role={feedback.kind === "error" ? "alert" : "status"} className={`mt-2 text-xs ${feedback.kind === "error" ? "font-medium text-rose-700" : feedback.kind === "success" ? "text-emerald-700" : "text-ink-muted"}`}>{feedback.text}</p>}
     </td>
   </tr>;
 });
@@ -664,31 +669,31 @@ export function WorkLogMobileCard(props: WorkLogRowProps) {
   const ownerStatus = log.owner_approved ? "approved" : log.owner_rejected ? "rejected" : "pending";
   const status: StatusKind = log.cancelled_at ? "cancelled" : log.is_locked ? "locked" : log.status === "active" ? "in_progress" : log.manager_rejected || log.owner_rejected ? "rejected" : log.status !== "completed" ? "pending" : "needs_action";
 
-  return <article className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:shadow-md dark:border-slate-800 dark:bg-slate-900">
-    <header className="flex items-center justify-between gap-3 border-b border-slate-100 pb-2 dark:border-slate-800">
+  return <article className="space-y-3 rounded-2xl border border-line bg-surface p-4 shadow-sm transition-all hover:shadow-md dark:border-slate-800 dark:bg-slate-900">
+    <header className="flex items-center justify-between gap-3 border-b border-line pb-2 dark:border-slate-800">
       <div className="flex min-w-0 items-center gap-2.5">
         <span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-sky-100 text-xs font-bold text-sky-800">{cleanerName.trim().split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase()}</span>
         <div className="min-w-0">
-          <p className="truncate text-base font-semibold text-slate-900 dark:text-slate-100">{cleanerName}</p>
-          <p className="truncate text-xs capitalize text-slate-500">{typeof log.assigneeRole === "string" ? log.assigneeRole.replaceAll("_", " ") : "Unknown role"}</p>
+          <p className="truncate text-base font-semibold text-ink dark:text-slate-100">{cleanerName}</p>
+          <p className="truncate text-xs capitalize text-ink-muted">{typeof log.assigneeRole === "string" ? log.assigneeRole.replaceAll("_", " ") : "Unknown role"}</p>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
         <StatusBadge status={status} label={status === "pending" && log.status !== "completed" ? "Clock-out required" : undefined} className="text-[11px]" />
-        {canEditWorkLog(log) && <button type="button" aria-label={`Edit ${cleanerName} work log`} onClick={() => onEdit(log.id)} className="grid h-9 w-9 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white"><Pencil className="h-4 w-4" /></button>}
+        {canEditWorkLog(log) && <button type="button" aria-label={`Edit ${cleanerName} work log`} onClick={() => onEdit(log.id)} className="grid h-9 w-9 place-items-center rounded-lg text-ink-muted transition hover:bg-surface-secondary hover:text-ink dark:hover:bg-slate-800 dark:hover:text-white"><Pencil className="h-4 w-4" /></button>}
       </div>
     </header>
 
     <div className="space-y-2.5">
-      <div className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-        <Building2 className="h-4 w-4 shrink-0 text-slate-400" />
-        <span className="min-w-0 flex-1 truncate font-medium">{hotelName} <span className="font-normal text-slate-500">· {serviceName}</span></span>
-        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">{roomCount} {roomCount === 1 ? "room" : "rooms"}</span>
+      <div className="flex items-center gap-2 text-sm text-ink-secondary dark:text-ink-muted">
+        <Building2 className="h-4 w-4 shrink-0 text-ink-muted" />
+        <span className="min-w-0 flex-1 truncate font-medium">{hotelName} <span className="font-normal text-ink-muted">· {serviceName}</span></span>
+        <span className="shrink-0 rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] font-medium text-ink-secondary dark:bg-slate-800 dark:text-ink-muted">{roomCount} {roomCount === 1 ? "room" : "rooms"}</span>
       </div>
-      <div className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
-        <Clock className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+      <div className="flex items-start gap-2 text-sm text-ink-secondary dark:text-ink-muted">
+        <Clock className="mt-0.5 h-4 w-4 shrink-0 text-ink-muted" />
         <span className="min-w-0 flex-1">{dateLabel}</span>
-        <span className="shrink-0 rounded-lg bg-slate-100 px-2 py-1 text-xs font-bold tabular-nums text-slate-700 dark:bg-slate-800 dark:text-slate-200">{hours === null || !Number.isFinite(hours) ? "In progress" : `${hours.toFixed(2)} hrs`}</span>
+        <span className="shrink-0 rounded-lg bg-surface-secondary px-2 py-1 text-xs font-bold tabular-nums text-ink-secondary dark:bg-slate-800 dark:text-slate-200">{hours === null || !Number.isFinite(hours) ? "In progress" : `${hours.toFixed(2)} hrs`}</span>
       </div>
     </div>
 
@@ -697,7 +702,7 @@ export function WorkLogMobileCard(props: WorkLogRowProps) {
       <ApprovalStatusPill label="Owner" status={ownerStatus} />
     </div>
 
-    <footer className="space-y-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+    <footer className="space-y-2 border-t border-line pt-3 dark:border-slate-800">
       {log.is_locked || bothApproved
         ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-xs font-semibold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">Fully Approved</div>
         : log.status !== "completed"
@@ -706,14 +711,14 @@ export function WorkLogMobileCard(props: WorkLogRowProps) {
             {canBypassClockOut && log.status === "active" && <button type="button" disabled={isPending} onClick={() => onFinalize(log.id)} className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 text-sm font-semibold text-sky-900 disabled:opacity-60">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Finalizing..." : "Finalize / Bypass Clock-Out"}</button>}
           </div>
           : isOwnLog
-            ? <p className="rounded-lg bg-slate-50 px-3 py-2 text-center text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">Your work log · read only</p>
+            ? <p className="rounded-lg bg-surface-secondary px-3 py-2 text-center text-xs font-medium text-ink-secondary dark:bg-slate-800 dark:text-ink-muted">Your work log · read only</p>
             : <div className="space-y-2">
               {canManager && !log.manager_approved && <ApprovalButtons label="Approve (Manager)" onApprove={() => onApprove(log.id, "manager")} onReject={(note) => onReject(log.id, "manager", note)} isPending={isPending} />}
               {canOwner && !log.owner_approved && <ApprovalButtons label="Approve (Owner)" onApprove={() => onApprove(log.id, "owner")} onReject={(note) => onReject(log.id, "owner", note)} isPending={isPending} />}
               {canForceEndAndApprove && <button type="button" disabled={isPending} onClick={() => onForceEndAndApprove(log.id)} className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 text-sm font-semibold text-rose-900 disabled:opacity-60">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Finalizing..." : "Force End & Approve"}</button>}
-              {!canManager && !canOwner && !canForceEndAndApprove && <p className="rounded-lg bg-slate-50 px-3 py-2 text-center text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">Awaiting approval.</p>}
+              {!canManager && !canOwner && !canForceEndAndApprove && <p className="rounded-lg bg-surface-secondary px-3 py-2 text-center text-xs font-medium text-ink-secondary dark:bg-slate-800 dark:text-ink-muted">Awaiting approval.</p>}
             </div>}
-      {feedback && <p role={feedback.kind === "error" ? "alert" : "status"} className={`text-xs ${feedback.kind === "error" ? "font-medium text-rose-700" : feedback.kind === "success" ? "text-emerald-700" : "text-slate-500"}`}>{feedback.text}</p>}
+      {feedback && <p role={feedback.kind === "error" ? "alert" : "status"} className={`text-xs ${feedback.kind === "error" ? "font-medium text-rose-700" : feedback.kind === "success" ? "text-emerald-700" : "text-ink-muted"}`}>{feedback.text}</p>}
     </footer>
   </article>;
 }
@@ -727,9 +732,9 @@ function ApprovalStatusPill({ label, status }: { label: string; status: "approve
 }
 
 function DashboardHeading({ title, description }: { title: string; description: string }) {
-  return <header className="rounded-2xl bg-white px-5 py-4 shadow-sm ring-1 ring-slate-200/70">
-    <h2 className="text-xl font-bold tracking-tight text-slate-950">{title}</h2>
-    <p className="mt-1 text-sm text-slate-600">{description}</p>
+  return <header className="rounded-2xl bg-surface px-5 py-4 shadow-sm ring-1 ring-line">
+    <h2 className="text-xl font-bold tracking-tight text-ink">{title}</h2>
+    <p className="mt-1 text-sm text-ink-secondary">{description}</p>
   </header>;
 }
 
@@ -741,15 +746,15 @@ function ApprovalButtons({ label, onApprove, onReject, isPending }: { label: str
   const [note, setNote] = useState("");
   return <div className="space-y-2">
     <div className="grid grid-cols-2 gap-2">
-      <button type="button" disabled={isPending} onClick={onApprove} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-lg bg-slate-900 px-2 py-2 text-xs font-semibold text-white disabled:cursor-wait disabled:opacity-60"><Check className="h-3.5 w-3.5" />{isPending ? "Saving..." : label}</button>
-      <button type="button" disabled={isPending} onClick={() => setIsRejecting((open) => !open)} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-lg border border-rose-200 bg-white px-2 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-wait disabled:opacity-60"><X className="h-3.5 w-3.5" />Reject</button>
+      <button type="button" disabled={isPending} onClick={onApprove} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-500/20 disabled:cursor-wait disabled:opacity-60 dark:text-emerald-400"><Check className="h-3.5 w-3.5" />{isPending ? "Saving..." : label}</button>
+      <button type="button" disabled={isPending} onClick={() => setIsRejecting((open) => !open)} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-lg border border-rose-500/30 bg-rose-500/10 px-2 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-500/20 disabled:cursor-wait disabled:opacity-60 dark:text-rose-400"><X className="h-3.5 w-3.5" />Reject</button>
     </div>
     {isRejecting && <div className="space-y-2 overflow-hidden rounded-xl border border-rose-100 bg-rose-50/60 p-3 transition-all">
-      <label className="block text-xs font-semibold text-slate-700">Reason for rejection
-        <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} placeholder="Reason for rejection..." className="mt-1 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900 outline-none focus:border-rose-300 focus:ring-2 focus:ring-rose-100" />
+      <label className="block text-xs font-semibold text-ink-secondary">Reason for rejection
+        <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} placeholder="Reason for rejection..." className="mt-1 w-full resize-y rounded-lg border border-line bg-surface px-3 py-2 text-sm font-normal text-ink outline-none focus:border-rose-300 focus:ring-2 focus:ring-rose-100" />
       </label>
       <div className="flex justify-end gap-2">
-        <button type="button" disabled={isPending} onClick={() => { setIsRejecting(false); setNote(""); }} className="min-h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 disabled:opacity-50">Cancel</button>
+        <button type="button" disabled={isPending} onClick={() => { setIsRejecting(false); setNote(""); }} className="min-h-9 rounded-lg border border-line bg-surface px-3 text-xs font-semibold text-ink-secondary disabled:opacity-50">Cancel</button>
         <button type="button" disabled={isPending} onClick={() => { onReject(note); setIsRejecting(false); setNote(""); }} className="min-h-9 rounded-lg bg-rose-700 px-3 text-xs font-semibold text-white disabled:opacity-50">{isPending ? "Submitting..." : "Confirm Rejection"}</button>
       </div>
     </div>}
@@ -762,8 +767,8 @@ function Metric({ label, value, icon: Icon, tone }: { label: string; value: numb
     amber: "bg-amber-50 text-amber-700",
     violet: "bg-violet-50 text-violet-700",
   }[tone];
-  return <article className="min-w-0 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:p-5">
-    <div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="text-xs font-medium text-slate-500 sm:text-sm">{label}</p><p className="mt-2 truncate text-lg font-semibold tabular-nums text-slate-950 sm:text-2xl">{value}</p></div><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg sm:h-9 sm:w-9 ${iconTone}`}><Icon className="h-4 w-4" /></span></div>
+  return <article className="min-w-0 rounded-xl border border-line bg-surface p-3 shadow-sm sm:p-5">
+    <div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="text-xs font-medium text-ink-muted sm:text-sm">{label}</p><p className="mt-2 truncate text-lg font-semibold tabular-nums text-ink sm:text-2xl">{value}</p></div><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg sm:h-9 sm:w-9 ${iconTone}`}><Icon className="h-4 w-4" /></span></div>
   </article>;
 }
 type AuditColumnId = "date" | "workerFacility" | "owner" | "manager" | "snapshot" | "service" | "status" | "hours" | "value" | "approvals" | "room";
@@ -808,13 +813,6 @@ function getAuditColumnsServerSnapshot() {
   return "";
 }
 
-function lifecycleStatus(log: Log) {
-  if (log.cancelled_at || log.status === "cancelled") return "Cancelled";
-  if (log.status === "active") return "Active";
-  if (log.status === "completed") return "Completed";
-  return "Pending";
-}
-
 function lifecycleStatusKind(log: Log): StatusKind {
   if (log.cancelled_at || log.status === "cancelled") return "cancelled";
   if (log.status === "active") return "in_progress";
@@ -838,41 +836,89 @@ function AuditMultiSelect({ label, values, selected, onChange }: { label: string
   const [search, setSearch] = useState("");
   const visibleValues = values.filter((value) => value.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
   return <fieldset className="mt-3">
-    <legend className="text-xs font-semibold text-slate-700">{label}</legend>
-    <label className="mt-2 flex items-center gap-2 rounded-md border border-slate-200 px-2">
-      <Search className="h-3.5 w-3.5 text-slate-400" />
-      <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Search ${label.toLowerCase()}`} className="min-h-9 w-full border-0 bg-transparent text-xs text-slate-800 outline-none" />
+    <legend className="text-xs font-semibold text-ink-secondary">{label}</legend>
+    <label className="mt-2 flex items-center gap-2 rounded-md border border-line px-2">
+      <Search className="h-3.5 w-3.5 text-ink-muted" />
+      <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Search ${label.toLowerCase()}`} className="min-h-9 w-full border-0 bg-transparent text-xs text-ink-secondary outline-none" />
     </label>
     <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">
-      {visibleValues.map((value) => <label key={value} className="flex items-start gap-2 rounded px-1 py-1 text-xs text-slate-700 hover:bg-slate-50">
+      {visibleValues.map((value) => <label key={value} className="flex items-start gap-2 rounded px-1 py-1 text-xs text-ink-secondary hover:bg-surface-secondary">
         <input type="checkbox" checked={selected.includes(value)} onChange={(event) => onChange(event.target.checked ? [...selected, value] : selected.filter((item) => item !== value))} className="mt-0.5" />
         <span className="break-words">{value || "Unavailable"}</span>
       </label>)}
-      {!visibleValues.length && <p className="py-2 text-xs text-slate-500">No matching values.</p>}
+      {!visibleValues.length && <p className="py-2 text-xs text-ink-muted">No matching values.</p>}
     </div>
   </fieldset>;
 }
 
 function AuditFilterPopover({ label, active, onSelectAll, onClear, children }: { label: string; active: boolean; onSelectAll: () => void; onClear: () => void; children: ReactNode }) {
   return <details className="relative inline-block align-middle">
-    <summary aria-label={`Filter ${label}`} title={`Filter ${label}`} className={`flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-md hover:bg-slate-100 ${active ? "text-sky-700" : "text-slate-500"}`}>
+    <summary aria-label={`Filter ${label}`} title={`Filter ${label}`} className={`flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-md hover:bg-surface-secondary ${active ? "text-sky-700" : "text-ink-muted"}`}>
       <Filter className="h-4 w-4" />
     </summary>
-    <div className="absolute right-0 z-30 mt-1 w-72 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-xl">
-      <p className="text-xs font-semibold text-slate-800">Filter: {label}</p>
-      <div className="mt-2 flex gap-2 border-b border-slate-100 pb-2">
+    <div className="absolute right-0 z-30 mt-1 w-72 rounded-xl border border-line bg-surface p-3 text-left shadow-xl">
+      <p className="text-xs font-semibold text-ink-secondary">Filter: {label}</p>
+      <div className="mt-2 flex gap-2 border-b border-line pb-2">
         <button type="button" onClick={onSelectAll} className="text-xs font-semibold text-sky-700 hover:underline">Select All</button>
-        <button type="button" onClick={onClear} className="text-xs font-semibold text-slate-600 hover:underline">Clear Filter</button>
+        <button type="button" onClick={onClear} className="text-xs font-semibold text-ink-secondary hover:underline">Clear Filter</button>
       </div>
       {children}
     </div>
   </details>;
 }
 
-function SnapshotTransparency({ logs, onOpen }: { logs: Log[]; onOpen: (log: Log) => void }) {
-  const [page, setPage] = useState(1);
+function SnapshotTransparency({ filterOptions, onOpen }: { filterOptions: SnapshotFilterOptions; onOpen: (log: Log) => void }) {
+  const [page, setPage] = useUrlPage(RECORDS_PER_PAGE);
+  const pageSize = useUrlPageSize(RECORDS_PER_PAGE);
   const [preferencesMessage, setPreferencesMessage] = useState("");
-  const [filters, setFilters] = useState<Record<string, AuditFilter>>({});
+  const [historyResult, setHistoryResult] = useState<{ key: string; page: Awaited<ReturnType<typeof getManagementResponsibilityHistoryPage>> } | null>(null);
+  const [historyFailure, setHistoryFailure] = useState<{ key: string; message: string } | null>(null);
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  const filters = useMemo<ManagementHistoryFilters>(() => {
+    const parsed: ManagementHistoryFilters = {};
+    for (const key of ["worker", "facility", "owner", "manager", "snapshot", "service", "status", "approvals", "room", "date", "hours", "value"]) {
+      const selected = searchParams.get(`audit_${key}`);
+      if (selected) {
+        try {
+          const value: unknown = JSON.parse(selected);
+          if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+            parsed[key] = { selected: value };
+          }
+        } catch {
+          parsed[key] = {};
+        }
+      }
+      const from = searchParams.get(`audit_${key}_from`);
+      const to = searchParams.get(`audit_${key}_to`);
+      const min = searchParams.get(`audit_${key}_min`);
+      const max = searchParams.get(`audit_${key}_max`);
+      if (from || to || min || max) {
+        parsed[key] = { ...parsed[key], ...(from ? { from } : {}), ...(to ? { to } : {}), ...(min ? { min } : {}), ...(max ? { max } : {}) };
+      }
+    }
+    return parsed;
+  }, [searchParams]);
+  const historyRequest = useMemo(() => ({ page, pageSize, filters }), [page, pageSize, filters]);
+  const historyRequestKey = JSON.stringify(historyRequest);
+  const loadedHistory = historyResult?.key === historyRequestKey ? historyResult.page : null;
+  const historyError = historyFailure?.key === historyRequestKey ? historyFailure.message : "";
+  useEffect(() => {
+    let active = true;
+    getManagementResponsibilityHistoryPage(historyRequest).then((result) => {
+      if (!active) return;
+      setHistoryResult({ key: historyRequestKey, page: result });
+      if (result.page !== page) setPage(result.page);
+    }).catch((error: unknown) => {
+      if (!active) return;
+      setHistoryFailure({
+        key: historyRequestKey,
+        message: getActionErrorMessage(error, "Unable to load responsibility history."),
+      });
+    });
+    return () => { active = false; };
+  }, [historyRequest, historyRequestKey, page, setPage]);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const storedColumns = useSyncExternalStore(subscribeAuditColumns, getAuditColumnsSnapshot, getAuditColumnsServerSnapshot);
   const storedPreference = useMemo(() => {
@@ -890,83 +936,57 @@ function SnapshotTransparency({ logs, onOpen }: { logs: Log[]; onOpen: (log: Log
   }, [storedColumns]);
   const visibleColumnIds = storedPreference.columns;
 
-  const uniqueValues = (getValue: (log: Log) => string) => [...new Set(logs.map(getValue))].sort((left, right) => left.localeCompare(right, "en", { numeric: true }));
   const selectedFor = (key: string) => filters[key]?.selected ?? [];
-  const updateFilter = (key: string, update: AuditFilter | null) => {
-    setFilters((current) => {
-      const next = { ...current };
-      if (update) next[key] = { ...current[key], ...update };
-      else delete next[key];
-      return next;
-    });
-    setPage(1);
+  const updateFilters = (updates: Record<string, AuditFilter | null>) => {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const [key, update] of Object.entries(updates)) {
+      const selectedKey = `audit_${key}`;
+      const rangeKeys = [`${selectedKey}_from`, `${selectedKey}_to`, `${selectedKey}_min`, `${selectedKey}_max`];
+      if (!update) {
+        params.delete(selectedKey);
+        rangeKeys.forEach((rangeKey) => params.delete(rangeKey));
+        continue;
+      }
+      if (update.selected?.length) params.set(selectedKey, JSON.stringify(update.selected));
+      else params.delete(selectedKey);
+      for (const field of ["from", "to", "min", "max"] as const) {
+        const value = update[field];
+        const param = `${selectedKey}_${field}`;
+        if (value) params.set(param, value);
+        else params.delete(param);
+      }
+    }
+    params.set("tab", "audit");
+    params.set("page", "1");
+    params.set("pageSize", String(pageSize));
+    router.push(`${pathname}?${params.toString()}${window.location.hash}`, { scroll: false });
   };
-  const matchesSelected = (key: string, value: string) => {
-    const selected = selectedFor(key);
-    return selected.length === 0 || selected.includes(value);
-  };
+  const updateFilter = (key: string, update: AuditFilter | null) => updateFilters({
+    [key]: update ? { ...filters[key], ...update } : null,
+  });
   const hasFilter = (key: string) => {
     const filter = filters[key];
     return Boolean(filter && ((filter.selected?.length ?? 0) > 0 || filter.from || filter.to || filter.min || filter.max));
   };
   const activeFilterCount = Object.keys(filters).filter(hasFilter).length;
-  const allValues = (key: string) => {
-    switch (key) {
-      case "worker": return uniqueValues((log) => log.cleanerName);
-      case "facility": return uniqueValues((log) => log.hotelName);
-      case "owner": return uniqueValues((log) => log.owner_name ?? "Unassigned owner");
-      case "manager": return uniqueValues((log) => log.manager_name ?? "Unassigned manager");
-      case "snapshot": return uniqueValues((log) => log.responsibility_recorded_at?.slice(0, 10) ?? "");
-      case "service": return uniqueValues((log) => log.service_name_snapshot ?? log.services_config?.[0]?.name ?? "Service");
-      case "status": return uniqueValues(lifecycleStatus);
-      case "approvals": return uniqueValues(approvalSummary);
-      case "room": return uniqueValues(logRoomReference);
-      default: return [];
-    }
-  };
-  const numericMatches = (key: string, value: number) => {
-    const filter = filters[key];
-    return (!filter?.min || value >= Number(filter.min)) && (!filter?.max || value <= Number(filter.max));
-  };
-  const filteredLogs = logs.filter((log) => {
-    const workerAndFacilityMatch = matchesSelected("worker", log.cleanerName) && matchesSelected("facility", log.hotelName);
-    const date = log.task_date.slice(0, 10);
-    const snapshotDate = log.responsibility_recorded_at?.slice(0, 10) ?? "";
-    const service = log.service_name_snapshot ?? log.services_config?.[0]?.name ?? "Service";
-    const hours = log.end_time ? durationHours(log.start_time, log.end_time) : 0;
-    return workerAndFacilityMatch
-      && matchesSelected("owner", log.owner_name ?? "Unassigned owner")
-      && matchesSelected("manager", log.manager_name ?? "Unassigned manager")
-      && matchesSelected("service", service)
-      && matchesSelected("status", lifecycleStatus(log))
-      && matchesSelected("approvals", approvalSummary(log))
-      && matchesSelected("room", logRoomReference(log))
-      && (!filters.date?.from || date >= filters.date.from)
-      && (!filters.date?.to || date <= filters.date.to)
-      && (!filters.snapshot?.from || snapshotDate >= filters.snapshot.from)
-      && (!filters.snapshot?.to || snapshotDate <= filters.snapshot.to)
-      && numericMatches("hours", hours)
-      && numericMatches("value", getLogLaborCost(log));
-  }).sort((left, right) => right.start_time.localeCompare(left.start_time));
-  const pageCount = Math.max(1, Math.ceil(filteredLogs.length / RECORDS_PER_PAGE));
-  const currentPage = Math.min(page, pageCount);
-  const visibleLogs = filteredLogs.slice((currentPage - 1) * RECORDS_PER_PAGE, currentPage * RECORDS_PER_PAGE);
+  const allValues = (key: string) => filterOptions[key] ?? [];
+  const currentPage = loadedHistory?.page ?? page;
+  const pageCount = loadedHistory?.pageCount ?? 1;
+  const totalCount = loadedHistory?.totalCount ?? 0;
+  const visibleLogs = loadedHistory?.records ?? [];
   const visibleColumns = AUDIT_COLUMNS.filter((column) => visibleColumnIds.includes(column.id));
   const setSelected = (key: string, values: string[]) => updateFilter(key, { selected: values });
   const setRange = (key: string, field: "from" | "to" | "min" | "max", value: string) => updateFilter(key, { [field]: value });
   const renderFilter = (column: AuditColumn) => {
     const clear = () => {
-      updateFilter(column.id === "workerFacility" ? "worker" : column.id, null);
-      if (column.id === "workerFacility") updateFilter("facility", null);
+      if (column.id === "workerFacility") updateFilters({ worker: null, facility: null });
+      else updateFilter(column.id, null);
     };
     const selectAll = () => {
       if (column.id === "workerFacility") {
-        setSelected("worker", allValues("worker"));
-        setSelected("facility", allValues("facility"));
-      } else if (column.id === "date" || column.id === "snapshot" || column.id === "hours" || column.id === "value") {
-        updateFilter(column.id, {});
+        updateFilters({ worker: null, facility: null });
       } else {
-        setSelected(column.id, allValues(column.id));
+        updateFilter(column.id, null);
       }
     };
     const active = column.id === "workerFacility" ? hasFilter("worker") || hasFilter("facility") : hasFilter(column.id);
@@ -976,11 +996,11 @@ function SnapshotTransparency({ logs, onOpen }: { logs: Log[]; onOpen: (log: Log
         <AuditMultiSelect label="Facility" values={allValues("facility")} selected={selectedFor("facility")} onChange={(values) => setSelected("facility", values)} />
       </> : ["owner", "manager", "service", "status", "approvals", "room"].includes(column.id) ? <AuditMultiSelect label={column.label} values={allValues(column.id)} selected={selectedFor(column.id)} onChange={(values) => setSelected(column.id, values)} />
         : column.id === "date" || column.id === "snapshot" ? <div className="mt-3 grid grid-cols-2 gap-2">
-          <label className="text-xs text-slate-600">From<input type="date" value={filters[column.id]?.from ?? ""} onChange={(event) => setRange(column.id, "from", event.target.value)} className="mt-1 w-full rounded border border-slate-200 p-1.5 text-xs" /></label>
-          <label className="text-xs text-slate-600">To<input type="date" value={filters[column.id]?.to ?? ""} onChange={(event) => setRange(column.id, "to", event.target.value)} className="mt-1 w-full rounded border border-slate-200 p-1.5 text-xs" /></label>
+          <label className="text-xs text-ink-secondary">From<input type="date" value={filters[column.id]?.from ?? ""} onChange={(event) => setRange(column.id, "from", event.target.value)} className="mt-1 w-full rounded border border-line p-1.5 text-xs" /></label>
+          <label className="text-xs text-ink-secondary">To<input type="date" value={filters[column.id]?.to ?? ""} onChange={(event) => setRange(column.id, "to", event.target.value)} className="mt-1 w-full rounded border border-line p-1.5 text-xs" /></label>
         </div> : <div className="mt-3 grid grid-cols-2 gap-2">
-          <label className="text-xs text-slate-600">Min<input type="number" min="0" step="any" value={filters[column.id]?.min ?? ""} onChange={(event) => setRange(column.id, "min", event.target.value)} className="mt-1 w-full rounded border border-slate-200 p-1.5 text-xs" /></label>
-          <label className="text-xs text-slate-600">Max<input type="number" min="0" step="any" value={filters[column.id]?.max ?? ""} onChange={(event) => setRange(column.id, "max", event.target.value)} className="mt-1 w-full rounded border border-slate-200 p-1.5 text-xs" /></label>
+          <label className="text-xs text-ink-secondary">Min<input type="number" min="0" step="any" value={filters[column.id]?.min ?? ""} onChange={(event) => setRange(column.id, "min", event.target.value)} className="mt-1 w-full rounded border border-line p-1.5 text-xs" /></label>
+          <label className="text-xs text-ink-secondary">Max<input type="number" min="0" step="any" value={filters[column.id]?.max ?? ""} onChange={(event) => setRange(column.id, "max", event.target.value)} className="mt-1 w-full rounded border border-line p-1.5 text-xs" /></label>
         </div>}
     </AuditFilterPopover>;
   };
@@ -998,15 +1018,15 @@ function SnapshotTransparency({ logs, onOpen }: { logs: Log[]; onOpen: (log: Log
     }
   };
 
-  return <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-200/50 sm:p-5">
+  return <section className="rounded-2xl border border-line bg-surface p-4 shadow-sm ring-1 ring-line sm:p-5">
     <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-      <div><h3 className="text-base font-semibold text-slate-950">Responsibility history</h3><p className="mt-1 text-sm text-slate-500">Historical task, responsibility, approval, and financial details.</p></div>
-      <button type="button" onClick={() => setFiltersOpen(true)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 md:hidden"><Filter className="h-4 w-4" />Filter & Search (Active: {activeFilterCount})</button>
+      <div><h3 className="text-base font-semibold text-ink">Responsibility history</h3><p className="mt-1 text-sm text-ink-muted">Historical task, responsibility, approval, and financial details.</p></div>
+      <button type="button" onClick={() => setFiltersOpen(true)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-line bg-surface px-3 text-sm font-semibold text-ink-secondary md:hidden"><Filter className="h-4 w-4" />Filter & Search (Active: {activeFilterCount})</button>
       <details className="relative">
-        <summary className="flex min-h-10 cursor-pointer list-none items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"><Columns3 className="h-4 w-4" />Columns</summary>
-        <div className="absolute right-0 z-30 mt-1 w-64 rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
-          <p className="mb-2 text-xs font-semibold text-slate-700">Visible columns</p>
-          <div className="max-h-72 space-y-1 overflow-y-auto">{AUDIT_COLUMNS.map((column) => <label key={column.id} className="flex items-center gap-2 rounded px-1 py-1.5 text-xs text-slate-700 hover:bg-slate-50"><input type="checkbox" checked={visibleColumnIds.includes(column.id)} onChange={(event) => toggleColumn(column.id, event.target.checked)} />{column.label}</label>)}</div>
+        <summary className="flex min-h-10 cursor-pointer list-none items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink-secondary hover:bg-surface-secondary"><Columns3 className="h-4 w-4" />Columns</summary>
+        <div className="absolute right-0 z-30 mt-1 w-64 rounded-xl border border-line bg-surface p-3 shadow-xl">
+          <p className="mb-2 text-xs font-semibold text-ink-secondary">Visible columns</p>
+          <div className="max-h-72 space-y-1 overflow-y-auto">{AUDIT_COLUMNS.map((column) => <label key={column.id} className="flex items-center gap-2 rounded px-1 py-1.5 text-xs text-ink-secondary hover:bg-surface-secondary"><input type="checkbox" checked={visibleColumnIds.includes(column.id)} onChange={(event) => toggleColumn(column.id, event.target.checked)} />{column.label}</label>)}</div>
         </div>
         {filtersOpen && <div
           role="dialog"
@@ -1018,19 +1038,19 @@ function SnapshotTransparency({ logs, onOpen }: { logs: Log[]; onOpen: (log: Log
             if (event.target === event.currentTarget) setFiltersOpen(false);
           }}
         >
-          <section className="max-h-[85dvh] w-full overflow-y-auto rounded-t-3xl bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl">
-            <header className="sticky top-0 mb-3 flex items-center justify-between bg-white pb-3">
-              <h4 className="text-base font-bold text-slate-950">Filter audit records</h4>
-              <button type="button" aria-label="Close filters" onClick={() => setFiltersOpen(false)} className="grid h-9 w-9 place-items-center rounded-lg text-slate-500 hover:bg-slate-100"><X className="h-4 w-4" /></button>
+          <section className="max-h-[85dvh] w-full overflow-y-auto rounded-t-3xl bg-surface p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl">
+            <header className="sticky top-0 mb-3 flex items-center justify-between bg-surface pb-3">
+              <h4 className="text-base font-bold text-ink">Filter audit records</h4>
+              <button type="button" aria-label="Close filters" onClick={() => setFiltersOpen(false)} className="grid h-9 w-9 place-items-center rounded-lg text-ink-muted hover:bg-surface-secondary"><X className="h-4 w-4" /></button>
             </header>
             <div className="space-y-2">
-              {visibleColumns.map((column) => <div key={column.id} className="mobile-audit-filter flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2">
-                <span className="text-sm font-medium text-slate-700">{column.label}{hasFilter(column.id === "workerFacility" ? "worker" : column.id) || (column.id === "workerFacility" && hasFilter("facility")) ? " · Active" : ""}</span>
+              {visibleColumns.map((column) => <div key={column.id} className="mobile-audit-filter flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line px-3 py-2">
+                <span className="text-sm font-medium text-ink-secondary">{column.label}{hasFilter(column.id === "workerFacility" ? "worker" : column.id) || (column.id === "workerFacility" && hasFilter("facility")) ? " · Active" : ""}</span>
                 {renderFilter(column)}
               </div>)}
             </div>
             <div className="mt-5 flex justify-end gap-2">
-              <button type="button" onClick={() => { setFilters({}); setPage(1); }} className="min-h-11 rounded-lg border border-slate-200 px-4 text-sm font-semibold text-slate-700">Clear All</button>
+              <button type="button" onClick={() => updateFilters(Object.fromEntries(["worker", "facility", "owner", "manager", "snapshot", "service", "status", "approvals", "room", "date", "hours", "value"].map((key) => [key, null])))} className="min-h-11 rounded-lg border border-line px-4 text-sm font-semibold text-ink-secondary">Clear All</button>
               <button type="button" onClick={() => setFiltersOpen(false)} className="min-h-11 rounded-lg bg-slate-900 px-5 text-sm font-semibold text-white">Apply</button>
             </div>
           </section>
@@ -1038,15 +1058,17 @@ function SnapshotTransparency({ logs, onOpen }: { logs: Log[]; onOpen: (log: Log
       </details>
     </div>
     {(preferencesMessage || storedPreference.message) && <p role="status" className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">{preferencesMessage || storedPreference.message}</p>}
-    <div className="admin-config-scroll mobile-card-table-wrapper max-h-[65vh] overflow-auto rounded-lg border border-slate-200 [-webkit-overflow-scrolling:touch]">
+    {historyError && <p role="alert" className="mb-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-200">{historyError}</p>}
+    {!loadedHistory && !historyError && <p role="status" className="mb-3 text-sm text-ink-secondary">Loading this responsibility-history page…</p>}
+    <div className="admin-config-scroll mobile-card-table-wrapper max-h-[65vh] overflow-auto rounded-lg border border-line [-webkit-overflow-scrolling:touch]">
       <table className="mobile-card-table min-w-max w-full text-left text-sm">
-        <thead className="sticky top-0 z-10 bg-white/95 text-slate-600 shadow-sm backdrop-blur"><tr>{visibleColumns.map((column) => <th key={column.id} className="whitespace-nowrap px-3 py-2"><div className="flex items-center gap-1"><span>{column.label}</span>{renderFilter(column)}</div></th>)}</tr></thead>
-        <tbody className="divide-y divide-slate-100">{visibleLogs.map((log) => {
+        <thead className="sticky top-0 z-10 bg-surface/95 text-ink-secondary shadow-sm backdrop-blur"><tr>{visibleColumns.map((column) => <th key={column.id} className="whitespace-nowrap px-3 py-2"><div className="flex items-center gap-1"><span>{column.label}</span>{renderFilter(column)}</div></th>)}</tr></thead>
+        <tbody className="divide-y divide-line">{visibleLogs.map((log) => {
           const service = log.service_name_snapshot ?? log.services_config?.[0]?.name ?? "Service";
           const hours = log.end_time ? durationHours(log.start_time, log.end_time) : 0;
           const cells: Record<AuditColumnId, ReactNode> = {
             date: <button type="button" onClick={() => onOpen(log)} className="whitespace-nowrap text-left text-sky-800 underline decoration-transparent underline-offset-2 hover:text-sky-950 hover:decoration-current focus:decoration-current">{new Date(log.start_time).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}</button>,
-            workerFacility: <>{log.cleanerName}<span className="block text-xs text-slate-500">{log.hotelName}</span></>,
+            workerFacility: <>{log.cleanerName}<span className="block text-xs text-ink-muted">{log.hotelName}</span></>,
             owner: log.owner_name ?? "Unassigned owner",
             manager: log.manager_name ?? "Unassigned manager",
             snapshot: log.responsibility_recorded_at ? new Date(log.responsibility_recorded_at).toLocaleString("en-GB", { timeZone: "Africa/Cairo" }) : "Unavailable",
@@ -1057,78 +1079,11 @@ function SnapshotTransparency({ logs, onOpen }: { logs: Log[]; onOpen: (log: Log
             approvals: approvalSummary(log),
             room: logRoomReference(log),
           };
-          return <tr key={log.id} className="align-top hover:bg-slate-50">{visibleColumns.map((column) => <td key={column.id} data-label={column.label} className="max-w-64 whitespace-nowrap px-3 py-3 text-slate-700">{cells[column.id]}</td>)}</tr>;
-        })}{filteredLogs.length === 0 && <tr><td colSpan={visibleColumns.length} className="px-3 py-8 text-center text-slate-500">No work-log snapshots match these filters.</td></tr>}</tbody>
-        <tfoot><tr className="font-semibold text-slate-900"><td colSpan={visibleColumns.length} className="px-3 py-3">Filtered audit records <span className="float-right tabular-nums">{filteredLogs.length}</span></td></tr></tfoot>
+          return <tr key={log.id} className="align-top hover:bg-surface-secondary">{visibleColumns.map((column) => <td key={column.id} data-label={column.label} className="max-w-64 whitespace-nowrap px-3 py-3 text-ink-secondary">{cells[column.id]}</td>)}</tr>;
+        })}{loadedHistory && visibleLogs.length === 0 && <tr><td colSpan={visibleColumns.length} className="px-3 py-8 text-center text-ink-muted">No work-log snapshots match these filters.</td></tr>}</tbody>
+        <tfoot><tr className="font-semibold text-ink"><td colSpan={visibleColumns.length} className="px-3 py-3">Filtered audit records <span className="float-right tabular-nums">{totalCount}</span></td></tr></tfoot>
       </table>
     </div>
-    <DashboardPagination currentPage={currentPage} pageCount={pageCount} total={filteredLogs.length} pageSize={RECORDS_PER_PAGE} label="audit records" onPageChange={setPage} />
+    <DashboardPagination currentPage={currentPage} pageCount={pageCount} total={totalCount} pageSize={pageSize} label="audit records" onPageChange={setPage} />
   </section>;
-}
-
-function getAuditChanges(entry: OverrideAuditRecord) {
-  const before = new Map(entry.previous_details.map((detail) => [detail.label, detail.value]));
-  const after = new Map(entry.new_details.map((detail) => [detail.label, detail.value]));
-  return [...new Set([...before.keys(), ...after.keys()])]
-    .filter((label) => before.get(label) !== after.get(label))
-    .map((label) => ({ label, before: before.get(label) ?? "—", after: after.get(label) ?? "—" }));
-}
-
-function AuditDetailsPanel({ title, details }: { title: string; details: AuditDetail[] }) {
-  return (
-    <section className="min-w-0">
-      <h4 className="mb-2 text-sm font-semibold text-slate-800">{title}</h4>
-      {details.length ? (
-        <dl className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
-          {details.map((detail) => <div key={detail.label} className="grid grid-cols-[7rem_minmax(0,1fr)] gap-3 text-xs"><dt className="font-medium text-slate-500">{detail.label}</dt><dd className="break-words text-slate-800">{detail.value}</dd></div>)}
-        </dl>
-      ) : <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">No additional details.</p>}
-    </section>
-  );
-}
-
-function OverrideAuditTable({ entries }: { entries: OverrideAuditRecord[] }) {
-  const [page, setPage] = useState(1);
-  const [rawEntry, setRawEntry] = useState<OverrideAuditRecord | null>(null);
-  const pageCount = Math.max(1, Math.ceil(entries.length / RECORDS_PER_PAGE));
-  const currentPage = Math.min(page, pageCount);
-  const visibleEntries = entries.slice((currentPage - 1) * RECORDS_PER_PAGE, currentPage * RECORDS_PER_PAGE);
-  return <>
-  <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-200/50 sm:p-5">
-    <div className="mb-4"><h3 className="text-base font-semibold text-slate-950">Operational intervention audit</h3><p className="mt-1 text-sm text-slate-500">Force clock-outs and task overrides, including the actor, reason, and recorded change.</p></div>
-    <div className="admin-config-scroll mobile-card-table-wrapper max-h-[65vh] overflow-auto rounded-lg border border-slate-200 [-webkit-overflow-scrolling:touch]">
-      <table className="mobile-card-table min-w-[900px] w-full text-left text-sm">
-        <thead className="sticky top-0 z-10 bg-white/95 text-slate-600 shadow-sm backdrop-blur"><tr><th className="px-3 py-3">When</th><th className="px-3 py-3">Entity / action</th><th className="px-3 py-3">Actor</th><th className="px-3 py-3">Reason</th><th className="px-3 py-3">Recorded change</th></tr></thead>
-        <tbody className="divide-y divide-slate-100">
-          {visibleEntries.map((entry) => {
-            const changes = getAuditChanges(entry);
-            return <tr key={entry.id} className="align-top hover:bg-slate-50">
-            <td data-label="When" className="whitespace-nowrap px-3 py-3 text-slate-600">{new Date(entry.created_at).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}</td>
-            <td data-label="Entity / action" className="px-3 py-3"><span className="font-semibold capitalize text-slate-900">{entry.entity_type}</span><span className="block text-xs capitalize text-slate-500">{entry.action.replaceAll("_", " ")}</span><span className="mt-1 block max-w-48 text-xs text-slate-600">{entry.target_label}</span></td>
-            <td data-label="Actor" className="max-w-40 px-3 py-3 text-slate-700"><span className="block truncate font-medium">{entry.actor_name}</span></td>
-            <td data-label="Reason" className="max-w-sm whitespace-normal px-3 py-3 text-slate-700">{entry.override_reason}</td>
-            <td data-label="Recorded change" className="px-3 py-3 text-xs text-slate-600">
-              <div className="space-y-1.5">{changes.length ? changes.map((change) => <p key={change.label}><span className="font-semibold text-slate-800">{change.label}:</span> {change.label === "Cancelled" && change.after === "Yes" ? "Yes" : <>{change.before} <span aria-label="changed to" className="px-1 text-slate-400">→</span> {change.after}</>}</p>) : <span className="text-slate-500">No tracked fields changed</span>}</div>
-              <button type="button" onClick={() => setRawEntry(entry)} className="mt-2 min-h-11 rounded-lg border border-slate-200 px-2.5 py-1.5 font-medium text-slate-700 hover:bg-slate-50">View details</button>
-            </td>
-          </tr>;
-          })}
-          {!entries.length && <tr><td colSpan={5} className="px-3 py-8 text-center text-slate-500">No operational interventions have been recorded.</td></tr>}
-        </tbody>
-      </table>
-    </div>
-    <DashboardPagination currentPage={currentPage} pageCount={pageCount} total={entries.length} pageSize={RECORDS_PER_PAGE} label="interventions" onPageChange={setPage} />
-  </section>
-    {rawEntry && <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-labelledby="override-raw-details-title">
-      <section className="max-h-[calc(100dvh-2rem)] w-full max-w-3xl overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-5 text-slate-900 shadow-2xl">
-        <div className="flex items-start justify-between gap-3"><div><h3 id="override-raw-details-title" className="text-lg font-semibold text-slate-950">Intervention details</h3><p className="mt-1 text-sm capitalize text-slate-600">{rawEntry.action.replaceAll("_", " ")} · {rawEntry.entity_type} · {rawEntry.actor_name}</p><p className="mt-1 text-sm font-medium text-slate-700">{rawEntry.target_label}</p></div><button type="button" onClick={() => setRawEntry(null)} aria-label="Close details" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div>
-        <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700"><span className="font-semibold">Reason:</span> {rawEntry.override_reason}</p>
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <AuditDetailsPanel title="Before" details={rawEntry.previous_details} />
-          <AuditDetailsPanel title="After" details={rawEntry.new_details} />
-        </div>
-        <div className="mt-4 flex justify-end"><button type="button" onClick={() => setRawEntry(null)} className="min-h-11 rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Close</button></div>
-      </section>
-    </div>}
-  </>;
 }

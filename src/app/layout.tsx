@@ -5,6 +5,7 @@ import "./globals.css";
 import "./management-dashboard.css";
 import "leaflet/dist/leaflet.css";
 import { getSessionUser } from "@/lib/auth";
+import { cookies } from "next/headers";
 import { ChatProviders } from "@/components/chat/ChatProviders";
 import { GlobalChatWidget } from "@/components/chat/GlobalChatWidget";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
@@ -47,6 +48,8 @@ export const viewport: Viewport = {
 };
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
+  const cookieStore = await cookies();
+  const theme = cookieStore.get("theme")?.value === "dark" ? "dark" : "light";
   const user = await getSessionUser();
   let chatProfile = user ? { name: user.email, avatarUrl: null as string | null, role: user.role } : null;
   let soundNotificationsEnabled = true;
@@ -64,9 +67,10 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   return (
     <html
       lang="en"
+      data-theme={theme}
     className={`${geistSans.variable} ${geistMono.variable} h-full min-h-dvh overflow-x-hidden antialiased`}
     >
-      <body suppressHydrationWarning className="min-h-dvh flex flex-col overflow-x-hidden bg-slate-100 pb-[env(safe-area-inset-bottom,16px)] text-slate-900">
+      <body suppressHydrationWarning className="theme-workspace min-h-dvh flex flex-col overflow-x-hidden bg-canvas pb-[env(safe-area-inset-bottom,16px)] text-ink">
         <ModalScrollLock />
         <ActionToastViewport />
         {user ? (

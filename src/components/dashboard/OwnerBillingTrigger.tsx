@@ -25,7 +25,7 @@ export function OwnerBillingTrigger({ usage }: { usage: OwnerBillingUsage }) {
         aria-haspopup="dialog"
         aria-expanded={isOpen}
         onClick={() => setIsOpen(true)}
-        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-sky-200 bg-white text-sm font-semibold text-sky-900 shadow-sm transition hover:bg-sky-50 sm:w-auto sm:gap-2 sm:px-3"
+        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-sky-200 bg-surface text-sm font-semibold text-sky-900 shadow-sm transition hover:bg-sky-50 sm:w-auto sm:gap-2 sm:px-3"
       >
         <span className="relative grid h-7 w-7 place-items-center rounded-lg bg-sky-100 text-sky-800">
           <Receipt aria-hidden="true" className="h-4 w-4" />
@@ -45,13 +45,13 @@ export function OwnerBillingTrigger({ usage }: { usage: OwnerBillingUsage }) {
             role="dialog"
             aria-modal="true"
             aria-labelledby="owner-billing-title"
-            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-6"
+            className="w-full max-w-lg rounded-2xl border border-line bg-surface p-5 shadow-2xl sm:p-6"
           >
             <header className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">Usage billing</p>
-                <h2 id="owner-billing-title" className="mt-1 text-xl font-bold text-slate-950">{usage.monthLabel} cycle</h2>
-                <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-600">
+                <h2 id="owner-billing-title" className="mt-1 text-xl font-bold text-ink">{usage.monthLabel} cycle</h2>
+                <p className="mt-1 flex items-center gap-1.5 text-sm text-ink-secondary">
                   <CalendarDays aria-hidden="true" className="h-4 w-4" />
                   Current cycle active
                 </p>
@@ -60,23 +60,23 @@ export function OwnerBillingTrigger({ usage }: { usage: OwnerBillingUsage }) {
                 type="button"
                 aria-label="Close usage billing"
                 onClick={() => setIsOpen(false)}
-                className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50"
+                className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-line text-ink-secondary hover:bg-surface-secondary"
               >
                 <X aria-hidden="true" className="h-4 w-4" />
               </button>
             </header>
             <div className="mt-5 space-y-3">
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-sm text-slate-600">Completed tasks</p>
-                <p className="mt-1 font-semibold text-slate-950">
+              <div className="rounded-xl border border-line bg-surface-secondary px-4 py-3">
+                <p className="text-sm text-ink-secondary">Completed tasks</p>
+                <p className="mt-1 font-semibold text-ink">
                   {usage.completedTasks.toLocaleString()}
-                  <span className="ml-1 text-xs font-normal text-slate-500">· $0.08 per task</span>
+                  <span className="ml-1 text-xs font-normal text-ink-muted">· $0.08 per task</span>
                 </p>
               </div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-sm text-slate-600">Active shifts this month</p>
-                <p className="mt-1 inline-flex items-center gap-2 font-semibold text-slate-950">
-                  <Clock3 aria-hidden="true" className="h-4 w-4 text-slate-400" />
+              <div className="rounded-xl border border-line bg-surface-secondary px-4 py-3">
+                <p className="text-sm text-ink-secondary">Active shifts this month</p>
+                <p className="mt-1 inline-flex items-center gap-2 font-semibold text-ink">
+                  <Clock3 aria-hidden="true" className="h-4 w-4 text-ink-muted" />
                   {usage.activeShifts.toLocaleString()}
                 </p>
               </div>

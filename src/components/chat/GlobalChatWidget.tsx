@@ -105,7 +105,7 @@ function GlobalChatWidgetContent({ user, profile }: { user: AppUserSession; prof
           type="button"
           aria-label={`Open team chat${unreadCount ? `, ${unreadCount} unread messages` : ""}`}
           onClick={() => openChat()}
-          className="chat-launcher group fixed bottom-6 right-6 z-50 flex h-16 w-16 items-center justify-center rounded-full bg-[#25d366] text-[#063b2a] shadow-2xl shadow-emerald-950/30 transition hover:scale-105 hover:bg-[#20c45e] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+          className={`chat-launcher group fixed ${user.role === "cleaner" ? "bottom-28" : "bottom-20"} right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-[#25d366] text-[#063b2a] shadow-2xl shadow-emerald-950/30 transition hover:scale-105 hover:bg-[#20c45e] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 md:bottom-6 md:right-6 md:h-16 md:w-16`}
         >
           <MessageCircle
             aria-hidden="true"

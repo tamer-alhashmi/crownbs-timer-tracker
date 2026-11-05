@@ -71,9 +71,9 @@ function LocateMeControl({ onLocate }: { onLocate: () => void }) {
     <button
       type="button"
       onClick={onLocate}
-      className="absolute right-3 top-3 z-[500] inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-md hover:bg-slate-50"
+      className="absolute right-3 top-3 z-[500] inline-flex min-h-10 items-center gap-2 rounded-xl border border-line bg-surface px-3 text-sm font-semibold text-ink-secondary shadow-md hover:bg-surface-secondary"
     >
-      <Crosshair className="h-4 w-4 text-sky-700" />
+      <Crosshair className="h-4 w-4 text-accent" />
       Locate Me
     </button>
   );
@@ -161,7 +161,7 @@ export default function MapLocationPicker({ onCancel, onConfirm }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-950/55 p-3 sm:p-6"
+      className="fixed inset-0 z-[1000] flex items-center justify-center bg-ink/55 p-3 sm:p-6"
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !geocoding) onCancel();
@@ -171,17 +171,17 @@ export default function MapLocationPicker({ onCancel, onConfirm }: Props) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="location-picker-title"
-        className="flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+        className="flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-surface shadow-2xl"
       >
-        <header className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 sm:px-5">
+        <header className="flex items-center justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">
           <div className="flex items-center gap-3">
-            <span className="grid h-10 w-10 place-items-center rounded-xl bg-sky-50 text-sky-700"><MapPin className="h-5 w-5" /></span>
+            <span className="grid h-10 w-10 place-items-center rounded-xl bg-accent/10 text-accent"><MapPin className="h-5 w-5" /></span>
             <div>
-              <h2 id="location-picker-title" className="font-bold text-slate-950">Pick Property Location</h2>
-              <p className="text-xs text-slate-500">Click the map or drag the pin to the property.</p>
+              <h2 id="location-picker-title" className="font-bold text-ink">Pick Property Location</h2>
+              <p className="text-xs text-ink-secondary">Click the map or drag the pin to the property.</p>
             </div>
           </div>
-          <button type="button" onClick={onCancel} disabled={geocoding} aria-label="Close location picker" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-slate-500 hover:bg-slate-100 disabled:opacity-50">
+          <button type="button" onClick={onCancel} disabled={geocoding} aria-label="Close location picker" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-ink-secondary hover:bg-surface-secondary disabled:opacity-50">
             <X className="h-5 w-5" />
           </button>
         </header>
@@ -206,23 +206,23 @@ export default function MapLocationPicker({ onCancel, onConfirm }: Props) {
           </MapContainer>
           {mapReady && <LocateMeControl onLocate={locateMe} />}
           {tileLoading && (
-            <div className="pointer-events-none absolute inset-0 z-[400] flex items-center justify-center bg-white/65">
-              <span className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow">
+            <div className="pointer-events-none absolute inset-0 z-[400] flex items-center justify-center bg-surface/65">
+              <span className="inline-flex items-center gap-2 rounded-full bg-surface px-4 py-2 text-sm font-medium text-ink-secondary shadow">
                 <LoaderCircle className="h-4 w-4 animate-spin" /> Loading map…
               </span>
             </div>
           )}
         </div>
 
-        <footer className="space-y-2 border-t border-slate-200 px-4 py-3 sm:px-5">
+        <footer className="space-y-2 border-t border-line px-4 py-3 sm:px-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p aria-live="polite" className="text-xs text-slate-500">{gpsStatus || "Select the property location on the map."}</p>
-            <p className="text-xs tabular-nums text-slate-400">{position.lat.toFixed(5)}, {position.lng.toFixed(5)}</p>
+            <p aria-live="polite" className="text-xs text-ink-secondary">{gpsStatus || "Select the property location on the map."}</p>
+            <p className="text-xs tabular-nums text-ink-muted">{position.lat.toFixed(5)}, {position.lng.toFixed(5)}</p>
           </div>
           {error && <p role="alert" className="text-sm text-rose-700">{error}</p>}
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={onCancel} disabled={geocoding} className="min-h-10 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
-            <button type="button" onClick={confirmLocation} disabled={geocoding} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-sky-700 px-4 text-sm font-semibold text-white hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-60">
+            <button type="button" onClick={onCancel} disabled={geocoding} className="min-h-10 rounded-xl border border-line px-4 text-sm font-semibold text-ink-secondary hover:bg-surface-secondary disabled:opacity-50">Cancel</button>
+            <button type="button" onClick={confirmLocation} disabled={geocoding} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-accent px-4 text-sm font-semibold text-white hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60">
               {geocoding && <LoaderCircle className="h-4 w-4 animate-spin" />}
               {geocoding ? "Finding address…" : "Confirm Location"}
             </button>

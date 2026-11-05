@@ -27,9 +27,9 @@ export function ServiceCard({ task, onClose, onEdit, editLabel = "Edit" }: Props
       : task.managerRejected || task.ownerRejected
         ? "Rejected and awaiting correction"
         : `Manager: ${task.managerApproved ? "approved" : "pending"} · Owner: ${task.ownerApproved ? "approved" : "pending"}`;
-    return <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-3 sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-label="Work log details">
-    <article className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-3xl bg-white p-5 text-slate-900 shadow-2xl ring-1 ring-slate-200 sm:p-6">
-      <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
+    return <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-3 backdrop-blur-sm sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-label="Work log details">
+    <article className="theme-workspace max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-3xl border border-line bg-surface-elevated p-5 text-ink shadow-2xl sm:p-6">
+      <div className="flex items-start justify-between gap-4 border-b border-line pb-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-700">Work log details</p>
           <h2 className="mt-1 text-2xl font-bold">{task.service}</h2>
@@ -37,14 +37,14 @@ export function ServiceCard({ task, onClose, onEdit, editLabel = "Edit" }: Props
         </div>
         <div className="flex items-center gap-2">
           {onEdit && <button type="button" onClick={onEdit} className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800">{editLabel}</button>}
-          <button type="button" onClick={onClose} aria-label="Close work log details" title="Close" className="rounded-xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"><X className="h-5 w-5" /></button>
+          <button type="button" onClick={onClose} aria-label="Close work log details" title="Close" className="rounded-xl border border-line p-2 text-ink-muted hover:bg-surface-secondary"><X className="h-5 w-5" /></button>
         </div>
       </div>
 
-      <div className="mt-5 rounded-2xl border border-sky-100 bg-sky-50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">Task date</p>
-        <p className="mt-1 font-semibold text-slate-900">{formatDate(task.taskDate)}</p>
-        <p className="mt-1 text-sm text-slate-600">Record ID: <span className="font-mono text-xs">{task.id}</span></p>
+      <div className="mt-5 rounded-2xl border border-line bg-surface-secondary p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink-secondary">Task date</p>
+        <p className="mt-1 font-semibold text-ink">{formatDate(task.taskDate)}</p>
+        <p className="mt-1 text-sm text-ink-secondary">Record ID: <span className="font-mono text-xs">{task.id}</span></p>
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -69,17 +69,17 @@ export function ServiceCard({ task, onClose, onEdit, editLabel = "Edit" }: Props
         <Info label="Room / work reference" value={task.room || "No room specified"} />
         <Info label="Review state" value={reviewState} />
       </div>
-      <div className="mt-3 rounded-2xl bg-slate-50 p-4">
-        <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500"><FileText className="h-4 w-4" /> Notes</p>
-        <p className="mt-2 whitespace-pre-wrap text-sm text-slate-800">{task.notes || "No notes provided"}</p>
+      <div className="mt-3 rounded-2xl bg-surface-secondary p-4">
+        <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-ink-muted"><FileText className="h-4 w-4" /> Notes</p>
+        <p className="mt-2 whitespace-pre-wrap text-sm text-ink-secondary">{task.notes || "No notes provided"}</p>
       </div>
       <WorkLogMediaGallery workLogId={task.id} />
       <div className="mt-3 rounded-2xl border border-amber-100 bg-amber-50 p-4 text-sm text-amber-900"><p className="font-semibold">Payroll approval explanation</p><p className="mt-1">{task.isLocked ? "Both management approvals are complete, so this record is locked for payroll." : task.rejectionNotes ? `Correction requested: ${task.rejectionNotes}` : "Payroll remains pending until both the responsible manager and owner approve the completed work."}</p></div>
-      <p className="mt-4 text-xs text-slate-500">Work value is calculated from the service rate and recorded hours or rooms.</p>
+      <p className="mt-4 text-xs text-ink-muted">Work value is calculated from the service rate and recorded hours or rooms.</p>
     </article>
   </div>;
 }
 
-function Detail({ icon: Icon, label, value }: { icon: typeof UserRound; label: string; value: string }) { return <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3"><p className="flex items-center gap-2 text-xs text-slate-500"><Icon className="h-4 w-4" />{label}</p><p className="mt-1 text-sm font-semibold text-slate-900">{value}</p></div>; }
-function Summary({ label, value }: { label: string; value: string }) { return <div className="rounded-2xl bg-slate-900 p-3 text-white"><p className="text-xs text-slate-300">{label}</p><p className="mt-1 text-lg font-bold">{value}</p></div>; }
-function Info({ label, value }: { label: string; value: string }) { return <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p><p className="mt-2 text-sm font-semibold text-slate-900">{value}</p></div>; }
+function Detail({ icon: Icon, label, value }: { icon: typeof UserRound; label: string; value: string }) { return <div className="rounded-2xl border border-line bg-surface-secondary p-3"><p className="flex items-center gap-2 text-xs text-ink-muted"><Icon className="h-4 w-4" />{label}</p><p className="mt-1 text-sm font-semibold text-ink">{value}</p></div>; }
+function Summary({ label, value }: { label: string; value: string }) { return <div className="rounded-2xl bg-slate-900 p-3 text-white"><p className="text-xs text-ink-muted">{label}</p><p className="mt-1 text-lg font-bold">{value}</p></div>; }
+function Info({ label, value }: { label: string; value: string }) { return <div className="rounded-2xl border border-line bg-surface-secondary p-4"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink-muted">{label}</p><p className="mt-2 text-sm font-semibold text-ink">{value}</p></div>; }

@@ -15,6 +15,7 @@ import SettingsHub from "./SettingsHub";
 import { PropertySettings } from "./AssetSettings";
 import { OwnerBillingSkeleton, OwnerBillingWidget } from "@/components/dashboard/OwnerBillingWidget";
 import { isHousekeepingAdmin, isPlatformAdmin } from "@/lib/roles";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
 
 export default async function SettingsPage() {
   const user = await getSessionUser();
@@ -36,7 +37,8 @@ export default async function SettingsPage() {
   const backHref = user.role === "cleaner" ? "/dashboard" : user.role === "owner" ? "/owner" : user.role === "manager" ? "/manager" : isHousekeepingAdmin(user.role) ? "/hk-admin" : "/admin";
   const utility = (
     <>
-      <Link href={backHref} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"><ArrowLeft className="h-4 w-4" /><span className="hidden sm:inline">Dashboard</span></Link>
+      <Link href={backHref} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-line bg-surface px-3 text-sm font-semibold text-ink-secondary hover:bg-surface-secondary"><ArrowLeft className="h-4 w-4" /><span className="hidden sm:inline">Dashboard</span></Link>
+      <ThemeToggle />
       <UserProfileMenu name={name} email={profile?.email ?? user.email} avatarUrl={profile?.avatar_url ?? null} role={user.role} settingsHref="/settings" />
     </>
   );
@@ -52,8 +54,8 @@ export default async function SettingsPage() {
         utility={utility}
         profile={<div className="mx-auto max-w-5xl">
           <PersonalProfileSettings fullName={name} email={profile?.email ?? user.email} phoneNumber={profile?.phone_number ?? null} avatarUrl={profile?.avatar_url ?? null} languagePreference={profile?.language_preference ?? "en"} role={user.role} {...emailSettings} />
-          <section className="mt-5 flex flex-col gap-4 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
-            <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Account session</p><h2 className="mt-1 font-bold">Sign out of this device</h2><p className="mt-1 text-sm text-slate-500">Your shift and submitted work logs remain saved.</p></div>
+          <section className="mt-5 flex flex-col gap-4 rounded-2xl border border-line/80 bg-surface p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
+            <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink-secondary">Account session</p><h2 className="mt-1 font-bold">Sign out of this device</h2><p className="mt-1 text-sm text-ink-secondary">Your shift and submitted work logs remain saved.</p></div>
             <SignOutButton />
           </section>
         </div>}

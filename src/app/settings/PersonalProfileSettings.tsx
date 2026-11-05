@@ -152,24 +152,24 @@ export default function PersonalProfileSettings({
   };
 
   return (
-    <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
+    <section className="rounded-2xl border border-line/80 bg-surface p-5 shadow-sm sm:p-6">
       <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
         <div className="flex items-center gap-4 sm:w-56 sm:shrink-0 sm:flex-col sm:items-start">
           <UserAvatar
             name={name}
             avatarUrl={photo}
             role={role}
-            className="h-20 w-20 bg-sky-100 text-2xl font-semibold text-sky-800 ring-1 ring-slate-200"
+            className="h-20 w-20 bg-accent/10 text-2xl font-semibold text-accent ring-1 ring-line"
           />
           <div>
-            <p className="font-semibold text-slate-900">Profile photo</p>
-            <p className="mt-1 text-xs leading-5 text-slate-500">JPEG, PNG, or WebP up to 5 MB.</p>
+            <p className="font-semibold text-ink">Profile photo</p>
+            <p className="mt-1 text-xs leading-5 text-ink-secondary">JPEG, PNG, or WebP up to 5 MB.</p>
             <div className="mt-2 flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => fileInput.current?.click()}
                 disabled={photoBusy}
-                className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-line px-3 py-2 text-xs font-semibold text-ink-secondary hover:bg-surface-secondary disabled:opacity-50"
               >
                 {photoBusy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
                 {photo ? "Change photo" : "Add photo"}
@@ -197,22 +197,22 @@ export default function PersonalProfileSettings({
 
         <div className="min-w-0 flex-1">
           <div className="mb-4 flex items-center gap-2">
-            <UserRound className="h-4 w-4 text-sky-700" />
-            <h2 className="text-lg font-bold text-slate-950">Personal information</h2>
+            <UserRound className="h-4 w-4 text-accent" />
+            <h2 className="text-lg font-bold text-ink">Personal information</h2>
           </div>
           <form ref={profileForm} onSubmit={save} noValidate>
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="text-sm font-medium text-slate-700">
+            <label className="text-sm font-medium text-ink-secondary">
               Full name
               <input
                 {...form.register("fullName")}
                 maxLength={120}
                 autoComplete="name"
-                className="mt-1.5 min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+                className="mt-1.5 min-h-11 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent"
               />
               {form.formState.errors.fullName?.message && <span role="alert" className="mt-1 block text-xs text-rose-700">{form.formState.errors.fullName.message}</span>}
             </label>
-            <label className="text-sm font-medium text-slate-700">
+            <label className="text-sm font-medium text-ink-secondary">
               Phone number
               <input
                 type="tel"
@@ -220,11 +220,11 @@ export default function PersonalProfileSettings({
                 maxLength={32}
                 autoComplete="tel"
                 placeholder="+44 7700 900000"
-                className="mt-1.5 min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+                className="mt-1.5 min-h-11 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent"
               />
               {form.formState.errors.phoneNumber?.message && <span role="alert" className="mt-1 block text-xs text-rose-700">{form.formState.errors.phoneNumber.message}</span>}
             </label>
-            <label className="text-sm font-medium text-slate-700 sm:col-span-2">
+            <label className="text-sm font-medium text-ink-secondary sm:col-span-2">
               Email address
               <input
                 type="email"
@@ -232,14 +232,14 @@ export default function PersonalProfileSettings({
                 autoComplete="email"
                 readOnly
                 aria-readonly="true"
-                className="mt-1.5 min-h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 sm:max-w-md"
+                className="mt-1.5 min-h-11 w-full rounded-lg border border-line bg-surface-secondary px-3 py-2 text-sm text-ink-secondary sm:max-w-md"
               />
-              <span className="mt-1 block text-xs text-slate-500">Use email verification below to change this address.</span>
+              <span className="mt-1 block text-xs text-ink-secondary">Use email verification below to change this address.</span>
               {form.formState.errors.email?.message && <span role="alert" className="mt-1 block text-xs text-rose-700">{form.formState.errors.email.message}</span>}
             </label>
-            <label className="text-sm font-medium text-slate-700 sm:col-span-2">
+            <label className="text-sm font-medium text-ink-secondary sm:col-span-2">
               Preferred language
-              <select {...form.register("languagePreference")} className="mt-1.5 min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900">
+              <select {...form.register("languagePreference")} className="mt-1.5 min-h-11 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink">
                 <option value="en">English</option>
                 <option value="ar">العربية</option>
                 <option value="fr">Français</option>
@@ -251,7 +251,7 @@ export default function PersonalProfileSettings({
             <button
               type="submit"
               disabled={isSaving}
-              className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+              className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-ink px-4 py-2.5 text-sm font-semibold text-white hover:bg-ink disabled:opacity-50"
             >
               {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               {isSaving ? "Saving..." : "Save personal information"}
@@ -265,14 +265,14 @@ export default function PersonalProfileSettings({
           </form>
         </div>
       </div>
-      <div className="mt-6 flex items-center justify-between gap-4 border-t border-slate-100 pt-5">
+      <div className="mt-6 flex items-center justify-between gap-4 border-t border-line pt-5">
         <div className="flex items-start gap-3">
-          <span className="mt-0.5 rounded-lg bg-sky-50 p-2 text-sky-700">
+          <span className="mt-0.5 rounded-lg bg-accent/10 p-2 text-accent">
             {soundNotificationsEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
           </span>
           <span>
-            <span className="block text-sm font-semibold text-slate-900">Sound effects</span>
-            <span className="mt-0.5 block text-xs leading-5 text-slate-500">Play subtle sounds for messages and high-priority task alerts.</span>
+            <span className="block text-sm font-semibold text-ink">Sound effects</span>
+            <span className="mt-0.5 block text-xs leading-5 text-ink-secondary">Play subtle sounds for messages and high-priority task alerts.</span>
           </span>
         </div>
         <button
@@ -282,9 +282,9 @@ export default function PersonalProfileSettings({
           aria-label="Enable notification sounds"
           disabled={savingSoundPreference}
           onClick={() => void toggleSoundNotifications()}
-          className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition disabled:opacity-50 ${soundNotificationsEnabled ? "bg-sky-700" : "bg-slate-300"}`}
+          className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition disabled:opacity-50 ${soundNotificationsEnabled ? "bg-accent" : "bg-surface-secondary"}`}
         >
-          <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${soundNotificationsEnabled ? "translate-x-6" : "translate-x-1"}`} />
+          <span className={`inline-block h-5 w-5 rounded-full bg-surface shadow transition-transform ${soundNotificationsEnabled ? "translate-x-6" : "translate-x-1"}`} />
         </button>
       </div>
       <EmailVerificationSettings

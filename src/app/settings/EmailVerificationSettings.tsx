@@ -82,7 +82,7 @@ export function EmailVerificationSettings({
 
   return (
     <>
-      <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5">
+      <section className="mt-6 rounded-2xl border border-line bg-surface-secondary/70 p-4 sm:p-5">
         <div className="flex items-start gap-3">
           <span className={`mt-0.5 rounded-xl p-2 ${emailVerified ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"}`}>
             {emailVerified ? <ShieldCheck className="h-5 w-5" /> : <Mail className="h-5 w-5" />}
@@ -91,10 +91,10 @@ export function EmailVerificationSettings({
             {emailVerified ? (
               <>
                 <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="font-bold text-slate-950">Verified email</h3>
+                  <h3 className="font-bold text-ink">Verified email</h3>
                   <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">Verified</span>
                 </div>
-                <p className="mt-1 break-all text-sm text-slate-600">{email}</p>
+                <p className="mt-1 break-all text-sm text-ink-secondary">{email}</p>
               </>
             ) : (
               <>
@@ -102,7 +102,7 @@ export function EmailVerificationSettings({
                 <p className="mt-1 text-sm leading-6 text-amber-900">
                   Link your verified email to enable Weekly &amp; Monthly executive summaries.
                 </p>
-                <label className="mt-4 block text-sm font-semibold text-slate-700">
+                <label className="mt-4 block text-sm font-semibold text-ink-secondary">
                   Personal Email Address
                   <input
                     type="email"
@@ -110,14 +110,14 @@ export function EmailVerificationSettings({
                     value={requestedEmail}
                     onChange={(event) => setRequestedEmail(event.target.value)}
                     maxLength={254}
-                    className="mt-1.5 min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100 sm:max-w-md"
+                    className="mt-1.5 min-h-11 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm font-normal text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent sm:max-w-md"
                   />
                 </label>
                 <button
                   type="button"
                   onClick={requestCode}
                   disabled={isPending}
-                  className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+                  className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-ink disabled:opacity-50"
                 >
                   {isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
                   Send Verification Code
@@ -127,7 +127,7 @@ export function EmailVerificationSettings({
           </div>
         </div>
 
-        <div className="mt-5 grid gap-3 border-t border-slate-200 pt-4 sm:grid-cols-2">
+        <div className="mt-5 grid gap-3 border-t border-line pt-4 sm:grid-cols-2">
           <DigestSwitch
             label="Weekly Executive Summary"
             checked={weekly}
@@ -142,29 +142,29 @@ export function EmailVerificationSettings({
           />
         </div>
         {!emailVerified && (
-          <p className="mt-2 text-xs text-slate-500" title="Verify your email to manage executive summaries.">
+          <p className="mt-2 text-xs text-ink-secondary" title="Verify your email to manage executive summaries.">
             Verify your email to enable these options.
           </p>
         )}
-        {notice && <p role="status" className="mt-3 text-sm text-slate-700">{notice}</p>}
+        {notice && <p role="status" className="mt-3 text-sm text-ink-secondary">{notice}</p>}
       </section>
 
       <PushNotificationSettings publicKey={pushPublicKey} />
 
       {modalOpen && (
-        <div className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/55 p-0 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget && !isPending) setModalOpen(false); }}>
-          <section role="dialog" aria-modal="true" aria-labelledby="email-code-title" className="w-full max-w-md rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl sm:p-6">
+        <div className="fixed inset-0 z-[120] flex items-end justify-center bg-ink/55 p-0 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget && !isPending) setModalOpen(false); }}>
+          <section role="dialog" aria-modal="true" aria-labelledby="email-code-title" className="w-full max-w-md rounded-t-3xl bg-surface p-5 shadow-2xl sm:rounded-3xl sm:p-6">
             <header className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.16em] text-sky-700">Email security</p>
-                <h3 id="email-code-title" className="mt-1 text-xl font-bold text-slate-950">Enter verification code</h3>
-                <p className="mt-1 break-all text-sm text-slate-600">Sent to {requestedEmail}</p>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-accent">Email security</p>
+                <h3 id="email-code-title" className="mt-1 text-xl font-bold text-ink">Enter verification code</h3>
+                <p className="mt-1 break-all text-sm text-ink-secondary">Sent to {requestedEmail}</p>
               </div>
-              <button type="button" aria-label="Close verification dialog" onClick={() => setModalOpen(false)} disabled={isPending} className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-slate-200 text-slate-600 disabled:opacity-50">
+              <button type="button" aria-label="Close verification dialog" onClick={() => setModalOpen(false)} disabled={isPending} className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-line text-ink-secondary disabled:opacity-50">
                 <X className="h-4 w-4" />
               </button>
             </header>
-            <label className="mt-5 block text-sm font-semibold text-slate-700">
+            <label className="mt-5 block text-sm font-semibold text-ink-secondary">
               Six-digit code
               <input
                 type="text"
@@ -173,16 +173,16 @@ export function EmailVerificationSettings({
                 maxLength={6}
                 value={code}
                 onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                className="mt-2 min-h-14 w-full rounded-xl border border-slate-300 px-4 text-center font-mono text-2xl tracking-[0.55em] text-slate-950 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+                className="mt-2 min-h-14 w-full rounded-xl border border-line px-4 text-center font-mono text-2xl tracking-[0.55em] text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent"
               />
             </label>
-            <p className="mt-2 text-xs text-slate-500">The code expires in 10 minutes.</p>
+            <p className="mt-2 text-xs text-ink-secondary">The code expires in 10 minutes.</p>
             {notice && <p role="alert" className="mt-3 text-sm text-rose-700">{notice}</p>}
             <button
               type="button"
               onClick={verifyCode}
               disabled={isPending || code.length !== 6}
-              className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-sky-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-800 disabled:opacity-50"
+              className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:bg-accent disabled:opacity-50"
             >
               {isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
               Verify email
@@ -206,8 +206,8 @@ function DigestSwitch({
   onClick: () => void;
 }) {
   return (
-    <div className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
-      <span className="text-sm font-semibold text-slate-700">{label}</span>
+    <div className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-line bg-surface px-3 py-2">
+      <span className="text-sm font-semibold text-ink-secondary">{label}</span>
       <button
         type="button"
         role="switch"
@@ -216,9 +216,9 @@ function DigestSwitch({
         title={disabled ? "Verify your email to manage this preference." : undefined}
         disabled={disabled}
         onClick={onClick}
-        className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-40 ${checked ? "bg-sky-700" : "bg-slate-300"}`}
+        className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-40 ${checked ? "bg-accent" : "bg-surface-secondary"}`}
       >
-        <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-6" : "translate-x-1"}`} />
+        <span className={`inline-block h-5 w-5 rounded-full bg-surface shadow transition-transform ${checked ? "translate-x-6" : "translate-x-1"}`} />
       </button>
     </div>
   );
