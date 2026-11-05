@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { DashboardPagination, useUrlPage, useUrlPageSize } from "@/components/dashboard/DashboardPagination";
+import { ActionErrorMessage } from "@/components/ui/ActionErrorMessage";
+import { formatUserMessage } from "@/lib/userMessages";
 import type { ManagementAuditPage, ManagementAuditPageRequest, ManagementAuditRecord } from "@/lib/managementAudit";
 
 const DEFAULT_PAGE_SIZE = 20;
@@ -53,7 +55,7 @@ export function OperationalAuditTable({ loadPage }: { loadPage: AuditPageLoader 
       if (!active) return;
       setFailure({
         key: requestKey,
-        message: error instanceof Error ? error.message : "Unable to load operational audit history.",
+        message: formatUserMessage(error, "Unable to load operational audit history."),
       });
     });
     return () => { active = false; };
@@ -113,7 +115,7 @@ export function OperationalAuditTable({ loadPage }: { loadPage: AuditPageLoader 
         <button type="submit" className="min-h-10 rounded-lg bg-accent px-4 text-sm font-semibold text-white hover:bg-accent-hover">Apply</button>
       </form>
 
-      {errorMessage && <p role="alert" className="mb-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-200">{errorMessage}</p>}
+      {errorMessage && <ActionErrorMessage error={errorMessage} className="mb-3" />}
       {!loadedPage && !errorMessage && <p role="status" className="mb-3 text-sm text-ink-secondary">Loading this audit page…</p>}
       <div className="overflow-x-auto rounded-lg border border-line">
         <table className="min-w-[900px] w-full text-left text-sm">

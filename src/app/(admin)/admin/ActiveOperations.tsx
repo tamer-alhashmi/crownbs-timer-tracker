@@ -6,6 +6,8 @@ import { overrideActiveOperation, type ManagementOverrideInput } from "./actions
 import { DashboardPagination } from "@/components/dashboard/DashboardPagination";
 import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
 import { showActionToast } from "@/components/ui/ActionToast";
+import { ActionErrorMessage } from "@/components/ui/ActionErrorMessage";
+import { formatUserMessage } from "@/lib/userMessages";
 
 type ActiveTask = {
   id: string;
@@ -100,7 +102,7 @@ export function ActiveOperations({ shifts, tasks, canManage }: { shifts: ActiveS
         setFeedback({ text: `${draft.label} recorded and audited.`, error: false });
         showActionToast("success", `${draft.label} recorded and audited.`);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unable to update the active operation.";
+        const message = formatUserMessage(error, "Unable to update the active operation.");
         setFeedback({ text: message, error: true });
         showActionToast("error", message);
       }
@@ -112,7 +114,7 @@ export function ActiveOperations({ shifts, tasks, canManage }: { shifts: ActiveS
       <div><p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700">Live status</p><h3 className="mt-1 text-lg font-bold text-ink">Active cleaners</h3><p className="mt-1 text-sm text-ink-secondary">{shifts.length} clocked in · {tasks.length} active tasks</p></div>
       <Clock3 className="mt-1 h-5 w-5 text-emerald-700" />
     </div>
-    {feedback && <p role={feedback.error ? "alert" : "status"} className={`mt-3 rounded-lg border px-3 py-2 text-sm ${feedback.error ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>{feedback.text}</p>}
+    {feedback?.error ? <ActionErrorMessage error={feedback.text} className="mt-3" /> : feedback && <p role="status" className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{feedback.text}</p>}
     <div className="mt-4 grid gap-3 xl:grid-cols-2">
       {visibleShifts.map((shift) => <article key={`shift-${shift.id}`} className="min-w-0 rounded-xl border border-line/80 bg-surface p-4 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="break-words font-semibold text-ink">{shift.cleanerName}</p><p className="mt-1 flex flex-wrap items-center gap-2 text-sm"><LiveStatusIndicator isClockedIn /><span className="text-ink-secondary">· {elapsed(shift.start_time, now)}</span></p><p className="mt-1 text-xs text-ink-muted">Started {new Date(shift.start_time).toLocaleString()}</p></div>{canManage && <button type="button" onClick={() => beginOverride({ entityType: "shift", entityId: shift.id, action: "force_clock_out", label: "Force clock out", startedAt: shift.start_time })} className="min-h-11 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 hover:bg-amber-100">Force clock out</button>}</div>
@@ -129,7 +131,7 @@ export function ActiveOperations({ shifts, tasks, canManage }: { shifts: ActiveS
         <div className="flex items-start gap-3"><ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" /><div><h2 id="active-operation-dialog-title" className="text-lg font-bold">{draft.label}?</h2><p className="mt-1 text-sm text-ink-secondary">This change is immediate and recorded in the operational audit log.</p></div></div>
         {draft.entityType === "shift" && <label className="mt-4 block text-sm font-medium text-ink-secondary">Custom end time (optional)<input type="datetime-local" value={endTime} max={localDateTimeValue()} onChange={(event) => setEndTime(event.target.value)} className="mt-1.5 w-full rounded-lg border border-line px-3 py-2 text-ink" /><span className="mt-1 block text-xs font-normal text-ink-muted">Leave blank to use the current time. Shift started {new Date(draft.startedAt).toLocaleString()}.</span></label>}
         <label className="mt-4 block text-sm font-medium text-ink-secondary">Audit reason<textarea required minLength={5} maxLength={1000} rows={3} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Explain why this override is needed" className="mt-1.5 w-full rounded-lg border border-line px-3 py-2 text-ink" /></label>
-        {feedback?.error && <p role="alert" className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800">{feedback.text}</p>}
+        {feedback?.error && <ActionErrorMessage error={feedback.text} className="mt-3" />}
         <div className="mt-5 flex flex-wrap justify-end gap-2"><button type="button" onClick={() => setDraft(null)} disabled={isPending} className="min-h-11 rounded-lg border border-line px-4 py-2 text-sm font-semibold text-ink-secondary">Cancel</button><button type="submit" disabled={isPending || reason.trim().length < 5} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isPending && <LoaderCircle className="h-4 w-4 animate-spin" />}{isPending ? "Saving..." : "Confirm override"}</button></div>
       </form>
     </div>}

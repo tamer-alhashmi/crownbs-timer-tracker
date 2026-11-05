@@ -3,6 +3,8 @@
 import { useEffect, useState, useTransition } from "react";
 import { endOwnManagementTask } from "@/app/settings/taskActions";
 import { showActionToast } from "@/components/ui/ActionToast";
+import { ActionErrorMessage } from "@/components/ui/ActionErrorMessage";
+import { formatUserMessage } from "@/lib/userMessages";
 import { Loader2 } from "lucide-react";
 
 export type ActiveAssignedTaskDetails = {
@@ -38,7 +40,7 @@ export function ActiveAssignedTaskCard({ task }: { task: ActiveAssignedTaskDetai
       await endOwnManagementTask(task.id);
       showActionToast("success", "Task completed and sent for management review.");
     } catch (error) {
-      const text = error instanceof Error ? error.message : "Unable to end this task.";
+      const text = formatUserMessage(error, "Unable to end this task.");
       setMessage(text);
       showActionToast("error", text);
     }
@@ -51,7 +53,7 @@ export function ActiveAssignedTaskCard({ task }: { task: ActiveAssignedTaskDetai
         <h2 className="mt-1 text-lg font-bold text-emerald-950">{task.name}</h2>
         <p className="mt-1 text-sm text-emerald-800">{task.hotelName}{task.roomLabel ? ` · ${task.roomLabel}` : ""}</p>
         <p className="mt-1 text-xs font-medium text-emerald-800">Running · {elapsed(task.startTime, now)}</p>
-        {message && <p role="alert" className="mt-2 text-sm font-medium text-rose-700">{message}</p>}
+        {message && <ActionErrorMessage error={message} className="mt-2" />}
       </div>
       <button type="button" onClick={endTask} disabled={isPending} className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-wait disabled:opacity-60">
         {isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Ending task…" : "End task"}

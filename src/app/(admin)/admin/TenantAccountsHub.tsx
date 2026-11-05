@@ -7,6 +7,8 @@ import { SharedWorkspaceShell } from "@/components/layout/SharedWorkspaceShell";
 import { WorkspaceHeader } from "@/components/layout/WorkspaceHeader";
 import type { WorkspaceNavTab } from "@/components/layout/MobileWorkspaceNav";
 import { showActionToast } from "@/components/ui/ActionToast";
+import { ActionErrorMessage } from "@/components/ui/ActionErrorMessage";
+import { formatUserMessage } from "@/lib/userMessages";
 import { TenantDetailsModal } from "./TenantDetailsModal";
 import {
   getTenantAccountsPage,
@@ -53,7 +55,7 @@ export default function TenantAccountsHub({ initialData, user }: { initialData: 
         }
       }).catch((loadError: unknown) => {
         if (current) {
-          const message = loadError instanceof Error ? loadError.message : "Unable to load tenant accounts.";
+          const message = formatUserMessage(loadError, "Unable to load tenant accounts.");
           setError(message);
           showActionToast("error", message);
         }
@@ -115,7 +117,7 @@ export default function TenantAccountsHub({ initialData, user }: { initialData: 
             <span>Rate: $0.08 per completed task</span>
           </div>
         </div>
-        {error && <p role="alert" className="m-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>}
+        {error && <ActionErrorMessage error={error} className="m-4" />}
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1120px] border-collapse text-left text-sm">
             <thead className="bg-surface-secondary text-xs font-semibold uppercase tracking-wide text-ink-muted">

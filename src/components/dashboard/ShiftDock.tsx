@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Clock3, LocateFixed, Loader2 } from "lucide-react";
 import { showActionToast } from "@/components/ui/ActionToast";
+import { formatUserMessage } from "@/lib/userMessages";
 import { clockInToAssignedProperty, clockOutWorkforceShift, getCurrentWorkforceShift } from "@/app/actions/shiftActions";
 import type { UserRole } from "@/lib/roles";
 
@@ -68,7 +69,7 @@ export function ShiftDock({
         if (result?.hotel_id) setPropertyId(result.hotel_id);
       }
     }).catch((error: unknown) => {
-      if (active) showActionToast("error", error instanceof Error ? error.message : "Unable to load your active shift.");
+      if (active) showActionToast("error", formatUserMessage(error, "Unable to load your active shift."));
     }).finally(() => {
       if (active) setIsLoading(false);
     });
@@ -95,7 +96,7 @@ export function ShiftDock({
       showActionToast("success", `Clocked in at ${property.name}.`);
       router.refresh();
     } catch (error) {
-      showActionToast("error", error instanceof Error ? error.message : "Unable to clock in.");
+      showActionToast("error", formatUserMessage(error, "Unable to clock in."));
     } finally {
       setIsPending(false);
     }
@@ -111,7 +112,7 @@ export function ShiftDock({
       showActionToast("success", "Your shift has ended.");
       router.refresh();
     } catch (error) {
-      showActionToast("error", error instanceof Error ? error.message : "Unable to clock out.");
+      showActionToast("error", formatUserMessage(error, "Unable to clock out."));
     } finally {
       setIsPending(false);
     }

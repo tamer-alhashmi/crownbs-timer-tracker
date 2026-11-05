@@ -5,6 +5,8 @@ import NextImage from "next/image";
 import { useRef, useState } from "react";
 import { Camera, Clapperboard, ImageIcon, ImagePlus, LoaderCircle, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { ActionErrorMessage } from "@/components/ui/ActionErrorMessage";
+import { formatUserMessage } from "@/lib/userMessages";
 import { createRoomMediaUploadUrl, deleteRoomMedia, saveRoomMediaRecord, type RoomMediaItem } from "./roomMediaActions";
 
 type RoomOption = { id: string; room_name: string };
@@ -35,7 +37,7 @@ export function RoomMediaCapture({ workLogId, rooms, initialMedia, storageConfig
       await deleteRoomMedia(mediaId);
       setLocallyDeletedIds((current) => new Set(current).add(mediaId));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to delete this file.");
+      setError(formatUserMessage(cause, "Unable to delete this file."));
     } finally {
       setDeletingId(null);
     }
@@ -55,7 +57,7 @@ export function RoomMediaCapture({ workLogId, rooms, initialMedia, storageConfig
       if (uploadError) throw new Error(uploadError.message);
       return saveRoomMediaRecord({ ...metadata, storagePath: signedUpload.storagePath });
     }} onError={setError} />)}</div>
-    {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">{error}</p>}
+    {error && <ActionErrorMessage error={error} className="mt-3" />}
   </section>;
 }
 

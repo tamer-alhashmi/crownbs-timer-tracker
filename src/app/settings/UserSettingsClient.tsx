@@ -13,6 +13,8 @@ import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
 import { useWorkLogRealtimeRefresh } from "@/lib/useWorkLogRealtimeRefresh";
 import { showActionToast } from "@/components/ui/ActionToast";
 import { isPlatformAdmin } from "@/lib/roles";
+import { ActionErrorMessage } from "@/components/ui/ActionErrorMessage";
+import { formatUserMessage } from "@/lib/userMessages";
 
 type Props = {
   actorRole: string;
@@ -33,12 +35,10 @@ type UnlinkTarget = { userId: string; userName: string; hotels: { id: string; na
 const PAGE_SIZE = 10;
 const emptyForm: FormState = { fullName: "", email: "", phoneNumber: "", role: "cleaner", pinCode: "", hotelIds: [], primaryHotelId: "", password: "" };
 function getAssignmentErrorMessage(error: unknown): string {
-  if (typeof error === "string") return error;
-  if (typeof error === "object" && error !== null) {
-    if ("message" in error && typeof error.message === "string" && error.message) return error.message;
-    if ("error" in error && typeof error.error === "string" && error.error) return error.error;
+  if (typeof error === "object" && error !== null && "error" in error) {
+    return formatUserMessage(error.error, "Failed to assign property.");
   }
-  return "Failed to assign property.";
+  return formatUserMessage(error, "Failed to assign property.");
 }
 
 const userSchema = z.object({
@@ -61,6 +61,7 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
   const [propertyFilter, setPropertyFilter] = useState("all");
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [messageIsError, setMessageIsError] = useState(false);
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [assignmentHotelId, setAssignmentHotelId] = useState("");
   const [unlinkTarget, setUnlinkTarget] = useState<UnlinkTarget | null>(null);
@@ -92,21 +93,25 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
   const save = form.handleSubmit((values) => startTransition(async () => {
     try {
       setMessage("");
+      setMessageIsError(false);
       if (values.hotelIds.length && !values.hotelIds.includes(values.primaryHotelId)) {
         const errorMessage = "Choose a primary property from the assigned properties.";
         setMessage(errorMessage);
+        setMessageIsError(true);
         showActionToast("error", errorMessage);
         return;
       }
       if (values.hotelIds.length > 1 && !values.primaryHotelId) {
         const errorMessage = "Choose one assigned property as the primary property.";
         setMessage(errorMessage);
+        setMessageIsError(true);
         showActionToast("error", errorMessage);
         return;
       }
       if (!editingId && !values.password.trim() && !values.pinCode) {
         const errorMessage = "Provide a password or a 4-digit PIN.";
         setMessage(errorMessage);
+        setMessageIsError(true);
         showActionToast("error", errorMessage);
         return;
       }
@@ -121,6 +126,7 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
             message: "This email address is already registered. Please choose another one.",
           });
           setMessage("This email address is already registered. Please choose another one.");
+          setMessageIsError(true);
           showActionToast("error", "This email address is already registered.");
           return;
         }
@@ -128,6 +134,7 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
           ? "Unable to update user. Please review the details and try again."
           : "Unable to create user. Please review the details and try again.";
         setMessage(errorMessage);
+        setMessageIsError(true);
         showActionToast("error", errorMessage);
         return;
       }
@@ -136,6 +143,7 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
       setIsAccordionOpen(false);
       setPropertySearch("");
       setMessage("");
+      setMessageIsError(false);
       showActionToast("success", wasEditing ? "User updated successfully." : "User account created successfully.");
       router.refresh();
     } catch (error) {
@@ -144,6 +152,7 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
         ? "Unable to update user. Please review the details and try again."
         : "Unable to create user. Please review the details and try again.";
       setMessage(errorMessage);
+      setMessageIsError(true);
       showActionToast("error", errorMessage);
     }
   }));
@@ -152,6 +161,7 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
     setEditingId(user.id);
     setPropertySearch("");
     setMessage("");
+    setMessageIsError(false);
     form.reset({
       fullName: user.full_name,
       email: user.email,
@@ -171,12 +181,14 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
     setEditingId(null);
     setPropertySearch("");
     setMessage("");
+    setMessageIsError(false);
     form.reset(emptyForm);
   };
 
   const openCreateUserForm = () => {
     setEditingId(null);
     setMessage("");
+    setMessageIsError(false);
     setPropertySearch("");
     form.reset(emptyForm);
     setIsAccordionOpen(true);
@@ -212,11 +224,13 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
       try {
         await deleteManagedUser(user.id);
         setMessage("User deactivated. Historical records were retained.");
+        setMessageIsError(false);
         showActionToast("success", `${user.full_name} deactivated.`);
         router.refresh();
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unable to deactivate user.";
+        const message = formatUserMessage(error, "Unable to deactivate user.");
         setMessage(message);
+        setMessageIsError(true);
         showActionToast("error", message);
       }
     });
@@ -227,6 +241,7 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
       if (!assignmentHotelId) {
         const errorMessage = "Select a property first.";
         setMessage(errorMessage);
+        setMessageIsError(true);
         showActionToast("error", errorMessage);
         return;
       }
@@ -234,12 +249,14 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
       if (!result.success) {
         const errorMessage = getAssignmentErrorMessage(result.error);
         setMessage(errorMessage);
+        setMessageIsError(true);
         showActionToast("error", errorMessage);
         return;
       }
       const user = users.find((item) => item.id === userId);
       const hotel = hotels.find((item) => item.id === assignmentHotelId);
       setMessage("Property assignment updated.");
+      setMessageIsError(false);
       showActionToast("success", `${hotel?.name ?? "Property"} assigned to ${user?.full_name ?? "user"}.`);
       setAssigningId(null);
       setAssignmentHotelId("");
@@ -247,6 +264,7 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
     } catch (error) {
       const errorMessage = getAssignmentErrorMessage(error);
       setMessage(errorMessage);
+      setMessageIsError(true);
       showActionToast("error", errorMessage);
     }
   });
@@ -261,11 +279,13 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
         await unassignManagedUserFromHotel(target.userId, hotel.id);
         setUnlinkTarget(null);
         setMessage(`${hotel.name} was unlinked from ${target.userName}.`);
+        setMessageIsError(false);
         showActionToast("success", `${hotel.name} unlinked from ${target.userName}.`);
         router.refresh();
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unable to remove hotel assignment.";
+        const message = formatUserMessage(error, "Unable to remove hotel assignment.");
         setMessage(message);
+        setMessageIsError(true);
         showActionToast("error", message);
       }
     });
@@ -357,13 +377,14 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
                     showActionToast("success", "PIN removed.");
                     router.refresh();
                   } catch (error) {
-                    const errorMessage = error instanceof Error ? error.message : "Unable to remove the PIN.";
+                    const errorMessage = formatUserMessage(error, "Unable to remove the PIN.");
                     setMessage(errorMessage);
+                    setMessageIsError(true);
                     showActionToast("error", errorMessage);
                   }
                 })} className="mt-3 min-h-10 rounded-lg border border-rose-200 px-3 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50">Remove PIN</button>}
               </section>
-              {message && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{message}</p>}
+              {message && <ActionErrorMessage error={message} onDismiss={() => setMessage("")} />}
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                 <button type="button" onClick={closeUserForm} disabled={isPending} className="min-h-11 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-semibold text-ink-secondary disabled:opacity-50">Cancel</button>
                 <button type="submit" disabled={isPending} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-ink px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
@@ -448,7 +469,9 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
             </div>
           </div>
         </section>
-        {message && !isAccordionOpen && <p role="status" className="mt-4 rounded-xl bg-ink px-3 py-2 text-sm text-white">{message}</p>}
+        {message && !isAccordionOpen && (messageIsError
+          ? <ActionErrorMessage error={message} onDismiss={() => setMessage("")} className="mt-4" />
+          : <p role="status" className="mt-4 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink-secondary">{message}</p>)}
         {unlinkTarget && <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4" role="dialog" aria-modal="true" aria-labelledby="unlink-title"><div className="w-full max-w-md rounded-2xl bg-surface p-6 shadow-2xl"><div className="flex items-start gap-3"><div className="rounded-xl bg-amber-100 p-2 text-amber-700"><ShieldAlert className="h-5 w-5" /></div><div className="min-w-0"><h2 id="unlink-title" className="text-lg font-bold text-ink">Unlink hotel?</h2><p className="mt-2 text-sm leading-6 text-ink-secondary">Are you sure you want to unlink this hotel from <strong>{unlinkTarget.userName}</strong>?</p><select value={unlinkHotelId} onChange={(event) => setUnlinkHotelId(event.target.value)} className="mt-3 min-h-11 w-full rounded-xl border border-line bg-surface-secondary px-3 py-2.5 text-sm text-ink">{unlinkTarget.hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select><p className="mt-2 text-xs text-ink-secondary">This changes the user&apos;s property access but does not delete the hotel or work history.</p></div></div><div className="mt-6 flex justify-end gap-2"><button type="button" onClick={() => setUnlinkTarget(null)} disabled={isPending} className="min-h-11 rounded-xl border border-line px-4 py-2.5 text-sm font-semibold text-ink-secondary">Cancel</button><button type="button" onClick={confirmUnlink} disabled={isPending} className="min-h-11 rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{isPending ? "Unlinking..." : "Confirm unlink"}</button></div></div></div>}
       </div>
     </section>

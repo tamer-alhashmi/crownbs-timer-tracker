@@ -8,6 +8,8 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Building2, ChevronDown, ChevronLeft, ChevronRight, Loader2, MapPin, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import { showActionToast } from "@/components/ui/ActionToast";
+import { ActionErrorMessage } from "@/components/ui/ActionErrorMessage";
+import { formatUserMessage } from "@/lib/userMessages";
 import {
   archiveOwnedProperty,
   archiveServiceConfiguration,
@@ -96,6 +98,7 @@ export function PropertySettings({ properties, managers }: { properties: Propert
   const [locationPickerOpen, setLocationPickerOpen] = useState(false);
   const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
   const [message, setMessage] = useState("");
+  const [messageError, setMessageError] = useState(false);
   const [propertySearch, setPropertySearch] = useState("");
   const [page, setPage] = useState(1);
   const [isPending, startTransition] = useTransition();
@@ -122,6 +125,7 @@ export function PropertySettings({ properties, managers }: { properties: Propert
       : null);
     form.reset({ name: property.name, location: property.location, roomCount: String(property.roomCount), floorCount: String(property.floorCount), managerId: property.managerId ?? "" });
     setMessage("");
+    setMessageError(false);
   };
   useEffect(() => {
     if (!editing || (editing.latitude !== null && editing.longitude !== null)) return;
@@ -130,8 +134,9 @@ export function PropertySettings({ properties, managers }: { properties: Propert
       const result = await resolveOwnedPropertyCoordinates(editing.id);
       if (cancelled) return;
       if (!result.success) {
-        const locationMessage = result.error;
+        const locationMessage = formatUserMessage(result.error, "Unable to resolve this property's map location.");
         setMessage(locationMessage);
+        setMessageError(true);
         showActionToast("error", locationMessage);
         return;
       }
@@ -149,25 +154,31 @@ export function PropertySettings({ properties, managers }: { properties: Propert
     setCoordinates(null);
     form.reset({ name: "", location: "", roomCount: "0", floorCount: "0", managerId: "" });
     setMessage("");
+    setMessageError(false);
   };
   const saveProperty = form.handleSubmit((values) => startTransition(async () => {
     setMessage("");
+    setMessageError(false);
     const input = { name: values.name, location: values.location, latitude: coordinates?.latitude ?? null, longitude: coordinates?.longitude ?? null, roomCount: Number(values.roomCount), floorCount: Number(values.floorCount), managerId: values.managerId || null };
     try {
       const result = editing ? await updateOwnedProperty(editing.id, input) : await createOwnedProperty(input);
       if (!result.success) {
-        setMessage(result.error ?? "Unable to save this property.");
-        showActionToast("error", result.error ?? "Unable to save this property.");
+        const message = formatUserMessage(result.error, "Unable to save this property.");
+        setMessage(message);
+        setMessageError(true);
+        showActionToast("error", message);
         return;
       }
       setMessage(editing ? "Property details saved." : "Property created.");
+      setMessageError(false);
       showActionToast("success", editing ? "Property details updated." : "Property created.");
       setAdding(false);
       setEditing(null);
       router.refresh();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to save this property.";
+      const message = formatUserMessage(error, "Unable to save this property.");
       setMessage(message);
+      setMessageError(true);
       showActionToast("error", message);
     }
   }));
@@ -176,14 +187,17 @@ export function PropertySettings({ properties, managers }: { properties: Propert
     startTransition(async () => {
       try {
         const result = await archiveOwnedProperty(property.id);
-        setMessage(result.success ? `${property.name} archived.` : result.error);
+        const message = result.success ? `${property.name} archived.` : formatUserMessage(result.error, `Unable to archive ${property.name}.`);
+        setMessage(message);
+        setMessageError(!result.success);
         if (result.success) {
           showActionToast("success", `${property.name} archived.`);
           router.refresh();
-        } else showActionToast("error", result.error);
+        } else showActionToast("error", message);
       } catch (error) {
-        const message = error instanceof Error ? error.message : `Unable to archive ${property.name}.`;
+        const message = formatUserMessage(error, `Unable to archive ${property.name}.`);
         setMessage(message);
+        setMessageError(true);
         showActionToast("error", message);
       }
     });
@@ -223,10 +237,10 @@ export function PropertySettings({ properties, managers }: { properties: Propert
             <Input label="Floors / sections" error={form.formState.errors.floorCount?.message}><input {...form.register("floorCount")} type="number" min="0" step="1" className={fieldClass} /></Input>
             <Input label="Assigned manager"><select {...form.register("managerId")} className={fieldClass}><option value="">No manager assigned</option>{managers.map((manager) => <option key={manager.id} value={manager.id}>{manager.full_name}</option>)}</select></Input>
           </div>
-          {message && <p role="alert" className="mt-3 text-sm text-rose-700">{message}</p>}
+          {message && <ActionErrorMessage error={message} />}
           <div className="mt-4 flex gap-2">
             <button type="submit" disabled={isPending} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-700 px-4 text-sm font-semibold text-white disabled:opacity-50">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Saving…" : editing ? "Save property" : "Create property"}</button>
-            <button type="button" onClick={() => { setAdding(false); setEditing(null); setMessage(""); }} className="min-h-11 rounded-xl border border-line px-4 text-sm font-semibold">Cancel</button>
+            <button type="button" onClick={() => { setAdding(false); setEditing(null); setMessage(""); setMessageError(false); }} className="min-h-11 rounded-xl border border-line px-4 text-sm font-semibold">Cancel</button>
           </div>
         </form>
       )}
@@ -241,7 +255,9 @@ export function PropertySettings({ properties, managers }: { properties: Propert
           }}
         />
       )}
-      {message && !adding && !editing && <p role="status" className="rounded-xl border border-line bg-surface px-4 py-3 text-sm text-ink-secondary">{message}</p>}
+      {message && !adding && !editing && (messageError
+        ? <ActionErrorMessage error={message} onDismiss={() => setMessage("")} />
+        : <p role="status" className="rounded-xl border border-line bg-surface px-4 py-3 text-sm text-ink-secondary">{message}</p>)}
 
       <ul id="room-units" className="scroll-mt-24 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
         {visibleProperties.length ? visibleProperties.map((property) => (
@@ -322,11 +338,11 @@ function PropertyRoomManager({ property }: { property: Property }) {
       const result = await listPropertyRooms(property.id);
       if (result.success) setRooms(result.rooms);
       else {
-        setMessage(result.error ?? "Unable to load rooms.");
+        setMessage(formatUserMessage(result.error, "Unable to load rooms."));
         setErrorMessage(true);
       }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to load rooms.");
+      setMessage(formatUserMessage(error, "Unable to load rooms."));
       setErrorMessage(true);
     } finally {
       setLoading(false);
@@ -349,9 +365,10 @@ function PropertyRoomManager({ property }: { property: Property }) {
         ? await updatePropertyRoom(editing.id, property.id, values)
         : await createPropertyRoom(property.id, values);
       if (!result.success) {
-        setMessage(result.error ?? "Unable to save this room.");
+        const message = formatUserMessage(result.error, "Unable to save this room.");
+        setMessage(message);
         setErrorMessage(true);
-        showActionToast("error", result.error ?? "Unable to save this room.");
+        showActionToast("error", message);
         return;
       }
       setMessage(editing ? "Room details updated." : "Room created.");
@@ -362,7 +379,7 @@ function PropertyRoomManager({ property }: { property: Property }) {
       await refreshRooms();
       router.refresh();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to save this room.";
+      const message = formatUserMessage(error, "Unable to save this room.");
       setMessage(message);
       setErrorMessage(true);
       showActionToast("error", message);
@@ -373,15 +390,16 @@ function PropertyRoomManager({ property }: { property: Property }) {
     startTransition(async () => {
       try {
         const result = await archivePropertyRoom(room.id, property.id);
-        setMessage(result.success ? `${result.roomName ?? "Room"} archived.` : result.error ?? "Unable to archive this room.");
+        const message = result.success ? `${result.roomName ?? "Room"} archived.` : formatUserMessage(result.error, "Unable to archive this room.");
+        setMessage(message);
         setErrorMessage(!result.success);
         if (result.success) {
           showActionToast("success", `${result.roomName ?? "Room"} archived.`);
           await refreshRooms();
           router.refresh();
-        } else showActionToast("error", result.error ?? "Unable to archive this room.");
+        } else showActionToast("error", message);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unable to archive this room.";
+        const message = formatUserMessage(error, "Unable to archive this room.");
         setMessage(message);
         setErrorMessage(true);
         showActionToast("error", message);
@@ -399,9 +417,10 @@ function PropertyRoomManager({ property }: { property: Property }) {
         padding: Math.max(batchStart.length, batchEnd.length),
       });
       if (!result.success) {
-        setMessage(result.error ?? "Unable to create the room range.");
+        const message = formatUserMessage(result.error, "Unable to create the room range.");
+        setMessage(message);
         setErrorMessage(true);
-        showActionToast("error", result.error ?? "Unable to create the room range.");
+        showActionToast("error", message);
         return;
       }
       setMessage(`${result.count} rooms added.`);
@@ -410,7 +429,7 @@ function PropertyRoomManager({ property }: { property: Property }) {
       await refreshRooms();
       router.refresh();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to create the room range.";
+      const message = formatUserMessage(error, "Unable to create the room range.");
       setMessage(message);
       setErrorMessage(true);
       showActionToast("error", message);
@@ -424,12 +443,13 @@ function PropertyRoomManager({ property }: { property: Property }) {
       formData.set("file", file);
       const response = await fetch("/api/admin/rooms/photo", { method: "POST", body: formData });
       const result = await response.json() as { error?: string };
-      setMessage(response.ok ? `Photo added to ${room.room_name}.` : result.error ?? "Unable to upload photo.");
+      const message = response.ok ? `Photo added to ${room.room_name}.` : formatUserMessage(result.error, "Unable to upload photo.");
+      setMessage(message);
       setErrorMessage(!response.ok);
-      showActionToast(response.ok ? "success" : "error", response.ok ? `Photo added to ${room.room_name}.` : result.error ?? "Unable to upload photo.");
+      showActionToast(response.ok ? "success" : "error", message);
       if (response.ok) await refreshRooms();
     } catch (error) {
-      const message = error instanceof Error ? `Unable to upload photo: ${error.message}` : "Unable to upload photo.";
+      const message = formatUserMessage(error, "Unable to upload photo.");
       setMessage(message);
       setErrorMessage(true);
       showActionToast("error", message);
@@ -489,7 +509,7 @@ function PropertyRoomManager({ property }: { property: Property }) {
           <label className="text-xs font-semibold text-ink-secondary">Status<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className={`${fieldClass} mt-1`}><option value="all">All statuses</option><optgroup label="Housekeeping">{["dirty", "in_progress", "inspect_ready", "clean"].map((status) => <option key={status} value={status}>{status.replace("_", " ")}</option>)}</optgroup><optgroup label="Availability">{["vacant", "occupied", "maintenance", "out_of_order"].map((status) => <option key={status} value={status}>{status.replace("_", " ")}</option>)}</optgroup><option value="inactive">Archived</option></select></label>
           <label className="text-xs font-semibold text-ink-secondary">Category<select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className={`${fieldClass} mt-1`}><option value="all">All categories</option>{categories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
         </div>
-        {message && <p role={errorMessage ? "alert" : "status"} className={`rounded-lg px-3 py-2 text-sm ${errorMessage ? "bg-rose-50 text-rose-800" : "bg-emerald-50 text-emerald-800"}`}>{message}</p>}
+        {message && (errorMessage ? <ActionErrorMessage error={message} /> : <p role="status" className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{message}</p>)}
         {loading ? <p className="text-sm text-ink-secondary">Loading rooms…</p> : filteredRooms.length ? <ul className="divide-y divide-line rounded-xl border border-line bg-surface">
           {filteredRooms.map((room) => <li key={room.id} className="space-y-3 p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -540,7 +560,7 @@ function RoomEditor({ initial, isPending, onSave, onCancel }: {
         <label className="text-xs font-semibold text-ink-secondary">Availability<select value={values.availabilityStatus} onChange={(event) => set("availabilityStatus", event.target.value as RoomEditorValues["availabilityStatus"])} className={`${fieldClass} mt-1`}>{[["vacant", "Vacant"], ["occupied", "Occupied"], ["maintenance", "Maintenance"], ["out_of_order", "Out of order"]].map(([status, label]) => <option key={status} value={status}>{label}</option>)}</select></label>
         <label className="text-xs font-semibold text-ink-secondary sm:col-span-2">Amenities (comma separated)<input value={amenities} onChange={(event) => setAmenities(event.target.value)} className={`${fieldClass} mt-1`} placeholder="Wi-Fi, minibar, balcony" /></label>
       </div>
-      {error && <p role="alert" className="mt-3 text-sm text-rose-700">{error}</p>}
+      {error && <ActionErrorMessage error={error} />}
       <div className="mt-4 flex gap-2"><button type="submit" disabled={isPending} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-semibold text-white disabled:opacity-50">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Saving…" : "Save room"}</button><button type="button" onClick={onCancel} className="min-h-10 rounded-lg border border-line px-4 text-sm font-semibold">Cancel</button></div>
     </form>
   );
@@ -581,9 +601,10 @@ function PropertyServiceCatalog({ property, anchorId }: { property: Property; an
         ? updateServiceConfiguration(editing.id, { hotelId: property.id, ...values, defaultRate: Number(values.rate) })
         : createServiceConfiguration({ hotelId: property.id, ...values, defaultRate: Number(values.rate) }));
       if (!result.success) {
-        setMessage(result.error);
+        const message = formatUserMessage(result.error, "Unable to save this service.");
+        setMessage(message);
         setMessageError(true);
-        showActionToast("error", result.error);
+        showActionToast("error", message);
         return;
       }
       setMessage(editing ? "Service updated." : "Service added.");
@@ -593,7 +614,7 @@ function PropertyServiceCatalog({ property, anchorId }: { property: Property; an
       form.reset({ name: "", description: "", unit: "per_room", rate: "0", isActive: true });
       router.refresh();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to save this service.";
+      const message = formatUserMessage(error, "Unable to save this service.");
       setMessage(message);
       setMessageError(true);
       showActionToast("error", message);
@@ -609,14 +630,17 @@ function PropertyServiceCatalog({ property, anchorId }: { property: Property; an
         defaultRate: Number(service.default_rate),
         isActive: !service.is_active,
       });
-      setMessage(result.success ? `${service.name} ${service.is_active ? "deactivated" : "activated"}.` : result.error);
+      const message = result.success
+        ? `${service.name} ${service.is_active ? "deactivated" : "activated"}.`
+        : formatUserMessage(result.error, "Unable to update this service.");
+      setMessage(message);
       setMessageError(!result.success);
       if (result.success) {
         showActionToast("success", `${service.name} ${service.is_active ? "deactivated" : "activated"}.`);
         router.refresh();
-      } else showActionToast("error", result.error);
+      } else showActionToast("error", message);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to update this service.";
+      const message = formatUserMessage(error, "Unable to update this service.");
       setMessage(message);
       setMessageError(true);
       showActionToast("error", message);
@@ -627,14 +651,17 @@ function PropertyServiceCatalog({ property, anchorId }: { property: Property; an
     startTransition(async () => {
       try {
         const result = await archiveServiceConfiguration(service.id, property.id);
-        setMessage(result.success ? `${service.name} deleted from active services.` : result.error);
+        const message = result.success
+          ? `${service.name} deleted from active services.`
+          : formatUserMessage(result.error, "Unable to archive this service.");
+        setMessage(message);
         setMessageError(!result.success);
         if (result.success) {
           showActionToast("success", `${service.name} deleted from active services.`);
           router.refresh();
-        } else showActionToast("error", result.error);
+        } else showActionToast("error", message);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unable to archive this service.";
+        const message = formatUserMessage(error, "Unable to archive this service.");
         setMessage(message);
         setMessageError(true);
         showActionToast("error", message);
@@ -667,7 +694,7 @@ function PropertyServiceCatalog({ property, anchorId }: { property: Property; an
             <div className="mt-3 flex gap-2"><button type="submit" disabled={isPending} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-ink px-4 text-sm font-semibold text-white">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Saving…" : editing ? "Save service" : "Add service"}</button><button type="button" onClick={() => { setEditing(null); setShowForm(false); setMessage(""); setMessageError(false); }} className="min-h-10 rounded-lg border border-line px-4 text-sm font-semibold">Cancel</button></div>
           </form>
         )}
-        {message && <p role={messageError ? "alert" : "status"} className={`text-sm ${messageError ? "text-rose-700" : "text-ink-secondary"}`}>{message}</p>}
+        {message && (messageError ? <ActionErrorMessage error={message} /> : <p role="status" className="text-sm text-ink-secondary">{message}</p>)}
       </div>
     </details>
   );

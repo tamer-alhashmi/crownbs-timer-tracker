@@ -197,6 +197,19 @@ async function assertRoleControlsLog(role: ApprovalRole, log: { user_id: string;
   return user;
 }
 
+function assertApprovalRole(role: unknown): asserts role is ApprovalRole {
+  if (role !== "manager" && role !== "owner") {
+    throw new Error("Choose a valid Manager or Owner approval.");
+  }
+}
+
+function revalidateOtherManagementDashboards(role: string) {
+  const currentPath = role === "owner" ? "/owner" : role === "manager" ? "/manager" : "/admin";
+  for (const path of ["/admin", "/owner", "/manager"]) {
+    if (path !== currentPath) revalidatePath(path);
+  }
+}
+
 function getFinalizationTime(startTime: string) {
   const startTimestamp = Date.parse(startTime);
   const now = Date.now();
@@ -771,8 +784,10 @@ export async function updateWorkLog(logId: string, changes: WorkLogUpdate) {
 }
 
 export async function approveWorkLog(logId: string, role: ApprovalRole) {
+  assertApprovalRole(role);
   await requireFeatureAccess("work_log_approvals", "edit");
   const { supabase, log } = await getLogForAction(logId);
+  if (log.deleted_at || log.cancelled_at) throw new Error("Deleted or cancelled work logs cannot be approved.");
   const user = await assertRoleControlsLog(role, log);
   const { data: assignee, error: assigneeError } = await supabase
     .from("users")
@@ -858,7 +873,7 @@ export async function approveWorkLog(logId: string, role: ApprovalRole) {
   if (error || !updated) throw new Error(error?.message ?? "Unable to approve work log.");
   const { error: auditError } = await supabase.from("work_log_audit").insert({ work_log_id: logId, actor_id: user.userId, action: "approved", previous_values: approvalRecord, new_values: updated });
   if (auditError) throw new Error(`Work log was approved, but audit history could not be saved: ${auditError.message}`);
-  revalidatePath("/admin"); revalidatePath("/owner"); revalidatePath("/manager");
+  revalidateOtherManagementDashboards(user.role);
 }
 
 export async function forceEndAndApproveManagerTask(taskId: string) {
@@ -891,10 +906,12 @@ export async function forceEndAndApproveManagerTask(taskId: string) {
 }
 
 export async function rejectWorkLog(logId: string, role: ApprovalRole, notes = "") {
+  assertApprovalRole(role);
+  if (typeof notes !== "string") throw new Error("Rejection notes must be text.");
   await requireFeatureAccess("work_log_approvals", "edit");
   const { supabase, log } = await getLogForAction(logId);
   const user = await assertRoleControlsLog(role, log);
-  if (log.is_locked) throw new Error("Locked logs cannot be rejected.");
+  if (log.is_locked || log.deleted_at || log.cancelled_at) throw new Error("Locked, deleted, or cancelled logs cannot be rejected.");
   const now = new Date().toISOString();
   const payload = role === "manager" ? { manager_approved: false, manager_rejected: true, manager_rejected_at: now, is_locked: false, rejection_notes: notes.trim() } : { owner_approved: false, owner_rejected: true, owner_rejected_at: now, is_locked: false, rejection_notes: notes.trim() };
   const { data: updated, error } = await supabase.from("work_logs").update({ ...payload, updated_at: now }).eq("id", logId).select("*").single();
@@ -907,5 +924,5 @@ export async function rejectWorkLog(logId: string, role: ApprovalRole, notes = "
     new_values: updated,
   });
   if (auditError) throw new Error(`Work log was rejected, but audit history could not be saved: ${auditError.message}`);
-  revalidatePath("/admin"); revalidatePath("/owner"); revalidatePath("/manager");
+  revalidateOtherManagementDashboards(user.role);
 }

@@ -11,6 +11,14 @@ const withPWA = nextPwa({
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   turbopack: {},
+  async headers() {
+    return [
+      {
+        source: "/manifest.json",
+        headers: [{ key: "Content-Type", value: "application/manifest+json" }],
+      },
+    ];
+  },
 };
 
 export default withPWA(nextConfig);

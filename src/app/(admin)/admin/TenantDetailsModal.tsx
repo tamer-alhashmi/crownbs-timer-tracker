@@ -7,6 +7,7 @@ import { Archive, ArrowRightLeft, Building2, CalendarDays, Check, CheckCircle2, 
 import { strToU8, zipSync } from "fflate";
 import { DashboardPagination } from "@/components/dashboard/DashboardPagination";
 import { showActionToast } from "@/components/ui/ActionToast";
+import { formatUserMessage } from "@/lib/userMessages";
 import { calculateTaskCost } from "@/lib/servicePricing";
 import {
   getTenantDetails,
@@ -261,7 +262,7 @@ function TenantDetailsModalContent({ tenant, onClose, onUpdated }: Props) {
       setLoadError("");
     } catch (error) {
       if (request !== latestRequest.current) return;
-      const message = error instanceof Error ? error.message : "Unable to load tenant details.";
+      const message = formatUserMessage(error, "Unable to load tenant details.");
       setLoadError(message);
       showActionToast("error", message);
     } finally {
@@ -277,7 +278,7 @@ function TenantDetailsModalContent({ tenant, onClose, onUpdated }: Props) {
       setLoadError("");
     }).catch((error: unknown) => {
       if (request !== latestRequest.current) return;
-      const message = error instanceof Error ? error.message : "Unable to load tenant details.";
+      const message = formatUserMessage(error, "Unable to load tenant details.");
       setLoadError(message);
       showActionToast("error", message);
     }).finally(() => {

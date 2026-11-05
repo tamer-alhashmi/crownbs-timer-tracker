@@ -14,6 +14,8 @@ import { SharedWorkspaceShell } from "@/components/layout/SharedWorkspaceShell";
 import { WorkspaceHeader } from "@/components/layout/WorkspaceHeader";
 import { TaskDispatchClient } from "@/app/settings/TaskDispatchClient";
 import { showActionToast } from "@/components/ui/ActionToast";
+import { ActionErrorMessage } from "@/components/ui/ActionErrorMessage";
+import { formatUserMessage } from "@/lib/userMessages";
 import type { getTaskDispatchData } from "@/app/settings/taskActions";
 import { useWorkLogRealtimeRefresh } from "@/lib/useWorkLogRealtimeRefresh";
 import {
@@ -145,7 +147,7 @@ export default function HKAdminDashboardClient({
       setFeedback({ text: "Room status and inspection notes saved.", error: false });
       showActionToast("success", "Room status and inspection notes saved.");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to update this room.";
+      const message = formatUserMessage(error, "Unable to update this room.");
       setFeedback({ text: message, error: true });
       showActionToast("error", message);
     }
@@ -162,7 +164,7 @@ export default function HKAdminDashboardClient({
         setIntervention(null);
         setReason("");
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unable to intervene on this task.";
+        const message = formatUserMessage(error, "Unable to intervene on this task.");
         setFeedback({ text: message, error: true });
         showActionToast("error", message);
       }
@@ -298,7 +300,7 @@ export default function HKAdminDashboardClient({
           <label className="mt-4 block text-sm font-medium text-ink-secondary">Audit reason
             <textarea required minLength={5} maxLength={1000} rows={3} value={reason} onChange={(event) => setReason(event.target.value)} className="mt-1.5 w-full rounded-lg border border-line bg-surface-secondary px-3 py-2 text-ink placeholder:text-ink-muted focus:border-accent focus:ring-1 focus:ring-accent" placeholder="Explain why this intervention is needed" />
           </label>
-          {feedback?.error && <p role="alert" className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-200">{feedback.text}</p>}
+          {feedback?.error && <ActionErrorMessage error={feedback.text} className="mt-3" />}
           <div className="mt-5 flex justify-end gap-2">
             <button type="button" disabled={isPending} onClick={() => { setIntervention(null); setFeedback(null); }} className="min-h-11 rounded-lg border border-line bg-surface-secondary px-4 text-sm font-semibold text-ink-secondary">Cancel</button>
             <button type="submit" disabled={isPending || reason.trim().length < 5} className="min-h-11 rounded-lg bg-accent px-4 text-sm font-semibold text-white disabled:opacity-50">{isPending ? "Saving…" : "Confirm"}</button>

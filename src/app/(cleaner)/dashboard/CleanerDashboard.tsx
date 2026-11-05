@@ -17,6 +17,8 @@ import { calculateTaskCost, resolveBillingUnit, resolveServiceRate } from "@/lib
 import { calculateWorkforceEfficiency } from "@/lib/workforceEfficiency";
 import { useWorkLogRealtimeRefresh } from "@/lib/useWorkLogRealtimeRefresh";
 import { showActionToast } from "@/components/ui/ActionToast";
+import { ActionErrorMessage } from "@/components/ui/ActionErrorMessage";
+import { formatUserMessage } from "@/lib/userMessages";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { RoomMediaCapture } from "./RoomMediaCapture";
 import { getWorkLogRoomMedia, type RoomMediaGalleryItem, type RoomMediaItem } from "./roomMediaActions";
@@ -135,6 +137,7 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
   const [editingMedia, setEditingMedia] = useState<RoomMediaGalleryItem[]>([]);
   const [editingMediaLoading, setEditingMediaLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [messageIsError, setMessageIsError] = useState(false);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [page, setPage] = useUrlPage(PAGE_SIZE);
@@ -172,13 +175,15 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
   const run = (operation: () => Promise<unknown>, success: string, refreshAfter = false) => startTransition(async () => {
     try {
       setMessage("");
+      setMessageIsError(false);
       await operation();
       setMessage(success);
       showActionToast("success", success);
       if (refreshAfter) router.refresh();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to update the operation.";
+      const message = formatUserMessage(error, "Unable to update the operation.");
       setMessage(message);
+      setMessageIsError(true);
       showActionToast("error", message);
     }
   });
@@ -188,6 +193,7 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
     if (!currentShift) return;
     if (requiresRooms && selectedRooms.length === 0) {
       setMessage("Select at least one room for this service.");
+      setMessageIsError(true);
       return;
     }
     const payload = { hotelId, serviceId: effectiveServiceId, roomIds: selectedRooms.map((room) => room.id), notes };
@@ -195,13 +201,16 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
       startTransition(async () => {
         try {
           setMessage("");
+          setMessageIsError(false);
           await updateTask(editingId, payload);
           setPersistedEditingRoomIds(payload.roomIds);
           setMessage("Changes saved. You can now add evidence to the selected rooms.");
+          setMessageIsError(false);
           showActionToast("success", "Work log changes saved.");
         } catch (error) {
-          const message = error instanceof Error ? error.message : "Unable to save task changes.";
+          const message = formatUserMessage(error, "Unable to save task changes.");
           setMessage(message);
+          setMessageIsError(true);
           showActionToast("error", message);
         }
       });
@@ -230,7 +239,8 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
     try {
       setEditingMedia(await getWorkLogRoomMedia(log.id));
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to load existing room media.");
+      setMessage(formatUserMessage(error, "Unable to load existing room media."));
+      setMessageIsError(true);
     } finally {
       setEditingMediaLoading(false);
     }
@@ -283,7 +293,9 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
       <label className="block text-xs font-semibold text-ink-secondary">Notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} required={requiresNotes} rows={3} className="mt-1 w-full rounded-xl border border-line bg-surface-secondary px-3 py-2.5 text-sm font-normal text-ink" placeholder="Add task notes" /></label>
       {editingId && (editingMediaLoading ? <p className="rounded-lg bg-surface-secondary px-3 py-2 text-sm text-ink-muted">Loading saved room media...</p> : <RoomMediaCapture workLogId={editingId} rooms={selectedRooms} initialMedia={editingMedia} storageConfigured={roomMediaConfigured} uploadsEnabled={editRoomSelectionSaved} />)}
       <div className="flex gap-2"><button type="submit" disabled={isPending || (!editingId && (!currentShift || Boolean(activeTask))) || !hotelId || !effectiveServiceId} className="flex-1 rounded-xl bg-sky-700 px-4 py-3 text-sm font-semibold text-white disabled:bg-slate-200 disabled:text-ink-muted">{isPending ? "Saving..." : editingId ? "Save Changes" : "Start task"}</button>{editingId && <button type="button" onClick={() => { setEditingId(null); setEditingMedia([]); setPersistedEditingRoomIds([]); setRoomIds([]); setNotes(""); }} className="rounded-xl border border-line px-4 py-3 text-sm font-semibold text-ink-secondary">Done</button>}</div></form></section>
-    {message && <p className="mt-4 rounded-xl bg-slate-900 px-3 py-2 text-sm text-white" role="status">{message}</p>}
+    {message && (messageIsError
+      ? <ActionErrorMessage error={message} className="mt-4" />
+      : <p className="mt-4 rounded-xl bg-slate-900 px-3 py-2 text-sm text-white" role="status">{message}</p>)}
     </section>
     <section id="history-panel" role="tabpanel" aria-labelledby="history-tab" hidden={activeTab !== "history"}>
     <section className="mt-5">

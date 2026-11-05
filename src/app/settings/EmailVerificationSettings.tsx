@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { CheckCircle2, LoaderCircle, Mail, ShieldCheck, X } from "lucide-react";
 import { showActionToast } from "@/components/ui/ActionToast";
+import { ActionErrorMessage } from "@/components/ui/ActionErrorMessage";
+import { formatUserMessage } from "@/lib/userMessages";
 import {
   requestEmailVerification,
   saveDigestPreferences,
@@ -31,33 +33,39 @@ export function EmailVerificationSettings({
   const [code, setCode] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [notice, setNotice] = useState("");
+  const [noticeIsError, setNoticeIsError] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   const requestCode = () => startTransition(async () => {
     setNotice("");
+    setNoticeIsError(false);
     try {
       await requestEmailVerification(requestedEmail);
       setModalOpen(true);
       showActionToast("success", "Verification code sent.");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to send a verification code.";
+      const message = formatUserMessage(error, "Unable to send a verification code.");
       setNotice(message);
+      setNoticeIsError(true);
       showActionToast("error", message);
     }
   });
 
   const verifyCode = () => startTransition(async () => {
     setNotice("");
+    setNoticeIsError(false);
     try {
       await verifyEmailAddress(requestedEmail, code);
       setModalOpen(false);
       setCode("");
       setNotice("Your email address has been verified.");
+      setNoticeIsError(false);
       showActionToast("success", "Your email address has been verified.");
       window.location.reload();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to verify this email address.";
+      const message = formatUserMessage(error, "Unable to verify this email address.");
       setNotice(message);
+      setNoticeIsError(true);
       showActionToast("error", message);
     }
   });
@@ -67,14 +75,16 @@ export function EmailVerificationSettings({
     const nextMonthly = cadence === "monthly" ? !monthly : monthly;
     startTransition(async () => {
       setNotice("");
+      setNoticeIsError(false);
       try {
         await saveDigestPreferences({ weekly: nextWeekly, monthly: nextMonthly });
         setWeekly(nextWeekly);
         setMonthly(nextMonthly);
         showActionToast("success", "Email digest preferences saved.");
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unable to save digest preferences.";
+        const message = formatUserMessage(error, "Unable to save digest preferences.");
         setNotice(message);
+        setNoticeIsError(true);
         showActionToast("error", message);
       }
     });
@@ -146,7 +156,9 @@ export function EmailVerificationSettings({
             Verify your email to enable these options.
           </p>
         )}
-        {notice && <p role="status" className="mt-3 text-sm text-ink-secondary">{notice}</p>}
+        {notice && (noticeIsError
+          ? <ActionErrorMessage error={notice} className="mt-3" />
+          : <p role="status" className="mt-3 text-sm text-ink-secondary">{notice}</p>)}
       </section>
 
       <PushNotificationSettings publicKey={pushPublicKey} />
@@ -177,7 +189,7 @@ export function EmailVerificationSettings({
               />
             </label>
             <p className="mt-2 text-xs text-ink-secondary">The code expires in 10 minutes.</p>
-            {notice && <p role="alert" className="mt-3 text-sm text-rose-700">{notice}</p>}
+            {notice && <ActionErrorMessage error={notice} className="mt-3" />}
             <button
               type="button"
               onClick={verifyCode}

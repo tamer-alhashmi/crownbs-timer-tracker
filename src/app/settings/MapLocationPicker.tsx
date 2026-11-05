@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import L, { type LeafletEvent, type LeafletMouseEvent, type LatLng } from "leaflet";
 import { Crosshair, LoaderCircle, MapPin, X } from "lucide-react";
+import { ActionErrorMessage } from "@/components/ui/ActionErrorMessage";
 
 type Coordinates = { lat: number; lng: number };
 
@@ -220,7 +221,7 @@ export default function MapLocationPicker({ onCancel, initialPosition, onConfirm
             <p aria-live="polite" className="text-xs text-ink-secondary">{gpsStatus || "Select the property location on the map."}</p>
             <p className="text-xs tabular-nums text-ink-muted">{position.lat.toFixed(5)}, {position.lng.toFixed(5)}</p>
           </div>
-          {error && <p role="alert" className="text-sm text-rose-700">{error}</p>}
+          {error && <ActionErrorMessage error={error} />}
           <div className="flex justify-end gap-2">
             <button type="button" onClick={onCancel} disabled={geocoding} className="min-h-10 rounded-xl border border-line px-4 text-sm font-semibold text-ink-secondary hover:bg-surface-secondary disabled:opacity-50">Cancel</button>
             <button type="button" onClick={confirmLocation} disabled={geocoding} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-accent px-4 text-sm font-semibold text-white hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60">

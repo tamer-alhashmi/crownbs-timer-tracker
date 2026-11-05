@@ -4,6 +4,8 @@ import { forwardRef, useCallback, useImperativeHandle, useRef, useState, useTran
 import { Loader2, MapPin, Pencil, Plus, Power, X } from "lucide-react";
 import { createProperty, getPropertyRooms, resolvePropertyCoordinates, updateProperty, type PropertyRecord, type RoomSetupInput } from "./propertyActions";
 import { showActionToast } from "@/components/ui/ActionToast";
+import { ActionErrorMessage } from "@/components/ui/ActionErrorMessage";
+import { formatUserMessage } from "@/lib/userMessages";
 
 type Assignee = { id: string; name: string; role: "owner" | "manager" };
 type RoomDraft = RoomSetupInput & { photoFiles: File[]; photos: string[] };
@@ -84,7 +86,7 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
         const rooms = await getPropertyRooms(property.id);
         setForm((current) => ({ ...current, rooms: rooms.map((room) => ({ ...room, photoFiles: [] })) }));
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unable to load property rooms.";
+        const message = formatUserMessage(error, "Unable to load property rooms.");
         setMessage({ text: message, error: true });
         showActionToast("error", message);
       }
@@ -97,7 +99,7 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
             setProperties((current) => current.map((item) => item.id === property.id ? { ...item, ...coordinates } : item));
           }
         } catch (error) {
-          const locationMessage = error instanceof Error ? error.message : "Unable to resolve this property's map location.";
+          const locationMessage = formatUserMessage(error, "Unable to resolve this property's map location.");
           setMessage({ text: locationMessage, error: true });
         }
       }
@@ -113,7 +115,7 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
           ? await updateProperty(editing.id, { ...form, rooms: form.rooms })
           : await createProperty({ ...form, rooms: form.rooms });
       } catch (error) {
-        setMessage({ text: error instanceof Error ? error.message : "Unable to save property.", error: true });
+        setMessage({ text: formatUserMessage(error, "Unable to save property."), error: true });
         return;
       }
       setProperties((current) => {
@@ -140,7 +142,7 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
           }
         }
       } catch (error) {
-        const message = error instanceof Error ? `Property saved; photo upload failed: ${error.message}` : "Property saved, but photo upload failed.";
+        const message = `Property saved; photo upload failed: ${formatUserMessage(error, "photo upload failed.")}`;
         setMessage({ text: message, error: true });
         showActionToast("error", message);
       }
@@ -163,9 +165,9 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
         if (address) setForm((current) => ({ ...current, location: address.slice(0, 240) }));
         else setMessage({ text: "Location was detected but no formatted address was found.", error: true });
       } catch (error) {
-        setMessage({ text: error instanceof Error ? error.message : "Unable to find an address for this location.", error: true });
+        setMessage({ text: formatUserMessage(error, "Unable to find an address for this location."), error: true });
       }
-    }, (error) => setMessage({ text: error.message || "Unable to access device location.", error: true }), { enableHighAccuracy: false, timeout: 12000, maximumAge: 60000 });
+    }, (error) => setMessage({ text: formatUserMessage(error.message || "Unable to access device location.", "Unable to access device location."), error: true }), { enableHighAccuracy: false, timeout: 12000, maximumAge: 60000 });
   };
 
   const generateRooms = () => {
@@ -205,7 +207,7 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
       setMessage({ text: message, error: false });
       showActionToast("success", message);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to update property status.";
+      const message = formatUserMessage(error, "Unable to update property status.");
       setMessage({ text: message, error: true });
       showActionToast("error", message);
     }
@@ -215,7 +217,7 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
     <div className="flex flex-col gap-3 pb-4 sm:flex-row sm:items-center sm:justify-between">
       <div><h3 id="property-setup-title" className="text-lg font-bold text-ink">Properties</h3><p className="mt-1 text-sm text-ink-secondary">{canManage ? "Manage properties, assignments, and active status" : "Properties and current management assignments"} · {properties.length} total</p></div>
     </div>
-    {message && <p role={message.error ? "alert" : "status"} className={`mb-3 rounded-lg border px-3 py-2 text-sm ${message.error ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>{message.text}</p>}
+    {message?.error ? <ActionErrorMessage error={message.text} onDismiss={() => setMessage(null)} className="mb-3" /> : message && <p role="status" className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{message.text}</p>}
       <div className="grid min-w-0 grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
       {properties.map((property) => <article key={property.id} className="min-w-0 rounded-xl border border-line/80 bg-surface p-4 shadow-sm">
         <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h4 className="break-words font-semibold text-ink">{property.name}</h4><p className="mt-1 text-sm text-ink-secondary">{property.location || "No location"}</p></div><div className="flex shrink-0 flex-col items-end gap-2"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${property.is_active ? "bg-emerald-50 text-emerald-800" : "bg-surface-secondary text-ink-secondary"}`}>{property.is_active ? "Active" : "Inactive"}</span>{(property.latitude === null || property.longitude === null) && <span className="max-w-full rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-right text-xs font-semibold text-amber-700 dark:text-amber-300">GPS Coordinates Missing - Set Location</span>}</div></div>
@@ -257,7 +259,7 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
           </div>
           <p className="text-xs text-ink-secondary">A UUID and creation timestamp are generated automatically. New properties are active by default.</p>
         </div>
-        {message?.error && <p role="alert" className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{message.text}</p>}
+        {message?.error && <ActionErrorMessage error={message.text} onDismiss={() => setMessage(null)} className="mt-4" />}
         <div className="mt-6 flex flex-wrap justify-end gap-2"><button type="button" onClick={() => setFormOpen(false)} className="min-h-11 rounded-xl border border-line px-4 py-2.5 text-sm font-semibold text-ink-secondary hover:bg-surface-secondary">Cancel</button><button type="submit" disabled={isPending} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Saving…" : editing ? "Save changes" : "Create property"}</button></div>
       </form>
     </div>}

@@ -30,6 +30,7 @@ import { showActionToast } from "@/components/ui/ActionToast";
 import type { UserRole } from "@/lib/roles";
 import { isPlatformAdmin } from "@/lib/roles";
 import { formatUserMessage } from "@/lib/userMessages";
+import { ActionErrorMessage } from "@/components/ui/ActionErrorMessage";
 import { StatusBadge, type StatusKind } from "@/components/ui/StatusBadge";
 import { SharedWorkspaceShell } from "@/components/layout/SharedWorkspaceShell";
 import type { WorkspaceNavTab } from "@/components/layout/MobileWorkspaceNav";
@@ -44,7 +45,6 @@ const DASHBOARD_TABS = [
   { id: "audit", label: "Audit & Compliance", icon: History },
 ] as const;
 type DashboardTab = typeof DASHBOARD_TABS[number]["id"];
-const DASHBOARD_TAB_CHANGE = "management-dashboard-tab-change";
 const RECORDS_PER_PAGE = 20;
 const WORKSPACE_SHELL_TABS: readonly WorkspaceNavTab<DashboardTab>[] = DASHBOARD_TABS.map(({ id, label, icon: Icon }) => ({
   id,
@@ -54,22 +54,8 @@ const WORKSPACE_SHELL_TABS: readonly WorkspaceNavTab<DashboardTab>[] = DASHBOARD
   panelId: `panel-${id}`,
 }));
 
-function readDashboardTab(): DashboardTab {
-  const value = new URLSearchParams(window.location.search).get("tab");
+function getDashboardTab(value: string | null): DashboardTab {
   return DASHBOARD_TABS.some((tab) => tab.id === value) ? value as DashboardTab : "overview";
-}
-
-function subscribeDashboardTab(callback: () => void) {
-  window.addEventListener("popstate", callback);
-  window.addEventListener(DASHBOARD_TAB_CHANGE, callback);
-  return () => {
-    window.removeEventListener("popstate", callback);
-    window.removeEventListener(DASHBOARD_TAB_CHANGE, callback);
-  };
-}
-
-function useDashboardTab(): DashboardTab {
-  return useSyncExternalStore<DashboardTab>(subscribeDashboardTab, readDashboardTab, () => "overview");
 }
 
 type Log = ManagementHistoryRecord;
@@ -122,7 +108,15 @@ function toBriefTask(log: Log): BriefTask {
 
 export default function ManagementDashboardClient({ data, dispatchData, tenantIntelligence }: Props) {
   useWorkLogRealtimeRefresh();
-  const activeTab = useDashboardTab();
+  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState<DashboardTab>(() => getDashboardTab(searchParams.get("tab")));
+  useEffect(() => {
+    const syncTabFromUrl = () => {
+      setActiveTab(getDashboardTab(new URLSearchParams(window.location.search).get("tab")));
+    };
+    window.addEventListener("popstate", syncTabFromUrl);
+    return () => window.removeEventListener("popstate", syncTabFromUrl);
+  }, []);
   useEffect(() => {
     const hash = window.location.hash;
     if (!hash) return;
@@ -215,7 +209,9 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
   }), [workLogPage, pageSize, fromDate, toDate, cleanerFilter, hotelFilter, serviceFilter, statusFilter, data.userRole, workFilters.tenant, needsActionOnly, sortColumn, sortAscending]);
   const workLogPageRequestKey = JSON.stringify(workLogPageRequest);
   const serverWorkLogPage = serverWorkLogResult?.key === workLogPageRequestKey ? serverWorkLogResult.result : null;
-  const serverWorkLogError = serverWorkLogFailure?.key === workLogPageRequestKey ? serverWorkLogFailure.message : "";
+  const serverWorkLogError = serverWorkLogFailure?.key === workLogPageRequestKey
+    ? formatUserMessage(serverWorkLogFailure.message, "Unable to load this work-log page.")
+    : "";
   useEffect(() => {
     let active = true;
     getManagementWorkLogPage(workLogPageRequest).then((result) => {
@@ -233,11 +229,15 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
   useEffect(() => {
     if (!serverWorkLogPage) return;
     const recordsById = new Map([...displayedWorkLogs, ...serverWorkLogPage.records].map((log) => [log.id, log]));
-    displayedWorkLogsRef.current = [...recordsById.values()];
-  }, [displayedWorkLogs, serverWorkLogPage]);
+    displayedWorkLogsRef.current = [...recordsById.values()].map((log) => (
+      approvalOverrides[log.id] ? { ...log, ...approvalOverrides[log.id] } : log
+    ));
+  }, [approvalOverrides, displayedWorkLogs, serverWorkLogPage]);
   const pageCount = serverWorkLogPage?.pageCount ?? 1;
   const currentPage = serverWorkLogPage?.page ?? Math.max(1, Math.min(Math.floor(workLogPage), pageCount));
-  const visibleWorkLogs = serverWorkLogPage?.records ?? [];
+  const visibleWorkLogs = serverWorkLogPage?.records.map((log) => (
+    approvalOverrides[log.id] ? { ...log, ...approvalOverrides[log.id] } : log
+  )) ?? [];
   const filteredWorkLogTotals = visibleWorkLogs.reduce((totals, log) => ({
     rooms: totals.rooms + log.rooms_completed,
     hours: totals.hours + (log.end_time ? durationHours(log.start_time, log.end_time) : 0),
@@ -253,7 +253,10 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
     const rooms = summary?.rooms ?? 0;
     const cost = summary?.cost ?? 0;
     return { id: hotel.id, name: hotel.name, rooms, cost, costPerRoom: rooms ? cost / rooms : 0 };
-  }).sort((left, right) => right.cost - left.cost);
+  }).sort((left, right) => right.cost - left.cost || left.name.localeCompare(right.name));
+  const propertyLaborTotal = propertyFinancials.reduce((total, property) => total + property.cost, 0);
+  const propertyUnitTotal = propertyFinancials.reduce((total, property) => total + property.rooms, 0);
+  const highestPropertyCost = propertyFinancials[0]?.cost ?? 0;
   const cleanerOptions = data.cleaners;
   const serviceOptions = data.services;
   const auditFilterOptions: SnapshotFilterOptions = {
@@ -273,8 +276,8 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
   const selectTab = (tab: DashboardTab) => {
     const url = new URL(window.location.href);
     url.searchParams.set("tab", tab);
+    setActiveTab(tab);
     window.history.replaceState(window.history.state, "", url);
-    window.dispatchEvent(new Event(DASHBOARD_TAB_CHANGE));
   };
   const run = (operation: () => Promise<unknown>, success = "Saved.") => startTransition(async () => {
     try { setMessage(""); await operation(); setEditing(null); setDraft(null); setMessage(success); showActionToast("success", success); }
@@ -485,7 +488,7 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
 
         <section id="panel-work-logs" role="tabpanel" aria-labelledby="tab-work-logs" hidden={activeTab !== "work-logs"} className="space-y-5">
           <DashboardHeading title="Work logs & history" description={`${serverWorkLogPage?.totalCount ?? 0} matching records · review approvals, task details, and shift history.`} />
-          {serverWorkLogError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{serverWorkLogError}</p>}
+          {serverWorkLogError && <ActionErrorMessage error={serverWorkLogError} />}
           {!serverWorkLogPage && !serverWorkLogError && <p role="status" className="text-sm text-ink-secondary">Loading this page of work logs…</p>}
           <WorkspaceFilterBar
             filters={workFilters}
@@ -556,21 +559,77 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
             <Metric label="Locked payroll liability*" value={formatGBP(lockedPayrollLiability)} icon={Wallet} tone="amber" />
           </section>
           <p className="payroll-disclaimer text-xs leading-5">*This is the total value of locked payroll records. The current schema does not track payment/settlement, so it cannot confirm unpaid balances.</p>
-          <section id="property-labor-breakdown" className="scroll-mt-24 rounded-2xl bg-surface p-5 shadow-sm ring-1 ring-line">
-            <div className="mb-4 flex flex-wrap items-end justify-between gap-2"><div><h3 className="font-semibold text-ink">Property labor cost breakdown</h3><p className="mt-1 text-sm text-ink-secondary">Completed work logs and task-level overrides across your visible properties.</p></div><span className="text-xs text-ink-muted">Revenue is not tracked in the current model</span></div>
-            <label className="relative mb-2 block">
-              <span className="sr-only">Filter properties</span>
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" aria-hidden="true" />
-              <input value={propertySearch} onChange={(event) => setPropertySearch(event.target.value)} placeholder="Filter properties..." className="min-h-11 w-full rounded-lg border border-line bg-surface py-2 pl-9 pr-3 text-sm text-ink" />
-            </label>
-            <div className="admin-config-scroll max-h-72 overflow-y-auto rounded-xl border border-line p-2">
-              {filteredPropertyFinancials.map((property) => <article key={property.id} className="grid gap-2 border-b border-line px-3 py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:items-center sm:gap-6">
-                <p className="truncate font-medium text-ink">{property.name}</p>
-                <p className="text-sm text-ink-secondary">{property.rooms} units</p>
-                <p className="text-sm font-semibold tabular-nums text-ink">GBP {property.cost.toFixed(2)}</p>
-                <p className="text-xs tabular-nums text-ink-muted">GBP {property.costPerRoom.toFixed(2)} / unit</p>
-              </article>)}
-              {!filteredPropertyFinancials.length && <p className="p-6 text-center text-sm text-ink-muted">No properties match your filter</p>}
+          <section id="property-labor-breakdown" className="scroll-mt-24 overflow-hidden rounded-2xl border border-line bg-surface shadow-sm">
+            <div className="border-b border-line bg-surface-secondary/40 p-5 sm:p-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="flex items-start gap-3">
+                  <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent/10 text-accent"><Building2 aria-hidden="true" className="h-5 w-5" /></span>
+                  <div>
+                    <h3 className="font-semibold text-ink">Property labor cost breakdown</h3>
+                    <p className="mt-1 max-w-2xl text-sm leading-5 text-ink-secondary">Compare labor spend and completed units across your visible properties.</p>
+                  </div>
+                </div>
+                <p className="inline-flex max-w-full items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-700 dark:text-amber-300">
+                  <span className="font-semibold">Note</span>
+                  <span>Revenue and profit are not tracked in this breakdown.</span>
+                </p>
+              </div>
+              <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-3">
+                <div className="rounded-xl border border-line bg-surface px-4 py-3">
+                  <p className="text-xs font-medium text-ink-muted">Tracked labor cost</p>
+                  <p className="mt-1 text-lg font-bold tabular-nums text-ink">{formatGBP(propertyLaborTotal)}</p>
+                </div>
+                <div className="rounded-xl border border-line bg-surface px-4 py-3">
+                  <p className="text-xs font-medium text-ink-muted">Completed units</p>
+                  <p className="mt-1 text-lg font-bold tabular-nums text-ink">{propertyUnitTotal.toLocaleString("en-GB")}</p>
+                </div>
+                <div className="col-span-2 rounded-xl border border-line bg-surface px-4 py-3 lg:col-span-1">
+                  <p className="text-xs font-medium text-ink-muted">Average cost per unit</p>
+                  <p className="mt-1 text-lg font-bold tabular-nums text-ink">{formatGBP(propertyUnitTotal ? propertyLaborTotal / propertyUnitTotal : 0)}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 sm:p-5">
+              <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h4 className="text-sm font-semibold text-ink">Property comparison</h4>
+                  <p className="mt-0.5 text-xs text-ink-muted">{filteredPropertyFinancials.length} of {propertyFinancials.length} properties</p>
+                </div>
+                <label className="relative block w-full sm:max-w-xs">
+                  <span className="sr-only">Filter properties</span>
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" aria-hidden="true" />
+                  <input value={propertySearch} onChange={(event) => setPropertySearch(event.target.value)} placeholder="Search properties..." className="min-h-10 w-full rounded-xl border border-line bg-surface-secondary py-2 pl-9 pr-3 text-sm text-ink placeholder:text-ink-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20" />
+                </label>
+              </div>
+              <div className="grid grid-cols-[minmax(0,1fr)_5rem_7rem] items-center gap-2 border-b border-line px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-ink-muted sm:grid-cols-[minmax(0,1fr)_minmax(7rem,1.3fr)_6rem_8rem_8rem] sm:gap-3">
+                <span>Property</span><span className="hidden sm:block">Relative labor cost</span><span className="text-right">Units</span><span className="text-right">Labor cost</span><span className="hidden text-right sm:block">Cost / unit</span>
+              </div>
+              <div className="admin-config-scroll max-h-96 divide-y divide-line overflow-y-auto">
+                {filteredPropertyFinancials.map((property, index) => {
+                  const relativeCost = highestPropertyCost > 0 ? Math.min(100, (property.cost / highestPropertyCost) * 100) : 0;
+                  return <article key={property.id} className="grid grid-cols-[minmax(0,1fr)_5rem_7rem] items-center gap-2 px-3 py-3 transition-colors hover:bg-surface-secondary/60 sm:grid-cols-[minmax(0,1fr)_minmax(7rem,1.3fr)_6rem_8rem_8rem] sm:gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-xs font-semibold text-ink-muted">{String(index + 1).padStart(2, "0")}</span>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-ink">{property.name}</p>
+                        <p className="mt-0.5 text-xs text-ink-muted sm:hidden">{formatGBP(property.costPerRoom)} per unit</p>
+                      </div>
+                    </div>
+                    <div className="hidden min-w-0 items-center gap-3 sm:flex">
+                      <div role="progressbar" aria-label={`${property.name} labor cost compared with the highest-cost property`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(relativeCost)} className="h-2 min-w-12 flex-1 overflow-hidden rounded-full bg-surface-secondary">
+                        <div className="h-full rounded-full bg-accent transition-[width]" style={{ width: `${relativeCost}%` }} />
+                      </div>
+                      <span className="w-10 text-right text-xs tabular-nums text-ink-muted">{Math.round(relativeCost)}%</span>
+                    </div>
+                    <span className="text-right text-sm tabular-nums text-ink-secondary">{property.rooms.toLocaleString("en-GB")}</span>
+                    <span className="text-right text-sm font-semibold tabular-nums text-ink">{formatGBP(property.cost)}</span>
+                    <span className="hidden text-right text-sm tabular-nums text-ink-secondary sm:block">{formatGBP(property.costPerRoom)}</span>
+                  </article>;
+                })}
+                {!filteredPropertyFinancials.length && <p className="px-4 py-10 text-center text-sm text-ink-muted">{propertyFinancials.length ? "No properties match your search." : "No properties are available for this account."}</p>}
+              </div>
+              <p className="mt-3 text-[11px] leading-5 text-ink-muted">Labor cost reflects completed work and task-level overrides. Cost per unit is shown as £0.00 when no units have been recorded.</p>
             </div>
           </section>
           <AdminPayrollTable
@@ -649,7 +708,7 @@ const WorkLogRow = memo(function WorkLogRow({ log, isOwnLog, canManager, canOwne
         </>)}
         {canForceEndAndApprove && <button type="button" disabled={isPending} onClick={() => onForceEndAndApprove(log.id)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-semibold text-rose-900 hover:bg-rose-100 disabled:cursor-wait disabled:opacity-60">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Finalizing…" : "Force End & Approve"}</button>}
       </div>
-      {feedback && <p role={feedback.kind === "error" ? "alert" : "status"} className={`mt-2 text-xs ${feedback.kind === "error" ? "font-medium text-rose-700" : feedback.kind === "success" ? "text-emerald-700" : "text-ink-muted"}`}>{feedback.text}</p>}
+      {feedback?.kind === "error" ? <ActionErrorMessage error={feedback.text} className="mt-2" /> : feedback && <p role="status" className={`mt-2 text-xs ${feedback.kind === "success" ? "text-emerald-700" : "text-ink-muted"}`}>{feedback.text}</p>}
     </td>
   </tr>;
 });
@@ -728,7 +787,7 @@ export function WorkLogMobileCard(props: WorkLogRowProps) {
               {!canManager && !canOwner && !canForceEndAndApprove && <p className="rounded-lg bg-surface-secondary px-3 py-2 text-center text-xs font-medium text-ink-secondary dark:bg-slate-800 dark:text-ink-muted">Awaiting approval.</p>}
             </div>
       }
-      {feedback && <p role={feedback.kind === "error" ? "alert" : "status"} className={`text-xs ${feedback.kind === "error" ? "font-medium text-rose-700" : feedback.kind === "success" ? "text-emerald-700" : "text-ink-muted"}`}>{feedback.text}</p>}
+      {feedback?.kind === "error" ? <ActionErrorMessage error={feedback.text} /> : feedback && <p role="status" className={`text-xs ${feedback.kind === "success" ? "text-emerald-700" : "text-ink-muted"}`}>{feedback.text}</p>}
       </footer>
     </div>
   </article>;
@@ -1069,7 +1128,7 @@ function SnapshotTransparency({ filterOptions, onOpen }: { filterOptions: Snapsh
       </details>
     </div>
     {(preferencesMessage || storedPreference.message) && <p role="status" className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">{preferencesMessage || storedPreference.message}</p>}
-    {historyError && <p role="alert" className="mb-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-200">{historyError}</p>}
+    {historyError && <ActionErrorMessage error={historyError} className="mb-3" />}
     {!loadedHistory && !historyError && <p role="status" className="mb-3 text-sm text-ink-secondary">Loading this responsibility-history page…</p>}
     <div className="admin-config-scroll mobile-card-table-wrapper max-h-[65vh] overflow-auto rounded-lg border border-line [-webkit-overflow-scrolling:touch]">
       <table className="mobile-card-table min-w-max w-full text-left text-sm">

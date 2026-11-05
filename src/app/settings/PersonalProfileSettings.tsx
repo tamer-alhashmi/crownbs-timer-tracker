@@ -12,6 +12,8 @@ import type { UserRole } from "@/lib/roles";
 import { savePersonalProfile, saveSoundNotificationsPreference } from "./profileActions";
 import { useSoundSettings } from "@/components/chat/ChatProviders";
 import { showActionToast } from "@/components/ui/ActionToast";
+import { ActionErrorMessage } from "@/components/ui/ActionErrorMessage";
+import { formatUserMessage } from "@/lib/userMessages";
 import { EmailVerificationSettings } from "./EmailVerificationSettings";
 
 const profileSchema = z.object({
@@ -77,7 +79,7 @@ export default function PersonalProfileSettings({
       setSoundNotificationsEnabled(nextValue);
       showActionToast("success", `Notification sounds ${nextValue ? "enabled" : "disabled"}.`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to update notification sounds.";
+      const message = formatUserMessage(error, "Unable to update notification sounds.");
       setNotice({ kind: "error", text: message });
       showActionToast("error", message);
     } finally {
@@ -94,7 +96,7 @@ export default function PersonalProfileSettings({
       showActionToast("success", "Your personal details were saved.");
       router.refresh();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to save your profile.";
+      const message = formatUserMessage(error, "Unable to save your profile.");
       setNotice({ kind: "error", text: message });
       showActionToast("error", message);
     }
@@ -121,7 +123,7 @@ export default function PersonalProfileSettings({
       await queryClient.invalidateQueries({ queryKey: ["chat"] });
       router.refresh();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to upload your photo.";
+      const message = formatUserMessage(error, "Unable to upload your photo.");
       setNotice({ kind: "error", text: message });
       showActionToast("error", message);
     } finally {
@@ -143,7 +145,7 @@ export default function PersonalProfileSettings({
       await queryClient.invalidateQueries({ queryKey: ["chat"] });
       router.refresh();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to remove your photo.";
+      const message = formatUserMessage(error, "Unable to remove your photo.");
       setNotice({ kind: "error", text: message });
       showActionToast("error", message);
     } finally {
@@ -256,10 +258,8 @@ export default function PersonalProfileSettings({
               {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               {isSaving ? "Saving..." : "Save personal information"}
             </button>
-            {notice && (
-              <p role={notice.kind === "error" ? "alert" : "status"} className={`text-sm ${notice.kind === "error" ? "text-rose-700" : "text-emerald-700"}`}>
-                {notice.text}
-              </p>
+            {notice?.kind === "error" ? <ActionErrorMessage error={notice.text} /> : notice && (
+              <p role="status" className="text-sm text-emerald-700">{notice.text}</p>
             )}
           </div>
           </form>

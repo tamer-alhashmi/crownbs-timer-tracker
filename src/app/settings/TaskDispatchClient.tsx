@@ -9,6 +9,8 @@ import { dispatchTask, type getTaskDispatchData } from "./taskActions";
 import type { UserRole } from "@/lib/roles";
 import { TaskManagementDialog } from "./TaskManagementDialog";
 import { showActionToast } from "@/components/ui/ActionToast";
+import { ActionErrorMessage } from "@/components/ui/ActionErrorMessage";
+import { formatUserMessage } from "@/lib/userMessages";
 
 type Service = {
   id: string;
@@ -160,8 +162,9 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
       const response = await fetch("/api/tasks/attachment", { method: "POST", body: data });
       const result = await response.json() as { path?: string; error?: string };
       if (!response.ok || !result.path) {
-        setNotice(result.error ?? "The task photo could not be uploaded.");
-        showActionToast("error", result.error ?? "The task photo could not be uploaded.");
+        const message = formatUserMessage(result.error ?? "The task photo could not be uploaded.");
+        setNotice(message);
+        showActionToast("error", message);
         return;
       }
       photoPath = result.path;
@@ -193,12 +196,15 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
         });
         if (!cleanup.ok) {
           const cleanupResult = await cleanup.json() as { error?: string };
-          setNotice(`${result.error} ${cleanupResult.error ?? "The unused photo could not be removed."}`);
+          const message = `${formatUserMessage(result.error)} ${formatUserMessage(cleanupResult.error ?? "The unused photo could not be removed.")}`;
+          setNotice(message);
+          showActionToast("error", message);
           return;
         }
       }
-      setNotice(result.error);
-      showActionToast("error", result.error);
+      const message = formatUserMessage(result.error);
+      setNotice(message);
+      showActionToast("error", message);
       return;
     }
     setNotice("Task assigned. The assignee has been notified.");
@@ -211,7 +217,7 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
     } catch (error) {
       const message = photo && photo.size > MAX_ATTACHMENT_SIZE
         ? IMAGE_TOO_LARGE_NOTICE
-        : error instanceof Error ? error.message : "Unable to assign this task.";
+        : formatUserMessage(error, "Unable to assign this task.");
       if (photo && photo.size > MAX_ATTACHMENT_SIZE) setPhotoError(IMAGE_TOO_LARGE_MESSAGE);
       setNotice(message);
       showActionToast("error", message);
@@ -235,7 +241,9 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
           </button>
         </div>
       </div>
-      {notice && <p role={notice.startsWith("Task assigned") ? "status" : "alert"} className="mt-4 rounded-xl border border-line bg-surface-secondary px-4 py-3 text-sm text-ink">{notice}</p>}
+      {notice && (notice.startsWith("Task assigned")
+        ? <p role="status" className="mt-4 rounded-xl border border-line bg-surface-secondary px-4 py-3 text-sm text-ink">{notice}</p>
+        : <ActionErrorMessage error={notice} className="mt-4" />)}
       {!hotels.length && <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">No active properties are available in your assignment scope.</p>}
 
       {isOpen && (
@@ -315,7 +323,7 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
               )}
 
               <Field label="Notes for the assignee" error={errors.notes?.message}><textarea {...form.register("notes")} className={`${fieldClass} min-h-20`} placeholder="Optional instructions or context" /></Field>
-              {notice && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{notice}</p>}
+              {notice && <ActionErrorMessage error={notice} />}
               <div className="flex flex-col-reverse gap-2 border-t border-line pt-4 sm:flex-row sm:justify-end">
                 <button type="button" onClick={() => setIsOpen(false)} className="min-h-11 rounded-xl border border-line px-4 text-sm font-semibold text-ink-secondary">Cancel</button>
                 <button type="submit" disabled={isPending} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-accent px-5 text-sm font-bold text-white hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:border disabled:border-line disabled:bg-surface-secondary disabled:text-ink-muted">{isPending ? <><Loader2 className="h-4 w-4 animate-spin" /> Assigning…</> : <><ClipboardCheck className="h-4 w-4" /> Assign task</>}</button>

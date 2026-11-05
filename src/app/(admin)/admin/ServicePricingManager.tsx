@@ -7,6 +7,8 @@ import type { PropertyRecord } from "./propertyActions";
 import { PropertySetup, type PropertySetupHandle } from "./PropertySetup";
 import type { BillingUnit } from "@/lib/servicePricing";
 import { showActionToast } from "@/components/ui/ActionToast";
+import { ActionErrorMessage } from "@/components/ui/ActionErrorMessage";
+import { formatUserMessage } from "@/lib/userMessages";
 
 type ServiceForm = { name: string; default_rate: string; unit: BillingUnit; description: string };
 type Props = {
@@ -59,7 +61,7 @@ export function ServicePricingManager({ initialServices, initialProperties, prop
         setMessage({ text: message, error: false });
         showActionToast("success", message);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unable to save service.";
+        const message = formatUserMessage(error, "Unable to save service.");
         setMessage({ text: message, error: true });
         showActionToast("error", message);
       }
@@ -74,7 +76,7 @@ export function ServicePricingManager({ initialServices, initialProperties, prop
       setMessage({ text: message, error: false });
       showActionToast("success", message);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to update service status.";
+      const message = formatUserMessage(error, "Unable to update service status.");
       setMessage({ text: message, error: true });
       showActionToast("error", message);
     }
@@ -91,7 +93,7 @@ export function ServicePricingManager({ initialServices, initialProperties, prop
         showActionToast("success", message);
         setDeactivating(null);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unable to deactivate service.";
+        const message = formatUserMessage(error, "Unable to deactivate service.");
         setMessage({ text: message, error: true });
         showActionToast("error", message);
       }
@@ -103,7 +105,7 @@ export function ServicePricingManager({ initialServices, initialProperties, prop
       setServices(await getServices());
       setMessage({ text: "Service list refreshed.", error: false });
     } catch (error) {
-      setMessage({ text: error instanceof Error ? error.message : "Unable to refresh services.", error: true });
+      setMessage({ text: formatUserMessage(error, "Unable to refresh services."), error: true });
     }
   });
 
@@ -127,7 +129,7 @@ export function ServicePricingManager({ initialServices, initialProperties, prop
       </div>
     </div>
 
-    {message && <p role={message.error ? "alert" : "status"} className={`rounded-xl border px-3 py-2.5 text-sm ${message.error ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>{message.text}</p>}
+    {message?.error ? <ActionErrorMessage error={message.text} /> : message && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800">{message.text}</p>}
 
     <div className="space-y-3">
     <div className="flex items-center justify-between px-1 text-xs font-semibold uppercase tracking-wide text-ink-muted"><span>Configured services</span><span>{services.length} total</span></div>
@@ -175,7 +177,7 @@ export function ServicePricingManager({ initialServices, initialProperties, prop
           </div>
           <label className="text-sm font-medium text-ink-secondary">Description<textarea rows={3} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} className="mt-1.5 w-full resize-y rounded-xl border border-line bg-surface px-3 py-2.5 text-ink outline-none focus:border-cyan-700" /></label>
         </div>
-        {message?.error && <p role="alert" className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{message.text}</p>}
+        {message?.error && <ActionErrorMessage error={message.text} className="mt-4" />}
         <div className="mt-6 flex flex-wrap justify-end gap-2"><button type="button" onClick={() => setFormOpen(false)} className="min-h-11 rounded-xl border border-line px-4 py-2.5 text-sm font-semibold text-ink-secondary hover:bg-surface-secondary">Cancel</button><button type="submit" disabled={isPending} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50">{isPending && <LoaderCircle className="h-4 w-4 animate-spin" />}{editing ? "Save changes" : "Create service"}</button></div>
       </form>
     </div>}

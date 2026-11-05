@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, LoaderCircle, LockKeyhole } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { ActionErrorMessage } from "@/components/ui/ActionErrorMessage";
 
 export default function ResetPasswordForm() {
   const router = useRouter();
@@ -93,7 +94,7 @@ export default function ResetPasswordForm() {
           </button>
         </div>
       </div>
-      {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {error && <ActionErrorMessage error={error} />}
       <button type="submit" disabled={isBusy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60">
         {isBusy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <LockKeyhole className="h-4 w-4" />}
         Update password
