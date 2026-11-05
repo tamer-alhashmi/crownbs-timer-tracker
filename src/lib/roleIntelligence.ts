@@ -2,6 +2,7 @@ import "server-only";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import type { UserRole } from "@/lib/roles";
 import { isPlatformAdmin } from "@/lib/roles";
+import { calculateWorkforceEfficiency } from "@/lib/workforceEfficiency";
 
 export type IntelligenceViewer = {
   userId: string;
@@ -20,6 +21,8 @@ export type IntelligencePerformer = {
   name: string;
   role: string;
   completedTasks: number;
+  efficiencyScore: number | null;
+  efficiencyTaskCount: number;
   shifts: number;
   lastActiveAt: string | null;
 };
@@ -33,6 +36,8 @@ export type IntelligenceTenant = {
   managerCount: number;
   cleanerCount: number;
   completedTasks: number;
+  efficiencyScore: number | null;
+  efficiencyTaskCount: number;
   lastActiveAt: string | null;
   isActive: boolean;
 };
@@ -58,9 +63,34 @@ type Hotel = {
 type User = { id: string; full_name: string; role: string };
 type TenantUser = { id: string; full_name: string; email: string | null };
 type Assignment = { user_id: string; hotel_id: string };
-type WorkLog = { id: string; user_id: string; hotel_id: string; status: string; created_at: string; updated_at: string | null };
+type WorkLog = {
+  id: string;
+  user_id: string;
+  hotel_id: string;
+  status: string;
+  created_at: string;
+  updated_at: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  rooms_completed: number | null;
+  service_name_snapshot: string | null;
+  dispatch_metadata: Record<string, unknown> | null;
+  services_config: { unit: string | null } | { unit: string | null }[] | null;
+};
 type Shift = { user_id: string; start_time: string; status: string; end_time: string | null };
 type PageResult<T> = { data: T[] | null; error: { message: string } | null };
+
+function calculateLogEfficiency(logs: WorkLog[], now: number) {
+  return calculateWorkforceEfficiency(logs.map((log) => ({
+    status: log.status,
+    start_time: log.start_time,
+    end_time: log.end_time,
+    rooms_completed: log.rooms_completed,
+    service_name_snapshot: log.service_name_snapshot,
+    service_unit: Array.isArray(log.services_config) ? log.services_config[0]?.unit ?? null : log.services_config?.unit ?? null,
+    dispatch_metadata: log.dispatch_metadata,
+  })), now);
+}
 
 async function readAllRows<T>(
   label: string,
@@ -189,22 +219,23 @@ export async function getRoleScopedIntelligenceData(
             .range(from, to)
         )
       : [];
+  const viewerWorksTasks = viewer.role === "manager" || viewer.role === "housekeeping_admin" || viewer.role === "hk_admin";
   const scopedWorkerIds = users
-    .filter((user) => user.id !== viewer.userId && (
-      platformViewer
+    .filter((user) => user.id === viewer.userId
+      ? viewerWorksTasks
+      : platformViewer
         ? ["manager", "housekeeping_admin", "hk_admin", "cleaner"].includes(user.role)
         : viewer.role === "owner"
           ? ["manager", "housekeeping_admin", "hk_admin", "cleaner"].includes(user.role)
           : viewer.role === "manager"
             ? ["housekeeping_admin", "hk_admin", "cleaner"].includes(user.role)
-            : user.role === "cleaner"
-    ))
+            : user.role === "cleaner")
     .map((user) => user.id);
   const [logs, shifts] = await Promise.all([
     hotelIds.length
       ? readAllRows<WorkLog>("recent work logs", (from, to) =>
           supabase.from("work_logs")
-            .select("id, user_id, hotel_id, status, created_at, updated_at")
+            .select("id, user_id, hotel_id, status, created_at, updated_at, start_time, end_time, rooms_completed, service_name_snapshot, dispatch_metadata, services_config(unit)")
             .in("hotel_id", hotelIds)
             .gte("created_at", thirtyDaysAgo)
             .is("deleted_at", null)
@@ -237,7 +268,7 @@ export async function getRoleScopedIntelligenceData(
 
   const usersById = new Map(users.map((user) => [user.id, user]));
   const scopedTeam = users.filter((user) => {
-    if (user.id === viewer.userId) return false;
+    if (user.id === viewer.userId) return viewerWorksTasks;
     if (platformViewer) return ["manager", "housekeeping_admin", "hk_admin", "cleaner"].includes(user.role) && assignedTeamIds.has(user.id);
     if (viewer.role === "owner") return ["manager", "housekeeping_admin", "hk_admin", "cleaner"].includes(user.role) && assignedTeamIds.has(user.id);
     if (viewer.role === "manager") return ["housekeeping_admin", "hk_admin", "cleaner"].includes(user.role) && assignedTeamIds.has(user.id);
@@ -246,33 +277,58 @@ export async function getRoleScopedIntelligenceData(
   const teamIds = new Set(scopedTeam.map((user) => user.id));
   const scopedLogs = logs.filter((log) => hotelIdSet.has(log.hotel_id));
   const scopedShifts = shifts.filter((shift) => teamIds.has(shift.user_id));
-  const performerStats = new Map<string, { completed: number; shifts: number; lastActiveAt: string | null }>();
+  const performerStats = new Map<string, { completed: number; shifts: number; lastActiveAt: string | null; efficiencyLogs: WorkLog[] }>();
 
   for (const log of scopedLogs) {
     if (!teamIds.has(log.user_id)) continue;
-    const stats = performerStats.get(log.user_id) ?? { completed: 0, shifts: 0, lastActiveAt: null };
+    const stats = performerStats.get(log.user_id) ?? { completed: 0, shifts: 0, lastActiveAt: null, efficiencyLogs: [] };
     if (log.status === "completed") stats.completed += 1;
+    stats.efficiencyLogs.push(log);
     if (!stats.lastActiveAt || log.created_at > stats.lastActiveAt) stats.lastActiveAt = log.created_at;
     performerStats.set(log.user_id, stats);
   }
   for (const shift of scopedShifts) {
-    const stats = performerStats.get(shift.user_id) ?? { completed: 0, shifts: 0, lastActiveAt: null };
+    const stats = performerStats.get(shift.user_id) ?? { completed: 0, shifts: 0, lastActiveAt: null, efficiencyLogs: [] };
     stats.shifts += 1;
     if (!stats.lastActiveAt || shift.start_time > stats.lastActiveAt) stats.lastActiveAt = shift.start_time;
     performerStats.set(shift.user_id, stats);
   }
+  if (viewerWorksTasks && !performerStats.has(viewer.userId)) {
+    performerStats.set(viewer.userId, { completed: 0, shifts: 0, lastActiveAt: null, efficiencyLogs: [] });
+  }
 
-  const performers = [...performerStats.entries()]
-    .map(([id, stats]) => ({
-      id,
-      name: usersById.get(id)?.full_name ?? "Team member",
-      role: usersById.get(id)?.role ?? "staff",
-      completedTasks: stats.completed,
-      shifts: stats.shifts,
-      lastActiveAt: stats.lastActiveAt,
-    }))
+  const allPerformers = [...performerStats.entries()]
+    .map(([id, stats]) => {
+      const efficiency = calculateLogEfficiency(stats.efficiencyLogs, now.getTime());
+      return {
+        id,
+        name: usersById.get(id)?.full_name ?? "Team member",
+        role: usersById.get(id)?.role ?? "staff",
+        completedTasks: stats.completed,
+        efficiencyScore: efficiency.score,
+        efficiencyTaskCount: efficiency.scoredTasks,
+        shifts: stats.shifts,
+        lastActiveAt: stats.lastActiveAt,
+      };
+    })
     .sort((first, second) => second.completedTasks - first.completedTasks || second.shifts - first.shifts || first.name.localeCompare(second.name))
     .slice(0, 5);
+  const viewerPerformer = [...performerStats.entries()].find(([id]) => id === viewer.userId);
+  const viewerEfficiency = viewerPerformer
+    ? calculateLogEfficiency(viewerPerformer[1].efficiencyLogs, now.getTime())
+    : null;
+  const performers = viewerPerformer && !allPerformers.some((performer) => performer.id === viewer.userId)
+    ? [...allPerformers.slice(0, 4), {
+      id: viewerPerformer[0],
+      name: usersById.get(viewerPerformer[0])?.full_name ?? "You",
+      role: usersById.get(viewerPerformer[0])?.role ?? viewer.role,
+      completedTasks: viewerPerformer[1].completed,
+      efficiencyScore: viewerEfficiency?.score ?? null,
+      efficiencyTaskCount: viewerEfficiency?.scoredTasks ?? 0,
+      shifts: viewerPerformer[1].shifts,
+      lastActiveAt: viewerPerformer[1].lastActiveAt,
+    }]
+    : allPerformers;
 
   const tenantRows: IntelligenceTenant[] = tenants.map((tenant) => {
     const ownedHotels = hotels.filter((hotel) => hotel.owner_id === tenant.id);
@@ -293,6 +349,7 @@ export async function getRoleScopedIntelligenceData(
 
     const tenantLogs = scopedLogs.filter((log) => ownedHotelIds.has(log.hotel_id));
     const completedTenantLogs = tenantLogs.filter((log) => log.status === "completed");
+    const tenantEfficiency = calculateLogEfficiency(tenantLogs, now.getTime());
     const lastActiveAt = tenantLogs.reduce<string | null>(
       (latest, log) => {
         const activityAt = log.updated_at && log.updated_at > log.created_at ? log.updated_at : log.created_at;
@@ -321,6 +378,8 @@ export async function getRoleScopedIntelligenceData(
       managerCount,
       cleanerCount,
       completedTasks: completedTenantLogs.length,
+      efficiencyScore: tenantEfficiency.score,
+      efficiencyTaskCount: tenantEfficiency.scoredTasks,
       lastActiveAt,
       isActive: hasActivityToday || hasActiveWorkLog || hasActiveShift || (
         ownedHotels.some((hotel) => hotel.is_active) &&

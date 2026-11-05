@@ -3,6 +3,19 @@
 /*! tailwindcss v4.3.3 | MIT License | https://tailwindcss.com */
 @layer properties;
 @layer theme, base, components, utilities;
+@media (width >= 40rem) {
+  .sm\:inline-flex {
+    display: inline-flex;
+  }
+}
+@media (width >= 48rem) {
+  .md\:flex {
+    display: flex;
+  }
+  .md\:ml-64 {
+    margin-left: 16rem;
+  }
+}
 @layer theme {
   :root, :host {
     --color-red-50: oklch(97.1% 0.013 17.38);
@@ -1714,9 +1727,10 @@ a[href]:active {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     overflow: hidden;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--line);
     border-radius: 0.875rem;
-    background: white;
+    background: var(--surface);
+    color: var(--ink);
     box-shadow: 0 1px 2px rgb(15 23 42 / 0.06);
   }
 
@@ -1739,7 +1753,7 @@ a[href]:active {
 
   .mobile-card-table > tbody > tr > td::before {
     content: attr(data-label);
-    color: #64748b;
+    color: var(--ink-secondary);
     font-size: 0.625rem;
     font-weight: 700;
     letter-spacing: 0.06em;
@@ -1754,7 +1768,7 @@ a[href]:active {
   .mobile-card-table > tbody > tr > td[data-label="Actions"],
   .mobile-card-table > tbody > tr > td[data-label="Manage"] {
     grid-column: 1 / -1;
-    border-top: 1px solid #f1f5f9;
+    border-top: 1px solid var(--line);
   }
 
   .mobile-card-table > tbody > tr > td[data-label="Actions"] > div,

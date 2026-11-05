@@ -119,6 +119,16 @@ export async function GET() {
     console.error("Workforce overtime notification query failed:", overtimeError.message);
     return NextResponse.json({ error: "Could not load workforce overtime notifications." }, { status: 500 });
   }
+  const { data: statusChanges, error: statusChangesError } = await supabase
+    .from("work_log_status_notifications")
+    .select("id, work_log_id, title, body, href, previous_status, new_status, is_read, created_at")
+    .eq("recipient_id", actor.id)
+    .order("created_at", { ascending: false })
+    .limit(30);
+  if (statusChangesError) {
+    console.error("Task status notification query failed:", statusChangesError.message);
+    return NextResponse.json({ error: "Could not load task status notifications." }, { status: 500 });
+  }
   const visibleTaskIds = [...new Set([
     ...(incoming ?? []).map((task) => task.id),
     ...activeAlertRecords.map((alert) => alert.task_id),
@@ -176,5 +186,6 @@ export async function GET() {
     overdue,
     shiftEvents: shiftEvents ?? [],
     overtime: overtime ?? [],
+    statusChanges: statusChanges ?? [],
   });
 }

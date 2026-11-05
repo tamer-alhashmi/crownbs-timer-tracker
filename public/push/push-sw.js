@@ -12,7 +12,7 @@ self.addEventListener("push", (event) => {
     ? payload.unreadCount
     : 1;
   const badgeUpdate = typeof navigator.setAppBadge === "function"
-    ? navigator.setAppBadge(unreadCount).catch((error) => {
+    ? Promise.resolve().then(() => navigator.setAppBadge(unreadCount)).catch((error) => {
       console.error("Unable to set the application badge:", error);
     })
     : Promise.resolve();

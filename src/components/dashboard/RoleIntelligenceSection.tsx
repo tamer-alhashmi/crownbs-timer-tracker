@@ -126,7 +126,7 @@ async function IntelligenceContent() {
                       <div>
                         <div className="flex items-center justify-between gap-2 text-xs">
                           <span className="font-semibold text-ink">{tenant.completedTasks} completed</span>
-                          <span className="text-ink-muted">{score}%</span>
+                          <span className="text-ink-muted">{tenant.efficiencyScore === null ? "Efficiency not tracked" : `${tenant.efficiencyScore}% efficiency`}</span>
                         </div>
                         <div role="progressbar" aria-label={`${tenant.name} relative 30-day work log consumption`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={score} className="mt-2 h-2 overflow-hidden rounded-full bg-surface-secondary">
                           <div className="h-full rounded-full bg-gradient-to-r from-sky-500 to-emerald-500 transition-all" style={{ width: `${score}%` }} />
@@ -144,7 +144,7 @@ async function IntelligenceContent() {
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3 sm:px-5">
               <div>
                 <h3 className="font-semibold text-ink">Ranked team performance</h3>
-                <p className="mt-0.5 text-xs text-ink-secondary">Team members ranked by completed work logs, then shifts, in the last 30 days.</p>
+                <p className="mt-0.5 text-xs text-ink-secondary">Efficiency compares timed work to a 2 rooms/hour target or the scheduled task duration, across the last 30 days.</p>
               </div>
               <span className="text-xs font-medium text-ink-muted">Top {data.performers.length}</span>
             </div>
@@ -158,8 +158,9 @@ async function IntelligenceContent() {
               <div className="divide-y divide-line">
                 {data.performers.map((performer, index) => {
                   const score = Math.round((performer.completedTasks / maximumActivity) * 100);
+                  const efficiencyProgress = Math.min(100, Math.max(0, performer.efficiencyScore ?? 0));
                   return (
-                    <article key={performer.id} className="grid gap-3 p-4 transition hover:bg-surface-secondary sm:grid-cols-[minmax(220px,1.2fr)_minmax(180px,1fr)_minmax(160px,.8fr)] sm:items-center sm:px-5">
+                    <article key={performer.id} className="grid gap-3 p-4 transition hover:bg-surface-secondary sm:grid-cols-[minmax(220px,1.2fr)_minmax(180px,1fr)_minmax(150px,.8fr)_minmax(135px,.7fr)] sm:items-center sm:px-5">
                       <div className="flex min-w-0 items-center gap-3">
                         <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-surface-secondary text-xs font-bold text-ink-secondary">{index + 1}</span>
                         <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-slate-900 text-xs font-bold text-white">{initials(performer.name)}</span>
@@ -176,6 +177,16 @@ async function IntelligenceContent() {
                         <div role="progressbar" aria-label={`${performer.name} relative completed task activity`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={score} className="mt-2 h-2 overflow-hidden rounded-full bg-surface-secondary">
                           <div className="h-full rounded-full bg-gradient-to-r from-sky-500 to-emerald-500 transition-all" style={{ width: `${score}%` }} />
                         </div>
+                      </div>
+                      <div>
+                        <div className="flex items-center justify-between gap-3 text-xs">
+                          <span className="font-semibold text-ink">Efficiency</span>
+                          <span className="text-ink-muted">{performer.efficiencyScore === null ? "Not tracked" : `${performer.efficiencyScore}%`}</span>
+                        </div>
+                        <div role="progressbar" aria-label={`${performer.name} efficiency score`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={efficiencyProgress} className="mt-2 h-2 overflow-hidden rounded-full bg-surface-secondary">
+                          <div className="h-full rounded-full bg-gradient-to-r from-sky-500 to-emerald-500 transition-all" style={{ width: `${efficiencyProgress}%` }} />
+                        </div>
+                        <p className="mt-1 text-[11px] text-ink-muted">{performer.efficiencyTaskCount ? `${performer.efficiencyTaskCount} scored tasks` : "No scored tasks"}</p>
                       </div>
                       <p className="text-xs font-medium text-ink-secondary sm:text-right">{timeAgo(performer.lastActiveAt)}</p>
                     </article>

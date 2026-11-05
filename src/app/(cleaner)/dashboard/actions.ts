@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getSessionUser, setSessionCookies } from "@/lib/auth";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
+import { notifyWorkLogStatusChange } from "@/lib/notifications/taskStatusNotifications";
 
 async function requireCleaner() {
   const user = await getSessionUser();
@@ -67,6 +68,11 @@ export async function startTask(data: { hotelId: string; serviceId: string; room
   const roomNumbers = selectedRooms.map((room) => room.room_name);
   const { data: task, error } = await selectionClient.from("work_logs").insert({ user_id: user.userId, shift_id: shift.id, hotel_id: data.hotelId, service_id: data.serviceId, start_time: new Date().toISOString(), status: "active", travel_time_included: true, room_ids: selectedRooms.map((room) => room.id), room_number: roomNumbers.join(", "), room_numbers: roomNumbers, rooms_completed: roomNumbers.length, service_name_snapshot: service.name, service_description_snapshot: service.description?.trim() || service.name, notes: data.notes?.trim() ?? "" }).select("id").single();
   if (error || !task) throw new Error(error?.message ?? "Unable to start task.");
+  try {
+    await notifyWorkLogStatusChange({ workLogId: task.id, actorId: user.userId, previousStatus: "new", newStatus: "active" });
+  } catch (notificationError) {
+    console.error("Task started, but task status notifications could not be recorded:", notificationError);
+  }
   revalidatePath("/dashboard");
   return task.id;
 }
@@ -75,11 +81,17 @@ export async function endTask(taskId: string, data: { roomIds?: string[]; notes?
   const user = await requireCleaner();
   if (!user.hotelId) throw new Error("Your account does not have an assigned property.");
   const supabase = createPrivilegedServerSupabaseClient();
-  const { data: task } = await supabase.from("work_logs").select("id, status, is_locked").eq("id", taskId).eq("user_id", user.userId).maybeSingle();
+  const { data: task, error: taskError } = await supabase.from("work_logs").select("id, status, is_locked").eq("id", taskId).eq("user_id", user.userId).maybeSingle();
+  if (taskError) throw new Error(taskError.message);
   if (!task || task.status !== "active") throw new Error("Active task was not found.");
   if (task.is_locked) throw new Error("Locked tasks cannot be edited.");
   const { error } = await supabase.from("work_logs").update({ end_time: new Date().toISOString(), status: "completed", notes: data.notes?.trim() ?? "", updated_at: new Date().toISOString() }).eq("id", taskId).eq("user_id", user.userId);
   if (error) throw new Error(error.message);
+  try {
+    await notifyWorkLogStatusChange({ workLogId: task.id, actorId: user.userId, previousStatus: task.status, newStatus: "completed" });
+  } catch (notificationError) {
+    console.error("Task completed, but task status notifications could not be recorded:", notificationError);
+  }
   revalidatePath("/dashboard");
 }
 

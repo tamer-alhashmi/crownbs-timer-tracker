@@ -13,18 +13,20 @@ export type PushNotificationInput = {
 
 async function getUnreadCount(userId: string) {
   const supabase = createPrivilegedServerSupabaseClient();
-  const [messages, shifts, overtime, assignments] = await Promise.all([
+  const [messages, shifts, overtime, statusChanges, assignments] = await Promise.all([
     supabase.from("messages").select("id", { count: "exact", head: true })
       .eq("receiver_id", userId).neq("sender_id", userId).eq("is_read", false),
     supabase.from("workforce_shift_notifications").select("id", { count: "exact", head: true })
       .eq("recipient_id", userId).eq("is_read", false),
     supabase.from("workforce_overtime_notifications").select("id", { count: "exact", head: true })
       .eq("recipient_id", userId).eq("is_read", false),
+    supabase.from("work_log_status_notifications").select("id", { count: "exact", head: true })
+      .eq("recipient_id", userId).eq("is_read", false),
     supabase.from("work_logs").select("id, assigned_by")
       .eq("assigned_to", userId).eq("status", "assigned")
       .or(`assigned_by.is.null,assigned_by.neq.${userId}`).limit(500),
   ]);
-  const failed = [messages, shifts, overtime, assignments].find((result) => result.error);
+  const failed = [messages, shifts, overtime, statusChanges, assignments].find((result) => result.error);
   if (failed?.error) throw new Error(`Unable to count unread notifications: ${failed.error.message}`);
   const assignmentIds = (assignments.data ?? []).map((task) => task.id);
   const { data: readAssignments, error: readAssignmentsError } = assignmentIds.length
@@ -55,7 +57,7 @@ async function getUnreadCount(userId: string) {
   const activeTaskIds = new Set((activeTasks ?? []).map((task) => task.id));
   const readTaskIds = new Set((readMarkers ?? []).map((marker) => marker.task_id));
   const unreadOverdue = taskIds.filter((taskId) => activeTaskIds.has(taskId) && !readTaskIds.has(taskId)).length;
-  return [messages.count, unreadAssignments, shifts.count, overtime.count, unreadOverdue]
+  return [messages.count, unreadAssignments, shifts.count, overtime.count, statusChanges.count, unreadOverdue]
     .reduce<number>((total, count) => total + (count ?? 0), 0);
 }
 

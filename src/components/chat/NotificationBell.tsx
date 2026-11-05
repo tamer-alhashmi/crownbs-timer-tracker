@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
-import { fetchTaskNotifications, fetchUnread, markOvertimeNotificationRead, markShiftEventNotificationRead, markTaskNotificationRead, type OverdueTaskNotice, type TaskNotice } from "./chatApi";
+import { fetchTaskNotifications, fetchUnread, markOvertimeNotificationRead, markShiftEventNotificationRead, markTaskNotificationRead, markTaskStatusNotificationRead, type OverdueTaskNotice, type TaskNotice } from "./chatApi";
 import { useChatStore } from "./chatStore";
 import { roleLabel } from "@/lib/chat/types";
 import { UserAvatar } from "@/components/shared/UserAvatar";
@@ -85,10 +85,12 @@ export function NotificationBell() {
   const unreadShiftEvents = shiftEvents.filter((event) => !event.is_read);
   const overtimeAlerts = taskQuery.data?.overtime ?? [];
   const unreadOvertimeAlerts = overtimeAlerts.filter((alert) => !alert.is_read);
+  const statusChanges = taskQuery.data?.statusChanges ?? [];
+  const unreadStatusChanges = statusChanges.filter((change) => !change.is_read);
   const unreadMessages = data?.messages.filter((message) =>
     message.sender_id !== data.currentUserId && !message.is_read
   ) ?? [];
-  const unreadCount = (data?.count ?? 0) + unreadAssignments.length + unreadOverdue.length + unreadShiftEvents.length + unreadOvertimeAlerts.length;
+  const unreadCount = (data?.count ?? 0) + unreadAssignments.length + unreadOverdue.length + unreadShiftEvents.length + unreadOvertimeAlerts.length + unreadStatusChanges.length;
 
   useEffect(() => {
     if (!data || !taskQuery.data) return;
@@ -190,6 +192,18 @@ export function NotificationBell() {
       setTaskError("");
     } catch (error) {
       const message = safeChatError(error, "Unable to mark this overtime alert as read.");
+      setTaskError(message);
+      showActionToast("error", message);
+    }
+  };
+
+  const markStatusChangeRead = async (notificationId: string) => {
+    try {
+      await markTaskStatusNotificationRead(notificationId);
+      await queryClient.invalidateQueries({ queryKey: ["tasks", "notifications"] });
+      setTaskError("");
+    } catch (error) {
+      const message = safeChatError(error, "Unable to mark this task update as read.");
       setTaskError(message);
       showActionToast("error", message);
     }
@@ -311,6 +325,24 @@ export function NotificationBell() {
                     <div className="mt-2 flex items-center justify-between gap-2">
                       <time className="text-[11px] text-ink-muted" dateTime={alert.created_at}>{relativeDispatchTime(alert.created_at)}</time>
                       {!alert.is_read && <button type="button" onClick={() => void markOvertimeRead(alert.id)} className="min-h-8 rounded-lg border border-line px-2.5 text-xs font-semibold text-ink-secondary hover:bg-surface">Mark read</button>}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+            {statusChanges.length > 0 && (
+              <div className="border-b border-line p-2">
+                <p className="px-2 py-1 text-xs font-bold uppercase tracking-wide text-ink-secondary">Task status updates</p>
+                {statusChanges.map((change) => (
+                  <article key={change.id} className={`mb-2 rounded-lg border p-3 ${change.is_read ? "border-line bg-surface" : "border-accent/30 bg-surface-secondary"}`}>
+                    <h3 className="text-sm font-bold text-ink">{change.title}</h3>
+                    <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-ink-secondary">{change.body}</p>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <time className="text-[11px] text-ink-muted" dateTime={change.created_at}>{relativeDispatchTime(change.created_at)}</time>
+                      <div className="flex items-center gap-2">
+                        {!change.is_read && <button type="button" onClick={() => void markStatusChangeRead(change.id)} className="min-h-8 rounded-lg border border-line px-2.5 text-xs font-semibold text-ink-secondary hover:bg-surface">Mark read</button>}
+                        <Link href={change.href} onClick={() => { if (!change.is_read) void markStatusChangeRead(change.id); setIsOpen(false); }} className="inline-flex min-h-8 items-center rounded-lg bg-accent px-2.5 text-xs font-semibold text-white hover:bg-accent-hover">View task</Link>
+                      </div>
                     </div>
                   </article>
                 ))}

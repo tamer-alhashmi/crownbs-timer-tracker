@@ -14,6 +14,7 @@ import { ShiftDock } from "@/components/dashboard/ShiftDock";
 import { ServiceCard } from "@/components/dashboard/ServiceCard";
 import type { BriefTask, CleanerBrief } from "@/lib/operationalBrief";
 import { calculateTaskCost, resolveBillingUnit, resolveServiceRate } from "@/lib/servicePricing";
+import { calculateWorkforceEfficiency } from "@/lib/workforceEfficiency";
 import { useWorkLogRealtimeRefresh } from "@/lib/useWorkLogRealtimeRefresh";
 import { showActionToast } from "@/components/ui/ActionToast";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -52,6 +53,7 @@ type WorkLog = {
   serviceDescription: string;
   serviceRate: number;
   serviceUnit: string;
+  dispatch_metadata: Record<string, unknown> | null;
 };
 type Props = {
   user: { fullName: string; email: string; hotelId: string | null; avatarUrl: string | null };
@@ -146,6 +148,17 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
   const requiresRooms = selectedService?.unit === "per_room" || /maintenance|cleaning\s*\(hourly\)/i.test(selectedService?.name ?? "");
   const requiresNotes = /maintenance|linen|delivery/i.test(selectedService?.name ?? "");
   const completedLogs = logs.filter((log) => log.status === "completed");
+  const efficiency = calculateWorkforceEfficiency(logs
+    .filter((log) => log.status === "completed")
+    .map((log) => ({
+      status: log.status,
+      start_time: log.start_time,
+      end_time: log.end_time,
+      rooms_completed: log.rooms_completed,
+      service_name_snapshot: log.serviceName,
+      service_unit: log.serviceUnit,
+      dispatch_metadata: log.dispatch_metadata,
+    })), 0);
   const filteredLogs = completedLogs.filter((log) => (!fromDate || log.task_date >= fromDate) && (!toDate || log.task_date <= toDate));
   const pageCount = Math.max(1, Math.ceil(filteredLogs.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
@@ -274,6 +287,15 @@ export default function CleanerDashboard({ user, hotels, services, rooms, shift,
     </section>
     <section id="history-panel" role="tabpanel" aria-labelledby="history-tab" hidden={activeTab !== "history"}>
     <section className="mt-5">
+      <div className="mb-4 rounded-2xl border border-line bg-surface p-4 text-ink shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-wide text-ink-secondary">Overall efficiency</p>
+        <p className="mt-1 text-2xl font-bold">{efficiency.score === null ? "Not enough data" : `${efficiency.score}%`}</p>
+        <p className="mt-1 text-xs text-ink-secondary">
+          {efficiency.scoredTasks
+            ? `Based on ${efficiency.scoredTasks} timed tasks; room work target is 2 rooms/hour.`
+            : "Room tasks need room counts; other tasks need a scheduled duration to be scored."}
+        </p>
+      </div>
       <div className="mb-3 flex items-center gap-2"><CalendarDays className="h-5 w-5 text-sky-700" /><h2 className="text-lg font-bold text-ink">Recent submissions</h2></div>
       <div className="mb-3 rounded-xl bg-surface p-3 shadow-sm ring-1 ring-line">
         <div className="grid grid-cols-2 gap-2">

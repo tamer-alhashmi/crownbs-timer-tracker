@@ -230,7 +230,7 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
           <Stat label="Pending" value={stats.pending} tone="amber" onClick={() => setTaskListStatus("assigned")} />
           <Stat label="Active" value={stats.active} tone="blue" onClick={() => setTaskListStatus("active")} />
           <Stat label="Completed today" value={stats.completedToday} tone="emerald" onClick={() => setTaskListStatus("completed")} />
-          <button type="button" onClick={() => { setNotice(""); setIsOpen(true); }} disabled={!hotels.length} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-ink px-5 text-sm font-bold text-white shadow-sm transition hover:bg-ink disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="button" onClick={() => { setNotice(""); setIsOpen(true); }} disabled={!hotels.length} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-accent px-5 text-sm font-bold text-white shadow-sm transition hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:border disabled:border-line disabled:bg-surface-secondary disabled:text-ink-muted disabled:shadow-none">
             <Plus className="h-4 w-4" /> Assign Task
           </button>
         </div>
@@ -318,7 +318,7 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
               {notice && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{notice}</p>}
               <div className="flex flex-col-reverse gap-2 border-t border-line pt-4 sm:flex-row sm:justify-end">
                 <button type="button" onClick={() => setIsOpen(false)} className="min-h-11 rounded-xl border border-line px-4 text-sm font-semibold text-ink-secondary">Cancel</button>
-                <button type="submit" disabled={isPending} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 text-sm font-bold text-white hover:bg-emerald-800 disabled:opacity-50">{isPending ? <><Loader2 className="h-4 w-4 animate-spin" /> Assigning…</> : <><ClipboardCheck className="h-4 w-4" /> Assign task</>}</button>
+                <button type="submit" disabled={isPending} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-accent px-5 text-sm font-bold text-white hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:border disabled:border-line disabled:bg-surface-secondary disabled:text-ink-muted">{isPending ? <><Loader2 className="h-4 w-4 animate-spin" /> Assigning…</> : <><ClipboardCheck className="h-4 w-4" /> Assign task</>}</button>
               </div>
             </form>
           </section>

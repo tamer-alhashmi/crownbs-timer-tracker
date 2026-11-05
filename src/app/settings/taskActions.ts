@@ -5,6 +5,7 @@ import { getSessionUser } from "@/lib/auth";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { isHousekeepingAdmin, isPlatformAdmin, normalizeUserRole, type UserRole } from "@/lib/roles";
 import { sendTaskAssignmentPush } from "@/lib/push";
+import { notifyWorkLogStatusChange } from "@/lib/notifications/taskStatusNotifications";
 
 type TaskResult = { success: true; taskId?: string } | { success: false; error: string };
 type DispatchInput = {
@@ -688,6 +689,11 @@ export async function startAssignedTask(taskId: string): Promise<TaskResult> {
       .maybeSingle();
     if (updateError) throw new Error(updateError.message);
     if (!started) throw new Error("This task was already started or is no longer assigned to you.");
+    try {
+      await notifyWorkLogStatusChange({ workLogId: started.id, actorId: actor.id, previousStatus: "assigned", newStatus: "active" });
+    } catch (notificationError) {
+      console.error("Assigned task started, but task status notifications could not be recorded:", notificationError);
+    }
     revalidatePath("/dashboard");
     revalidatePath("/settings");
     return { success: true, taskId: started.id };

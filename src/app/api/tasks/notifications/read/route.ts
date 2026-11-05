@@ -19,6 +19,7 @@ export async function PATCH(request: Request) {
       ("taskId" in body && typeof body.taskId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.taskId))
       || ("shiftEventNotificationId" in body && typeof body.shiftEventNotificationId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.shiftEventNotificationId))
       || ("overtimeNotificationId" in body && typeof body.overtimeNotificationId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.overtimeNotificationId))
+      || ("statusNotificationId" in body && typeof body.statusNotificationId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.statusNotificationId))
     )
   ) {
     return NextResponse.json({ error: "Provide a valid notification." }, { status: 400 });
@@ -65,6 +66,22 @@ export async function PATCH(request: Request) {
     if (overtimeReadError) {
       console.error("Overtime notification read-state update failed:", overtimeReadError.message);
       return NextResponse.json({ error: "Could not update this overtime notification." }, { status: 500 });
+    }
+
+    if ("statusNotificationId" in body && typeof body.statusNotificationId === "string") {
+      const { data: updated, error: statusReadError } = await supabase
+        .from("work_log_status_notifications")
+        .update({ is_read: true })
+        .eq("id", body.statusNotificationId)
+        .eq("recipient_id", actor.id)
+        .select("id")
+        .maybeSingle();
+      if (statusReadError) {
+        console.error("Task status notification read-state update failed:", statusReadError.message);
+        return NextResponse.json({ error: "Could not update this task notification." }, { status: 500 });
+      }
+      if (!updated) return NextResponse.json({ error: "Task status notification not found." }, { status: 404 });
+      return NextResponse.json({ success: true });
     }
     if (!updated) return NextResponse.json({ error: "Overtime notification not found." }, { status: 404 });
     return NextResponse.json({ success: true });

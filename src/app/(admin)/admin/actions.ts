@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getSessionUser } from "@/lib/auth";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
+import { notifyWorkLogStatusChange } from "@/lib/notifications/taskStatusNotifications";
 import { getManagementOperationalBrief } from "@/lib/operationalBrief";
 import { requireFeatureAccess } from "@/lib/featureAccess";
 import { isPlatformAdmin } from "@/lib/roles";
@@ -759,6 +760,13 @@ export async function updateWorkLog(logId: string, changes: WorkLogUpdate) {
   if (error || !updated) throw new Error(error?.message ?? "Unable to update work log.");
   const { error: auditError } = await supabase.from("work_log_audit").insert({ work_log_id: logId, actor_id: user.userId, action: "edited", previous_values: log, new_values: updated });
   if (auditError) throw new Error(`Work log was updated, but audit history could not be saved: ${auditError.message}`);
+  if (changes.status !== undefined && changes.status !== log.status) {
+    try {
+      await notifyWorkLogStatusChange({ workLogId: logId, actorId: user.userId, previousStatus: log.status, newStatus: changes.status });
+    } catch (notificationError) {
+      console.error("Work log status changed, but task status notifications could not be recorded:", notificationError);
+    }
+  }
   revalidatePath("/dashboard"); revalidatePath("/admin"); revalidatePath("/owner"); revalidatePath("/manager");
 }
 
@@ -810,6 +818,11 @@ export async function approveWorkLog(logId: string, role: ApprovalRole) {
     });
     if (finalizeAuditError) throw new Error(`Task was finalized, but audit history could not be saved: ${finalizeAuditError.message}`);
     approvalRecord = finalized;
+    try {
+      await notifyWorkLogStatusChange({ workLogId: logId, actorId: user.userId, previousStatus: log.status, newStatus: "completed" });
+    } catch (notificationError) {
+      console.error("Work log finalized, but task status notifications could not be recorded:", notificationError);
+    }
   }
   if (assignee.role === "manager" && !approvalRecord.manager_approved) {
     const approvedAt = new Date().toISOString();

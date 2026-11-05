@@ -827,7 +827,15 @@ function HistoryTab({ details, preset, filter, page, pageCount, isExporting, onP
       <MetricCard label="Work logs" value={details.metrics.taskCount.toLocaleString()} detail={`${details.metrics.completedTasks.toLocaleString()} completed in selected date range`} icon={CheckCircle2} tone="sky" />
       <MetricCard label="Clean hours" value={`${details.metrics.completedHours.toFixed(1)} h`} detail="Completed logs with recorded clock-out" icon={Clock3} tone="violet" />
       <MetricCard label="Labor cost" value={money(details.metrics.laborCost)} detail="Calculated from stored service rates and overrides" icon={CreditCard} tone="emerald" />
-      <MetricCard label="Efficiency score" value="Not tracked" detail="No efficiency-score column exists in the current schema" icon={ShieldAlert} tone="amber" />
+      <MetricCard
+        label="Efficiency score"
+        value={details.metrics.efficiencyScore === null ? "Not enough data" : `${details.metrics.efficiencyScore}%`}
+        detail={details.metrics.efficiencyTaskCount
+          ? `Weighted across ${details.metrics.efficiencyTaskCount} timed tasks using a 2 rooms/hour target or each task's scheduled duration.`
+          : "Room tasks need room counts; other tasks need a scheduled duration to be scored."}
+        icon={ShieldAlert}
+        tone="amber"
+      />
     </div>
     <section className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
       <div className="flex flex-col gap-4 border-b border-line pb-4 xl:flex-row xl:items-end xl:justify-between">

@@ -5,6 +5,7 @@ import type { ServicePricing } from "@/lib/servicePricing";
 import { getSessionUser } from "@/lib/auth";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { getCurrentBillingCycle, getOwnerBillingUsage, RATE_PER_COMPLETED_TASK } from "@/lib/ownerBilling";
+import { calculateWorkforceEfficiency, type WorkforceEfficiencyLog } from "@/lib/workforceEfficiency";
 
 const LOGS_PAGE_SIZE = 15;
 const EXPORT_PAGE_SIZE = 500;
@@ -118,6 +119,8 @@ export type TenantDetails = {
     taskCount: number;
     completedTasks: number;
     completedHours: number;
+    efficiencyScore: number | null;
+    efficiencyTaskCount: number;
     laborCost: number;
     currentCycleAmountDue: number;
     currentCycleSettledAmount: number;
@@ -384,6 +387,42 @@ export async function getTenantDetails(
     throw new Error(`Unable to load tenant history or financials: ${logsError?.message ?? summaryError?.message ?? currentSettlementResult.error?.message}`);
   }
   const summaryRow = Array.isArray(summary) ? summary[0] : summary;
+  const efficiencyLogs: WorkforceEfficiencyLog[] = [];
+  if (hotelIds.length) {
+    for (let from = 0; ; from += 500) {
+      let efficiencyQuery = supabase.from("work_logs")
+        .select("status, start_time, end_time, rooms_completed, service_name_snapshot, dispatch_metadata, services_config(unit)")
+        .in("hotel_id", hotelIds)
+        .is("deleted_at", null)
+        .is("cancelled_at", null);
+      if (filter.from) {
+        efficiencyQuery = efficiencyQuery.or(`task_date.gte.${filter.from},and(task_date.is.null,start_time.gte.${filter.from}T00:00:00.000Z)`);
+      }
+      if (filter.to) {
+        efficiencyQuery = efficiencyQuery.or(`task_date.lte.${filter.to},and(task_date.is.null,start_time.lt.${endOfDateFilter(filter.to)})`);
+      }
+      const { data: page, error: efficiencyError } = await efficiencyQuery
+        .order("start_time", { ascending: false })
+        .order("id")
+        .range(from, from + 499);
+      if (efficiencyError) throw new Error(`Unable to calculate tenant efficiency: ${efficiencyError.message}`);
+      const rows = page ?? [];
+      efficiencyLogs.push(...rows.map((row) => {
+        const service = Array.isArray(row.services_config) ? row.services_config[0] : row.services_config;
+        return {
+          status: row.status,
+          start_time: row.start_time,
+          end_time: row.end_time,
+          rooms_completed: row.rooms_completed,
+          service_name_snapshot: row.service_name_snapshot,
+          service_unit: service?.unit ?? null,
+          dispatch_metadata: row.dispatch_metadata,
+        };
+      }));
+      if (rows.length < 500) break;
+    }
+  }
+  const efficiency = calculateWorkforceEfficiency(efficiencyLogs);
 
   return {
     owner: {
@@ -452,6 +491,8 @@ export async function getTenantDetails(
       taskCount: Number(summaryRow?.task_count ?? 0),
       completedTasks: Number(summaryRow?.completed_tasks ?? 0),
       completedHours: Number(summaryRow?.completed_hours ?? 0),
+      efficiencyScore: efficiency.score,
+      efficiencyTaskCount: efficiency.scoredTasks,
       laborCost: Number(summaryRow?.labor_cost ?? 0),
       currentCycleAmountDue: usage.amountDue,
       currentCycleSettledAmount: Number(currentSettlementResult.data?.settled_amount ?? 0),

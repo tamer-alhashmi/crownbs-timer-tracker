@@ -110,12 +110,24 @@ export type OvertimeNotice = {
   created_at: string;
 };
 
+export type TaskStatusNotice = {
+  id: string;
+  work_log_id: string;
+  title: string;
+  body: string;
+  href: string;
+  previous_status: string;
+  new_status: string;
+  is_read: boolean;
+  created_at: string;
+};
+
 export const fetchTaskNotifications = () =>
   request<{ incoming: TaskNotice[]; outgoing: TaskNotice[]; overdue: OverdueTaskNotice[] }>(
     "/api/tasks/escalations",
     { method: "POST" }
   ).then(() =>
-    request<{ incoming: TaskNotice[]; outgoing: TaskNotice[]; overdue: OverdueTaskNotice[]; shiftEvents: ShiftEventNotice[]; overtime: OvertimeNotice[] }>("/api/tasks/notifications")
+    request<{ incoming: TaskNotice[]; outgoing: TaskNotice[]; overdue: OverdueTaskNotice[]; shiftEvents: ShiftEventNotice[]; overtime: OvertimeNotice[]; statusChanges: TaskStatusNotice[] }>("/api/tasks/notifications")
   );
 
 export const markTaskNotificationRead = (taskId: string) =>
@@ -134,6 +146,12 @@ export const markOvertimeNotificationRead = (overtimeNotificationId: string) =>
   request<{ success: true }>("/api/tasks/notifications/read", {
     method: "PATCH",
     body: JSON.stringify({ overtimeNotificationId }),
+  });
+
+export const markTaskStatusNotificationRead = (statusNotificationId: string) =>
+  request<{ success: true }>("/api/tasks/notifications/read", {
+    method: "PATCH",
+    body: JSON.stringify({ statusNotificationId }),
   });
 
 export const fetchConversation = (contactId: string, channelId?: string) =>

@@ -153,6 +153,7 @@ export function PushNotificationSettings({ publicKey }: Props) {
           <div>
             <h3 className="font-bold text-ink">Instant task alerts</h3>
             <p className="mt-1 text-sm leading-5 text-ink-secondary">Receive task assignments on this device, including lock-screen alerts where supported.</p>
+            <p className="mt-1 text-xs leading-5 text-ink-muted">Home-screen icon badges are controlled by your device and require an installed PWA on a browser that supports the Badging API. Push alerts can work even when icon badges are unavailable.</p>
           </div>
         </div>
         <button

@@ -14,9 +14,10 @@ export async function updateAppBadge(count: number) {
   if (!badgeNavigator) return;
   try {
     if (count > 0) {
-      await badgeNavigator.setAppBadge?.(Math.floor(count));
+      await badgeNavigator.setAppBadge?.(Math.max(1, Math.floor(count)));
     } else {
-      await badgeNavigator.clearAppBadge?.();
+      if (badgeNavigator.clearAppBadge) await badgeNavigator.clearAppBadge();
+      else await badgeNavigator.setAppBadge?.(0);
     }
   } catch (error) {
     console.error("Unable to update the application badge:", error);
@@ -27,7 +28,8 @@ export async function clearAppBadge() {
   const badgeNavigator = getBadgeNavigator();
   if (!badgeNavigator) return;
   try {
-    await badgeNavigator.clearAppBadge?.();
+    if (badgeNavigator.clearAppBadge) await badgeNavigator.clearAppBadge();
+    else await badgeNavigator.setAppBadge?.(0);
   } catch (error) {
     console.error("Unable to clear the application badge:", error);
   }

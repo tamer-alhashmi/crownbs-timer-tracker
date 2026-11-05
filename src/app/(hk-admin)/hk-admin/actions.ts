@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getSessionUser } from "@/lib/auth";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
+import { notifyWorkLogStatusChange } from "@/lib/notifications/taskStatusNotifications";
 import { isHousekeepingAdmin, normalizeUserRole, type UserRole } from "@/lib/roles";
 import type { ActiveAssignedTaskDetails } from "@/components/dashboard/ActiveAssignedTaskCard";
 import { fetchManagementAuditPage, type ManagementAuditPage, type ManagementAuditPageRequest } from "@/lib/managementAudit";
@@ -373,5 +374,15 @@ export async function interveneHKActiveTask(taskId: string, action: "force_compl
     p_end_time: null,
   });
   if (error) throw new Error(`Unable to record task intervention: ${error.message}`);
+  try {
+    await notifyWorkLogStatusChange({
+      workLogId: task.id,
+      actorId: actor.id,
+      previousStatus: "active",
+      newStatus: action === "force_complete_task" ? "completed" : "cancelled",
+    });
+  } catch (notificationError) {
+    console.error("Task intervention recorded, but task status notifications could not be recorded:", notificationError);
+  }
   revalidatePath("/hk-admin");
 }
