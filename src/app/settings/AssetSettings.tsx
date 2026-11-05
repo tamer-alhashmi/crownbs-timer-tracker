@@ -193,7 +193,7 @@ export function PropertySettings({ properties, managers }: { properties: Propert
     <section id="properties-setup" className="scroll-mt-24 space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-accent">Property setup</p><h2 className="mt-1 text-xl font-bold text-ink">Properties & Hotels</h2><p className="mt-1 text-sm text-ink-secondary">Keep property details, staffing, and service rates together.</p></div>
-        <button type="button" onClick={beginAdd} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-accent px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-accent-hover"><Plus className="h-4 w-4" /> Add property</button>
+        <button type="button" onClick={beginAdd} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-accent-hover"><Plus className="h-4 w-4" /> Add property</button>
       </div>
       <label className="relative block w-full md:max-w-md">
         <span className="sr-only">Search properties by name, ID, or manager</span>
@@ -243,17 +243,17 @@ export function PropertySettings({ properties, managers }: { properties: Propert
       )}
       {message && !adding && !editing && <p role="status" className="rounded-xl border border-line bg-surface px-4 py-3 text-sm text-ink-secondary">{message}</p>}
 
-      <ul id="room-units" className="scroll-mt-24 space-y-4">
+      <ul id="room-units" className="scroll-mt-24 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
         {visibleProperties.length ? visibleProperties.map((property) => (
           <li key={property.id} className="overflow-hidden rounded-2xl border border-line bg-surface shadow-sm">
-            <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-4 p-5">
               <div className="flex min-w-0 items-start gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent/10 text-accent"><Building2 className="h-5 w-5" /></span><div className="min-w-0"><h3 className="font-bold text-ink">{property.name}{!property.isActive && <span className="ml-2 rounded-full bg-surface-secondary px-2 py-1 text-xs font-semibold text-ink-secondary">Suspended</span>}</h3><p className="mt-1 text-sm text-ink-secondary">{property.location}</p>{(property.latitude === null || property.longitude === null) && <p role="status" className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300"><MapPin className="h-3.5 w-3.5" />GPS Coordinates Missing - Set Map Location</p>}<p className="mt-1 text-xs text-ink-secondary">{property.roomCount} rooms · {property.floorCount} floors/sections · {property.managerName ?? "No manager assigned"}</p><p className="mt-1 truncate font-mono text-[10px] text-ink-muted" title={property.id}>Property ID: {property.id}</p></div></div>
-              <div className="flex shrink-0 gap-2"><button type="button" onClick={() => beginEdit(property)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-line px-3 text-sm font-semibold"><Pencil className="h-4 w-4" /> Edit</button><button type="button" onClick={() => archive(property)} disabled={isPending} className="min-h-10 rounded-lg border border-amber-200 px-3 text-sm font-semibold text-amber-800 disabled:opacity-50">Archive</button></div>
+              <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-3"><button type="button" onClick={() => beginEdit(property)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-line px-3 text-sm font-semibold"><Pencil className="h-4 w-4" /> Edit</button><button type="button" onClick={() => archive(property)} disabled={isPending} className="min-h-10 rounded-lg border border-amber-200 px-3 text-sm font-semibold text-amber-800 disabled:opacity-50">Archive</button></div>
             </div>
             <PropertyRoomManager property={property} />
             <PropertyServiceCatalog property={property} anchorId={property === visibleProperties[0] ? "service-catalog" : undefined} />
           </li>
-        )) : <li className="rounded-2xl border border-dashed border-line bg-surface px-5 py-10 text-center text-sm text-ink-secondary">{properties.length ? "No properties match your search." : "No properties have been created yet. Add a property to configure its services and rates."}</li>}
+        )) : <li className="rounded-2xl border border-dashed border-line bg-surface px-5 py-10 text-center text-sm text-ink-secondary md:col-span-2 lg:col-span-3">{properties.length ? "No properties match your search." : "No properties have been created yet. Add a property to configure its services and rates."}</li>}
       </ul>
       {filteredProperties.length > 0 && <div className="flex flex-col gap-3 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-ink-secondary">Showing {(currentPage - 1) * PROPERTY_PAGE_SIZE + 1}-{Math.min(currentPage * PROPERTY_PAGE_SIZE, filteredProperties.length)} of {filteredProperties.length} properties</p>
@@ -457,7 +457,7 @@ function PropertyRoomManager({ property }: { property: Property }) {
       </summary>
       <div className="space-y-4 border-t border-line bg-surface-secondary/70 p-4 sm:p-5">
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={startCreate} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-accent px-3 text-sm font-medium text-white shadow-sm transition-colors hover:bg-accent-hover"><Plus className="h-4 w-4" /> Add room / unit</button>
+          <button type="button" onClick={startCreate} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-accent-hover"><Plus className="h-4 w-4" /> Add room / unit</button>
           <button type="button" onClick={() => void refreshRooms()} disabled={loading} className="min-h-10 rounded-lg border border-line bg-surface px-3 text-sm font-semibold text-ink-secondary">{loading ? "Refreshing…" : "Refresh rooms"}</button>
         </div>
         {showForm && <RoomEditor key={editing?.id ?? "new-room"} initial={editing ? {

@@ -265,7 +265,7 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
                     <Field label="Floor / section" error={errors.floorSection?.message}><input {...form.register("floorSection")} className={fieldClass} placeholder="e.g. Floor 2, east wing" /></Field>
                     <div>
                       <p className="mb-2 text-sm font-medium text-ink">Rooms</p>
-                      <div className="max-h-32 overflow-y-auto rounded-xl border border-line bg-surface p-2">
+                      <div className="max-h-32 overflow-y-auto rounded-xl border border-line bg-surface-elevated p-2">
                         {propertyRooms.length ? propertyRooms.map((room) => <label key={room.id} className="flex min-h-9 items-center gap-2 px-2 text-sm text-ink"><input type="checkbox" value={room.id} {...form.register("roomIds")} className="h-4 w-4 rounded border-line text-accent focus:ring-accent" /><span>{room.room_name}{room.category ? ` · ${room.category}` : ""}{room.floor_section ? <span className="ml-1 text-xs text-ink-secondary">({room.floor_section})</span> : ""}</span></label>) : <p className="px-2 py-2 text-sm text-ink-secondary">No rooms are configured for this property.</p>}
                       </div>
                       {errors.roomIds?.message && <p role="alert" className="mt-1 text-xs text-rose-700">{errors.roomIds.message}</p>}
@@ -336,7 +336,7 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
 }
 
 function Field({ label, error, children }: { label: string; error?: string; children: ReactNode }) {
-  return <label className="block text-sm font-medium text-ink-secondary">{label}{children}<span className="sr-only">{error}</span>{error && <span role="alert" className="mt-1 block text-xs text-rose-700">{error}</span>}</label>;
+  return <label className="block text-sm font-medium text-ink">{label}{children}<span className="sr-only">{error}</span>{error && <span role="alert" className="mt-1 block text-xs text-rose-700">{error}</span>}</label>;
 }
 
 function Stat({ label, value, tone, onClick }: { label: string; value: number; tone: "amber" | "blue" | "emerald"; onClick: () => void }) {
