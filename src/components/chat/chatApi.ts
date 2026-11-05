@@ -90,18 +90,34 @@ export type OverdueTaskNotice = {
   href: string;
 };
 
+export type ShiftEventNotice = {
+  id: string;
+  shift_event_id: string;
+  severity: "info" | "high";
+  title: string;
+  body: string;
+  is_read: boolean;
+  created_at: string;
+};
+
 export const fetchTaskNotifications = () =>
   request<{ incoming: TaskNotice[]; outgoing: TaskNotice[]; overdue: OverdueTaskNotice[] }>(
     "/api/tasks/escalations",
     { method: "POST" }
   ).then(() =>
-    request<{ incoming: TaskNotice[]; outgoing: TaskNotice[]; overdue: OverdueTaskNotice[] }>("/api/tasks/notifications")
+    request<{ incoming: TaskNotice[]; outgoing: TaskNotice[]; overdue: OverdueTaskNotice[]; shiftEvents: ShiftEventNotice[] }>("/api/tasks/notifications")
   );
 
 export const markTaskNotificationRead = (taskId: string) =>
   request<{ success: true }>("/api/tasks/notifications/read", {
     method: "PATCH",
     body: JSON.stringify({ taskId }),
+  });
+
+export const markShiftEventNotificationRead = (shiftEventNotificationId: string) =>
+  request<{ success: true }>("/api/tasks/notifications/read", {
+    method: "PATCH",
+    body: JSON.stringify({ shiftEventNotificationId }),
   });
 
 export const fetchConversation = (contactId: string, channelId?: string) =>

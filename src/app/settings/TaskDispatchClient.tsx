@@ -70,10 +70,10 @@ const MAX_ATTACHMENT_SIZE = 4.5 * 1024 * 1024;
 const IMAGE_TOO_LARGE_MESSAGE = "The selected image exceeds 4.5MB. Please choose a smaller photo or compress it before attaching.";
 const IMAGE_TOO_LARGE_NOTICE = `Image Too Large: ${IMAGE_TOO_LARGE_MESSAGE}`;
 const priorities = [
-  { value: "low", label: "Low", classes: "border-line bg-surface-secondary text-ink-secondary" },
-  { value: "medium", label: "Medium", classes: "border-accent/30 bg-accent/10 text-accent" },
-  { value: "high", label: "High", classes: "border-amber-200 bg-amber-50 text-amber-900" },
-  { value: "urgent", label: "Urgent / Critical", classes: "border-red-200 bg-red-50 text-red-800" },
+  { value: "low", label: "Low", classes: "border border-line bg-surface-secondary text-ink-muted" },
+  { value: "medium", label: "Medium", classes: "border border-blue-500/30 bg-blue-500/10 text-blue-400" },
+  { value: "high", label: "High", classes: "border border-amber-500/30 bg-amber-500/10 text-amber-400" },
+  { value: "urgent", label: "Urgent / Critical", classes: "border border-rose-500/30 bg-rose-500/10 font-semibold text-rose-400" },
 ] as const;
 
 export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks, stats }: Props) {
@@ -259,32 +259,32 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
               </fieldset>
 
               {perRoom && (
-                <section className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4">
+                <section className="rounded-2xl border border-line bg-surface-elevated p-4 text-ink">
                   <h3 className="text-sm font-bold text-ink">Room assignment</h3>
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <Field label="Floor / section" error={errors.floorSection?.message}><input {...form.register("floorSection")} className={fieldClass} placeholder="e.g. Floor 2, east wing" /></Field>
                     <div>
-                      <p className="mb-2 text-sm font-medium text-ink-secondary">Rooms</p>
+                      <p className="mb-2 text-sm font-medium text-ink">Rooms</p>
                       <div className="max-h-32 overflow-y-auto rounded-xl border border-line bg-surface p-2">
-                        {propertyRooms.length ? propertyRooms.map((room) => <label key={room.id} className="flex min-h-9 items-center gap-2 px-2 text-sm text-ink-secondary"><input type="checkbox" value={room.id} {...form.register("roomIds")} /><span>{room.room_name}{room.category ? ` · ${room.category}` : ""}{room.floor_section ? <span className="ml-1 text-xs text-ink-secondary">({room.floor_section})</span> : ""}</span></label>) : <p className="px-2 py-2 text-sm text-ink-secondary">No rooms are configured for this property.</p>}
+                        {propertyRooms.length ? propertyRooms.map((room) => <label key={room.id} className="flex min-h-9 items-center gap-2 px-2 text-sm text-ink"><input type="checkbox" value={room.id} {...form.register("roomIds")} className="h-4 w-4 rounded border-line text-accent focus:ring-accent" /><span>{room.room_name}{room.category ? ` · ${room.category}` : ""}{room.floor_section ? <span className="ml-1 text-xs text-ink-secondary">({room.floor_section})</span> : ""}</span></label>) : <p className="px-2 py-2 text-sm text-ink-secondary">No rooms are configured for this property.</p>}
                       </div>
                       {errors.roomIds?.message && <p role="alert" className="mt-1 text-xs text-rose-700">{errors.roomIds.message}</p>}
                     </div>
                   </div>
-                  <fieldset className="mt-3"><legend className="mb-2 text-sm font-medium text-ink-secondary">Linen checklist</legend><div className="flex flex-wrap gap-3">{(["sheets", "towels", "robes"] as const).map((item) => <label key={item} className="inline-flex items-center gap-2 text-sm capitalize text-ink-secondary"><input type="checkbox" value={item} {...form.register("linenChecklist")} />{item}</label>)}</div></fieldset>
+                  <fieldset className="mt-3"><legend className="mb-2 text-sm font-medium text-ink">Linen checklist</legend><div className="flex flex-wrap gap-3">{(["sheets", "towels", "robes"] as const).map((item) => <label key={item} className="inline-flex items-center gap-2 text-sm capitalize text-ink"><input type="checkbox" value={item} {...form.register("linenChecklist")} className="h-4 w-4 rounded border-line text-accent focus:ring-accent" />{item}</label>)}</div></fieldset>
                 </section>
               )}
 
               {hourly && <div className="rounded-2xl border border-accent/20 bg-accent/5 p-4"><Field label="Estimated duration / target shift hours" error={errors.durationHours?.message}><input {...form.register("durationHours")} type="number" min="0.25" max="168" step="0.25" className={fieldClass} placeholder="e.g. 3.5 hours" /></Field></div>}
 
               {maintenance && (
-                <section className="rounded-2xl border border-amber-100 bg-amber-50/50 p-4">
+                <section className="rounded-2xl border border-line bg-surface-elevated p-4 text-ink">
                   <h3 className="text-sm font-bold text-ink">Issue details</h3>
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <Field label="Issue description" error={errors.issueDescription?.message}><textarea {...form.register("issueDescription")} className={`${fieldClass} min-h-20`} placeholder="Describe the issue or repair needed" /></Field>
                     <div className="space-y-3">
                       <Field label="Fixture / asset ID" error={errors.assetId?.message}><input {...form.register("assetId")} className={fieldClass} placeholder="Optional asset reference" /></Field>
-                      <label className="block text-sm font-medium text-ink-secondary">Photo attachment <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => {
+                      <label className="block text-sm font-medium text-ink">Photo attachment <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => {
                         const file = event.target.files?.[0] ?? null;
                         if (file && file.size > MAX_ATTACHMENT_SIZE) {
                           setPhotoError(IMAGE_TOO_LARGE_MESSAGE);

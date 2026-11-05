@@ -11,6 +11,7 @@ export type HousekeepingStatus = "dirty" | "in_progress" | "inspect_ready" | "cl
 
 export type HousekeepingDashboardData = {
   userName: string;
+  attendance: { activeShifts: number; compliantClockIns: number; breachAttempts: number; compliancePercent: number | null };
   activeTask: ActiveAssignedTaskDetails | null;
   hotels: {
     id: string;
@@ -116,7 +117,7 @@ function normalizeHousekeepingStatus(value: unknown): HousekeepingStatus {
 export async function getHKAdminDashboardData(): Promise<HousekeepingDashboardData> {
   const { actor, supabase, hotelIds } = await getHKAdminContext();
   if (!hotelIds.length) {
-    return { userName: actor.full_name ?? "Housekeeping Admin", activeTask: null, hotels: [], cleaners: [], shifts: [], logs: [], evidence: [] };
+    return { userName: actor.full_name ?? "Housekeeping Admin", attendance: { activeShifts: 0, compliantClockIns: 0, breachAttempts: 0, compliancePercent: null }, activeTask: null, hotels: [], cleaners: [], shifts: [], logs: [], evidence: [] };
   }
 
   const [
@@ -128,6 +129,7 @@ export async function getHKAdminDashboardData(): Promise<HousekeepingDashboardDa
     { data: activeTasks, error: tasksError },
     { data: ownActiveTask, error: ownTaskError },
     { data: logs, error: logsError },
+    { data: attendanceData, error: attendanceError },
   ] = await Promise.all([
     supabase.from("hotels").select("id, name, latitude, longitude, floors_sections").in("id", hotelIds).eq("is_active", true).is("archived_at", null).order("name"),
     supabase.from("rooms").select("id, hotel_id, room_name, category, floor_section, availability_status, housekeeping_status, inspection_notes").in("hotel_id", hotelIds).eq("status", "active").order("floor_section").order("room_name"),
@@ -137,6 +139,7 @@ export async function getHKAdminDashboardData(): Promise<HousekeepingDashboardDa
     supabase.from("work_logs").select("id, user_id, hotel_id, service_name_snapshot, room_number, room_numbers, start_time").in("hotel_id", hotelIds).eq("status", "active").is("end_time", null).is("deleted_at", null).is("cancelled_at", null),
     supabase.from("work_logs").select("id, hotel_id, service_name_snapshot, room_number, room_numbers, room_ids, start_time").eq("user_id", actor.id).in("hotel_id", hotelIds).eq("status", "active").is("end_time", null).is("deleted_at", null).is("cancelled_at", null).order("start_time", { ascending: false }).limit(1).maybeSingle(),
     supabase.from("work_logs").select("id, user_id, hotel_id, service_name_snapshot, room_number, room_numbers, start_time, end_time, task_date, notes").in("hotel_id", hotelIds).eq("status", "completed").is("deleted_at", null).is("cancelled_at", null).order("start_time", { ascending: false }).limit(100),
+    supabase.rpc("get_workforce_attendance_summary", { p_property_ids: hotelIds }),
   ]);
 
   if (hotelsError) throw new Error(`Unable to load assigned properties: ${hotelsError.message}`);
@@ -147,6 +150,7 @@ export async function getHKAdminDashboardData(): Promise<HousekeepingDashboardDa
   if (tasksError) throw new Error(`Unable to load active tasks: ${tasksError.message}`);
   if (ownTaskError) throw new Error(`Unable to load your active task: ${ownTaskError.message}`);
   if (logsError) throw new Error(`Unable to load work history: ${logsError.message}`);
+  if (attendanceError) throw new Error(`Unable to load attendance summary: ${attendanceError.message}`);
 
   const activeHotels = hotels ?? [];
   const activeHotelIds = new Set(activeHotels.map((hotel) => hotel.id));
@@ -207,6 +211,7 @@ export async function getHKAdminDashboardData(): Promise<HousekeepingDashboardDa
 
   return {
     userName: actor.full_name ?? "Housekeeping Admin",
+    attendance: parseHousekeepingAttendanceSummary(attendanceData),
     activeTask: activeOwnTask && ownTaskHotel ? {
       id: activeOwnTask.id,
       name: activeOwnTask.service_name_snapshot ?? "Active task",
@@ -251,6 +256,7 @@ export async function getHKAdminDashboardData(): Promise<HousekeepingDashboardDa
           start_time: task.start_time,
         } : null,
       };
+
     }),
     logs: [
       ...recentLogs.map((log) => ({
@@ -283,6 +289,26 @@ export async function getHKAdminDashboardData(): Promise<HousekeepingDashboardDa
       })),
     ].sort((left, right) => Date.parse(right.start_time) - Date.parse(left.start_time)).slice(0, 100),
     evidence,
+  };
+}
+
+function parseHousekeepingAttendanceSummary(value: unknown): HousekeepingDashboardData["attendance"] {
+  if (!value || typeof value !== "object") throw new Error("Attendance summary was returned in an invalid format.");
+  const summary = value as Record<string, unknown>;
+  const number = (key: string) => {
+    const result = summary[key];
+    if (typeof result !== "number" || !Number.isFinite(result) || result < 0) throw new Error(`Attendance summary field "${key}" is invalid.`);
+    return result;
+  };
+  const compliancePercent = summary.compliancePercent;
+  if (compliancePercent !== null && (typeof compliancePercent !== "number" || !Number.isFinite(compliancePercent) || compliancePercent < 0 || compliancePercent > 100)) {
+    throw new Error("Attendance compliance score is invalid.");
+  }
+  return {
+    activeShifts: number("activeShifts"),
+    compliantClockIns: number("compliantClockIns"),
+    breachAttempts: number("breachAttempts"),
+    compliancePercent,
   };
 }
 

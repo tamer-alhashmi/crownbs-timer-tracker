@@ -58,6 +58,8 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isAccordionOpen, setIsAccordionOpen] = useState(false);
   const [propertySearch, setPropertySearch] = useState("");
+  const [propertyFilter, setPropertyFilter] = useState("all");
+  const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [assignmentHotelId, setAssignmentHotelId] = useState("");
@@ -77,8 +79,12 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
   ));
   const filteredUsers = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return users.filter((user) => !query || `${user.full_name} ${user.email} ${user.phone_number ?? ""} ${user.role}`.toLowerCase().includes(query));
-  }, [search, users]);
+    const roleOrder: Record<string, number> = { manager: 0, housekeeping_admin: 1, hk_admin: 1, cleaner: 2, owner: 3, admin: 4, super_admin: 5 };
+    return users
+      .filter((user) => (propertyFilter === "all" || user.assignedHotels.some((hotel) => hotel.id === propertyFilter))
+        && (!query || `${user.full_name} ${user.email} ${user.phone_number ?? ""} ${user.role}`.toLowerCase().includes(query)))
+      .sort((left, right) => (roleOrder[left.role] ?? 10) - (roleOrder[right.role] ?? 10) || left.full_name.localeCompare(right.full_name));
+  }, [propertyFilter, search, users]);
   const pageCount = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
   const visibleUsers = filteredUsers.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
@@ -372,50 +378,63 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
           <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div><h2 className="text-lg font-bold text-ink">Managed users</h2><p className="text-sm text-ink-secondary">{filteredUsers.length} matching {users.length} total accounts</p></div>
           </div>
-          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="mb-4 grid gap-3 md:grid-cols-[minmax(15rem,0.7fr)_minmax(15rem,1fr)]">
             <p className="text-sm font-medium text-ink-secondary">Search and manage user access</p>
+            <label className="block text-xs font-semibold text-ink-secondary">
+              Property
+              <select value={propertyFilter} onChange={(event) => { setPropertyFilter(event.target.value); setPage(1); }} className="mt-1 min-h-11 w-full rounded-xl border border-line bg-surface-secondary px-3 text-sm text-ink">
+                <option value="all">All Properties</option>
+                {hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}
+              </select>
+            </label>
             <label className="relative block w-full md:max-w-sm">
               <span className="sr-only">Search users</span>
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" />
               <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Search name, email, phone, or role" className="min-h-11 w-full rounded-xl border border-line bg-surface-secondary py-2.5 pl-9 pr-3 text-sm text-ink" />
             </label>
           </div>
-          <div className="grid gap-3 md:grid-cols-2">
+          {propertyFilter !== "all" && !filteredUsers.some((user) => ["housekeeping_admin", "hk_admin"].includes(user.role)) && (
+            <button type="button" onClick={() => {
+              openCreateUserForm();
+              form.setValue("role", "housekeeping_admin");
+              form.setValue("hotelIds", [propertyFilter]);
+              form.setValue("primaryHotelId", propertyFilter);
+            }} className="mb-3 flex min-h-14 w-full items-center justify-between rounded-xl border border-dashed border-accent/50 bg-accent/5 px-4 text-left text-sm font-semibold text-accent hover:bg-accent/10">
+              No HK Admin assigned - Click to assign <UserPlus className="h-4 w-4" />
+            </button>
+          )}
+          <div className="space-y-2">
             {visibleUsers.map((user) => (
-              <article key={user.id} className="rounded-xl border border-line p-4">
-                <div className="flex min-w-0 items-start gap-3">
-                  <UserAvatar name={user.full_name} avatarUrl={user.avatar_url} role={user.role} className="h-11 w-11 shrink-0 bg-accent/10 text-sm font-semibold text-accent" />
-                  <div className="min-w-0 flex-1">
-                    <p className="break-words font-semibold text-ink">{user.full_name}</p>
-                    <p className="break-all text-xs text-ink-secondary">{user.email}</p>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <span className="rounded-full bg-surface-secondary px-2.5 py-1 text-xs font-semibold text-ink-secondary">{ROLE_LABELS[user.role]}</span>
-                      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${user.is_active ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>{user.is_active ? "Active" : "Deactivated"}</span>
-                      <LiveStatusIndicator isClockedIn={user.is_clocked_in ?? false} className="text-xs" />
-                    </div>
+              <article key={user.id} className="overflow-hidden rounded-xl border border-line bg-surface">
+                <button type="button" aria-expanded={expandedUserId === user.id} onClick={() => setExpandedUserId((current) => current === user.id ? null : user.id)} className="flex min-h-14 w-full min-w-0 items-center gap-2 px-3 py-2 text-left hover:bg-surface-secondary sm:gap-3 sm:px-4">
+                  <UserAvatar name={user.full_name} avatarUrl={user.avatar_url} role={user.role} className="h-8 w-8 shrink-0 bg-accent/10 text-xs font-semibold text-accent" />
+                  <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-ink">{user.full_name}</span><span className="block truncate text-xs text-ink-secondary">{user.email}</span></span>
+                  <span className="hidden shrink-0 rounded-full bg-surface-secondary px-2 py-1 text-[11px] font-semibold text-ink-secondary sm:inline-flex">{ROLE_LABELS[user.role]}</span>
+                  <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${user.is_clocked_in ? "bg-emerald-500" : "bg-ink-muted/40"}`} title={user.is_clocked_in ? "On active shift" : "Not on shift"} />
+                  <span className="hidden max-w-36 truncate rounded-full bg-accent/10 px-2 py-1 text-[11px] font-medium text-accent sm:inline-flex">{user.assignedHotels.find((hotel) => hotel.id === propertyFilter)?.name ?? user.assignedHotels[0]?.name ?? "Unassigned"}</span>
+                  {expandedUserId === user.id ? <ChevronUp className="h-4 w-4 shrink-0 text-ink-muted" /> : <ChevronDown className="h-4 w-4 shrink-0 text-ink-muted" />}
+                </button>
+                {expandedUserId === user.id && <div className="border-t border-line bg-surface-secondary/50 p-3 sm:p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-surface-secondary px-2.5 py-1 text-xs font-semibold text-ink-secondary">{ROLE_LABELS[user.role]}</span>
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${user.is_active ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "bg-rose-500/10 text-rose-700 dark:text-rose-300"}`}>{user.is_active ? "Active" : "Deactivated"}</span>
+                    <LiveStatusIndicator isClockedIn={user.is_clocked_in ?? false} className="text-xs" />
+                    {user.phone_number && <span className="text-xs text-ink-secondary">{user.phone_number}</span>}
                   </div>
-                </div>
-                <div className="mt-4">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-secondary">Assigned properties</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {user.assignedHotels.length ? user.assignedHotels.map((hotel) => (
-                      <span key={hotel.id} className="inline-flex max-w-full rounded-full bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent">{hotel.name}</span>
-                    )) : <span className="text-xs text-ink-secondary">No assigned property</span>}
+                  <div className="mt-3"><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-secondary">Assigned properties</p><div className="flex flex-wrap gap-1.5">
+                    {user.assignedHotels.length ? user.assignedHotels.map((hotel) => <span key={hotel.id} className="rounded-full bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent">{hotel.name}</span>) : <span className="text-xs text-ink-secondary">No assigned property</span>}
+                  </div></div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button type="button" onClick={() => { setAssigningId(assigningId === user.id ? null : user.id); setAssignmentHotelId(""); }} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-lg border border-accent/30 bg-surface px-3 text-xs font-semibold text-accent"><Plus className="h-4 w-4" /> Assign hotel</button>
+                    {user.assignedHotels.length > 0 && <button type="button" onClick={() => { setUnlinkTarget({ userId: user.id, userName: user.full_name, hotels: user.assignedHotels }); setUnlinkHotelId(user.assignedHotels[0].id); }} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-lg border border-amber-500/30 bg-surface px-3 text-xs font-semibold text-amber-700 dark:text-amber-300"><ShieldAlert className="h-3.5 w-3.5" /> Unlink</button>}
+                    <button type="button" onClick={() => edit(user)} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-lg border border-line bg-surface px-3 text-xs font-semibold text-ink-secondary"><Pencil className="h-3.5 w-3.5" /> Edit</button>
+                    {actorRole === "super_admin" && user.is_active && <button type="button" onClick={() => deactivate(user)} disabled={isPending} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-lg border border-rose-500/30 bg-surface px-3 text-xs font-semibold text-rose-700 disabled:opacity-50"><UserX className="h-4 w-4" /> Deactivate</button>}
                   </div>
-                </div>
-                {user.phone_number && <p className="mt-3 text-sm text-ink-secondary">{user.phone_number}</p>}
-                <div className="mt-4 space-y-2">
-                  <button type="button" onClick={() => { setAssigningId(assigningId === user.id ? null : user.id); setAssignmentHotelId(""); }} className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-lg border border-accent/30 bg-surface px-3 py-2 text-sm font-semibold text-accent"><Plus className="h-4 w-4" /> Assign hotel</button>
-                  {assigningId === user.id && <div className="flex flex-col gap-2 rounded-xl border border-accent/30 bg-accent/10 p-3">
-                    <select value={assignmentHotelId} onChange={(event) => setAssignmentHotelId(event.target.value)} className="min-h-11 w-full min-w-0 rounded-lg border border-accent/30 bg-surface px-3 text-sm text-ink"><option value="">Select hotel</option>{hotels.filter((hotel) => !user.assignedHotels.some((assigned) => assigned.id === hotel.id)).map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select>
-                    <button type="button" onClick={() => assignHotel(user.id)} disabled={isPending} className="min-h-11 w-full rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">Assign</button>
+                  {assigningId === user.id && <div className="mt-3 flex flex-col gap-2 rounded-xl border border-accent/30 bg-accent/5 p-3 sm:flex-row">
+                    <select value={assignmentHotelId} onChange={(event) => setAssignmentHotelId(event.target.value)} className="min-h-10 w-full min-w-0 rounded-lg border border-line bg-surface px-3 text-sm text-ink sm:flex-1"><option value="">Select hotel</option>{hotels.filter((hotel) => !user.assignedHotels.some((assigned) => assigned.id === hotel.id)).map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select>
+                    <button type="button" onClick={() => assignHotel(user.id)} disabled={isPending} className="min-h-10 rounded-lg bg-accent px-4 text-sm font-semibold text-white disabled:opacity-50">Assign</button>
                   </div>}
-                  <div className="grid grid-cols-2 gap-2">
-                    {user.assignedHotels.length > 0 && <button type="button" onClick={() => { setUnlinkTarget({ userId: user.id, userName: user.full_name, hotels: user.assignedHotels }); setUnlinkHotelId(user.assignedHotels[0].id); }} className="inline-flex min-h-11 items-center justify-center gap-1 rounded-lg border border-amber-200 bg-surface px-2 py-2 text-xs font-semibold text-amber-800"><ShieldAlert className="h-3.5 w-3.5" /> Unlink</button>}
-                    <button type="button" onClick={() => edit(user)} className="inline-flex min-h-11 items-center justify-center gap-1 rounded-lg border border-line bg-surface px-2 py-2 text-xs font-semibold text-ink-secondary"><Pencil className="h-3.5 w-3.5" /> Edit</button>
-                  </div>
-                  {actorRole === "super_admin" && user.is_active && <button type="button" onClick={() => deactivate(user)} disabled={isPending} className="inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-lg border border-red-200 bg-surface px-3 py-2 text-sm font-semibold text-red-700 disabled:opacity-50"><UserX className="h-4 w-4" /> Deactivate</button>}
-                </div>
+                </div>}
               </article>
             ))}
             {visibleUsers.length === 0 && <p className="rounded-xl border border-line px-4 py-8 text-center text-sm text-ink-secondary">No users match your search.</p>}

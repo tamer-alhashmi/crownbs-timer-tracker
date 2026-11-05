@@ -32,7 +32,7 @@ const SUPER_ADMIN_WORKSPACE_TABS: readonly WorkspaceNavTab<string>[] = [
   { id: "audit", label: "Audit", Icon: History, href: "/admin?tab=audit" },
 ];
 
-export default function TenantAccountsHub({ initialData }: { initialData: TenantAccountsPage }) {
+export default function TenantAccountsHub({ initialData, user }: { initialData: TenantAccountsPage; user: { name: string; email: string; avatarUrl: string | null } }) {
   const [data, setData] = useState(initialData);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -83,7 +83,7 @@ export default function TenantAccountsHub({ initialData }: { initialData: Tenant
   const pageCount = Math.max(1, Math.ceil(data.total / data.pageSize));
 
   return (
-    <main className="mx-auto w-full max-w-[1600px] px-4 py-5 sm:px-6 lg:px-8">
+    <main className="mx-auto w-full max-w-[1600px] px-4 pt-5 pb-[calc(env(safe-area-inset-bottom,0px)+5rem)] sm:px-6 md:ml-64 md:pb-8 lg:px-8">
       <header className="mb-5 flex flex-col gap-4 rounded-2xl border border-line bg-surface p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
         <div>
           <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-sky-800"><CreditCard className="h-4 w-4" /> Platform settlement hub</p>
@@ -104,7 +104,7 @@ export default function TenantAccountsHub({ initialData }: { initialData: Tenant
         </label>
         </div>
       </header>
-      <SharedWorkspaceShell role="super_admin" activeTab={null} tabs={SUPER_ADMIN_WORKSPACE_TABS} />
+      <SharedWorkspaceShell role="super_admin" activeTab={null} tabs={SUPER_ADMIN_WORKSPACE_TABS} user={{ ...user, role: "super_admin" }} />
 
       <section className="overflow-hidden rounded-2xl border border-line bg-surface shadow-sm" aria-label="Tenant accounts" aria-busy={isLoading || isPending}>
         <div className="flex min-h-14 items-center justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">

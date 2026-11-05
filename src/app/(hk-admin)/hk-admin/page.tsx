@@ -10,5 +10,5 @@ export default async function HousekeepingAdminPage() {
   const user = await getSessionUser();
   if (!user || !isHousekeepingAdmin(user.role)) redirect("/login");
   const [data, dispatchData] = await Promise.all([getHKAdminDashboardData(), getTaskDispatchData()]);
-  return <HKAdminDashboardClient data={data} dispatchData={dispatchData} intelligence={<RoleIntelligenceSection />} />;
+  return <HKAdminDashboardClient data={data} dispatchData={dispatchData} intelligence={<RoleIntelligenceSection />} profile={{ email: user.email, role: user.role }} />;
 }

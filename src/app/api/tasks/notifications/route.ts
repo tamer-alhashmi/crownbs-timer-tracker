@@ -99,6 +99,16 @@ export async function GET() {
   const activeAlertRecords = (alertRecords ?? []).filter((alert) =>
     (alertTasks ?? []).some((task) => task.id === alert.task_id && task.start_time === alert.incident_started_at)
   );
+  const { data: shiftEvents, error: shiftEventsError } = await supabase
+    .from("workforce_shift_notifications")
+    .select("id, shift_event_id, severity, title, body, is_read, created_at")
+    .eq("recipient_id", actor.id)
+    .order("created_at", { ascending: false })
+    .limit(30);
+  if (shiftEventsError) {
+    console.error("Workforce shift notification query failed:", shiftEventsError.message);
+    return NextResponse.json({ error: "Could not load workforce notifications." }, { status: 500 });
+  }
   const visibleTaskIds = [...new Set([
     ...(incoming ?? []).map((task) => task.id),
     ...activeAlertRecords.map((alert) => alert.task_id),
@@ -151,5 +161,6 @@ export async function GET() {
     incoming: (incoming ?? []).map((task) => ({ ...enrichTask(task), is_read: readTaskIds.has(task.id) })),
     outgoing: (outgoing ?? []).map(enrichTask),
     overdue,
+    shiftEvents: shiftEvents ?? [],
   });
 }

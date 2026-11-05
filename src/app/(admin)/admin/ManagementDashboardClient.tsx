@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Activity, Building2, Check, CircleDollarSign, ClipboardList, Clock, Gauge, History, Hotel, Loader2, Pencil, UsersRound, X, Wallet, Columns3, Filter, Search, CreditCard, ShieldAlert } from "lucide-react";
 import { OperationalBrief } from "@/components/dashboard/OperationalBrief";
+import { AttendanceSummaryWidget } from "@/components/dashboard/AttendanceSummaryWidget";
 import { ServiceCard } from "@/components/dashboard/ServiceCard";
 import { OperationalAuditTable } from "@/components/dashboard/OperationalAuditTable";
 import { UserProfileMenu } from "@/components/layout/UserProfileMenu";
@@ -75,7 +76,7 @@ function useDashboardTab(): DashboardTab {
 type Log = ManagementHistoryRecord;
 type Room = { id: string; hotel_id: string; room_name: string; floor_section?: string | null; category: string; status?: string };
 type DispatchData = Awaited<ReturnType<typeof getTaskDispatchData>>;
-type Props = { data: { userRole: string; currentUserId: string; userName: string; userEmail: string; userAvatarUrl: string | null; canManagePayrollTasks: boolean; canManageActiveOperations: boolean; hotels: PropertyRecord[]; services: ServiceRecord[]; cleaners: { id: string; name: string; primary_hotel_id: string | null }[]; propertyAssignees: { id: string; name: string; role: string }[]; rooms: Room[]; workLogs: Log[]; activeShifts: { id: string; user_id: string; start_time: string; cleanerName: string; task: Log | null }[]; activeTasks: Log[]; summary: Awaited<ReturnType<typeof getManagementDashboardSummary>>; brief: ManagementBrief }; dispatchData?: DispatchData; tenantIntelligence?: ReactNode };
+type Props = { data: { userRole: string; currentUserId: string; userName: string; userEmail: string; userAvatarUrl: string | null; canManagePayrollTasks: boolean; canManageActiveOperations: boolean; hotels: PropertyRecord[]; services: ServiceRecord[]; cleaners: { id: string; name: string; primary_hotel_id: string | null }[]; propertyAssignees: { id: string; name: string; role: string }[]; rooms: Room[]; workLogs: Log[]; activeShifts: { id: string; user_id: string; start_time: string; cleanerName: string; task: Log | null }[]; activeTasks: Log[]; attendance: { activeShifts: number; compliantClockIns: number; breachAttempts: number; compliancePercent: number | null }; summary: Awaited<ReturnType<typeof getManagementDashboardSummary>>; brief: ManagementBrief }; dispatchData?: DispatchData; tenantIntelligence?: ReactNode };
 type Draft = { hotelId: string; serviceId: string; roomId: string; roomsCompleted: string; roomNumber: string; notes: string; startTime: string; endTime: string; status: "assigned" | "active" | "completed" };
 type WorkLogSortColumn = "date" | "cleaner" | "hotel" | "service" | "status";
 type ApprovalFeedback = { kind: "pending" | "success" | "error"; text: string };
@@ -429,10 +430,11 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
           <div className="flex items-center gap-2">{isPlatformAdmin(data.userRole) && <button type="button" onClick={syncRooms} disabled={isPending} className="hidden min-h-11 rounded-lg border border-line bg-surface px-3 py-2 text-sm font-medium text-ink-secondary hover:bg-surface-secondary sm:inline-flex">Fetch rooms</button>}{data.userRole === "super_admin" && <Link href="/admin/tenant-accounts" aria-label="Billing" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sky-200 bg-sky-50 p-0 text-sky-900 hover:bg-sky-100 md:h-9 md:w-auto md:gap-2 md:px-3 md:py-2"><CreditCard className="h-4 w-4" /><span className="hidden font-medium text-sm md:inline">Billing</span></Link>}<ThemeToggle /><UserProfileMenu name={data.userName} email={data.userEmail} avatarUrl={data.userAvatarUrl} role={data.userRole} settingsHref="/settings" /></div>
         </div>
       </header>
-      <SharedWorkspaceShell role={data.userRole} activeTab={activeTab} onSelect={selectTab} tabs={WORKSPACE_SHELL_TABS} />
-      <main className="mx-auto min-w-0 max-w-[1600px] space-y-4 px-gutter pb-20 pt-4 sm:p-6 md:pb-6 lg:p-8">
+      <SharedWorkspaceShell role={data.userRole} activeTab={activeTab} onSelect={selectTab} tabs={WORKSPACE_SHELL_TABS} user={{ name: data.userName, email: data.userEmail, avatarUrl: data.userAvatarUrl, role: data.userRole }} />
+      <main className="mx-auto min-w-0 max-w-[1600px] space-y-4 px-gutter pb-[calc(env(safe-area-inset-bottom,0px)+5rem)] pt-4 sm:p-6 md:ml-64 md:pb-6 lg:p-8">
         {message && <p className="rounded-lg border border-line bg-surface px-4 py-3 text-sm text-ink-secondary shadow-sm" role="status">{message}</p>}
         <section id="panel-overview" role="tabpanel" aria-labelledby="tab-overview" hidden={activeTab !== "overview"} className="space-y-5">
+          {["owner", "manager"].includes(data.userRole) && <AttendanceSummaryWidget {...data.attendance} />}
           {data.userRole === "manager" && (() => {
             const task = data.activeTasks.find((item) => item.user_id === data.currentUserId && item.status === "active" && !item.end_time);
             return task ? <ActiveAssignedTaskCard task={{

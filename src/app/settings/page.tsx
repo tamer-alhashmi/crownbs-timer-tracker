@@ -51,6 +51,7 @@ export default async function SettingsPage() {
     return (
       <SettingsHub
         role={user.role}
+        user={{ name, email: profile?.email ?? user.email, avatarUrl: profile?.avatar_url ?? null }}
         utility={utility}
         profile={<div className="mx-auto max-w-5xl">
           <PersonalProfileSettings fullName={name} email={profile?.email ?? user.email} phoneNumber={profile?.phone_number ?? null} avatarUrl={profile?.avatar_url ?? null} languagePreference={profile?.language_preference ?? "en"} role={user.role} {...emailSettings} />
@@ -70,6 +71,7 @@ export default async function SettingsPage() {
     return (
       <SettingsHub
         role={user.role}
+        user={{ name, email: profile?.email ?? user.email, avatarUrl: profile?.avatar_url ?? null }}
         utility={utility}
         profile={<PersonalProfileSettings fullName={name} email={profile?.email ?? user.email} phoneNumber={profile?.phone_number ?? null} avatarUrl={profile?.avatar_url ?? null} languagePreference={profile?.language_preference ?? "en"} role={user.role} {...emailSettings} />}
         users={null}
@@ -82,6 +84,7 @@ export default async function SettingsPage() {
   return (
     <SettingsHub
       role={data.actorRole}
+      user={{ name: data.actorName, email: data.actorEmail, avatarUrl: data.actorAvatarUrl }}
       utility={utility}
       billing={user.role === "owner" ? <Suspense fallback={<OwnerBillingSkeleton />}><OwnerBillingWidget ownerId={user.userId} /></Suspense> : null}
       profile={<PersonalProfileSettings fullName={profile?.full_name ?? user.email} email={profile?.email ?? user.email} phoneNumber={profile?.phone_number ?? null} avatarUrl={profile?.avatar_url ?? null} languagePreference={profile?.language_preference ?? "en"} role={user.role} {...emailSettings} />}

@@ -9,7 +9,8 @@ type Coordinates = { lat: number; lng: number };
 
 type Props = {
   onCancel: () => void;
-  onConfirm: (location: string) => void;
+  initialPosition?: Coordinates | null;
+  onConfirm: (selection: { address: string; latitude: number; longitude: number }) => void;
 };
 
 const DEFAULT_CENTER: Coordinates = { lat: 51.5074, lng: -0.1278 };
@@ -95,8 +96,8 @@ function formatAddress(address: Record<string, string>, displayName?: string) {
   return parts.length ? parts.join(", ") : displayName?.trim() || "";
 }
 
-export default function MapLocationPicker({ onCancel, onConfirm }: Props) {
-  const [position, setPosition] = useState(DEFAULT_CENTER);
+export default function MapLocationPicker({ onCancel, initialPosition, onConfirm }: Props) {
+  const [position, setPosition] = useState(initialPosition ?? DEFAULT_CENTER);
   const [gpsStatus, setGpsStatus] = useState("");
   const [tileLoading, setTileLoading] = useState(true);
   const [geocoding, setGeocoding] = useState(false);
@@ -148,7 +149,7 @@ export default function MapLocationPicker({ onCancel, onConfirm }: Props) {
       const result: { address?: Record<string, string>; display_name?: string } = await response.json();
       const address = formatAddress(result.address ?? {}, result.display_name);
       if (!address) throw new Error("No address was found for this pin. Try moving it to a nearby street.");
-      onConfirm(address);
+      onConfirm({ address, latitude: position.lat, longitude: position.lng });
     } catch (lookupError) {
       console.error("[Property Location Picker]:", lookupError);
       setError(lookupError instanceof Error && lookupError.message.startsWith("No address")
@@ -188,7 +189,7 @@ export default function MapLocationPicker({ onCancel, onConfirm }: Props) {
 
         <div className="relative min-h-64 flex-1">
           <MapContainer
-            center={DEFAULT_CENTER}
+            center={position}
             zoom={13}
             scrollWheelZoom
             className="h-full min-h-[320px] w-full sm:min-h-[440px]"

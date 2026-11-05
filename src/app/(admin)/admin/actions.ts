@@ -228,6 +228,7 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
     isPlatformAdmin(user.role) ? null : hotelIds,
     { from: summaryFrom, to: summaryTo },
   );
+  const attendanceSummaryPromise = supabase.rpc("get_workforce_attendance_summary", { p_property_ids: hotelIds });
   const cleanersQuery = supabase.from("users").select("id, full_name, email, role, primary_hotel_id").eq("role", "cleaner").order("full_name").order("id");
   const assigneesQuery = supabase.from("users").select("id, full_name, email, role").in("role", ["owner", "manager"]).order("full_name").order("id");
   const logsQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, shift_id, start_time, end_time, task_date, status, rooms_completed, room_ids, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, cost_override, deleted_at, cancelled_at, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, rejection_notes, hotels(name), users!work_logs_user_id_fkey(full_name, email, role), services_config(name, description, default_rate, unit)").is("deleted_at", null).is("cancelled_at", null).eq("status", "active").is("end_time", null).order("start_time", { ascending: false }).order("id");
@@ -238,7 +239,7 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
   }
   const servicesQuery = supabase.from("services_config").select("id, name, description, unit, default_rate, is_active, owner_id, created_at").order("name").order("id");
   const roomsQuery = supabase.from("rooms").select("id, hotel_id, room_name, floor_section, category, status").in("hotel_id", hotelIds.length ? hotelIds : ["00000000-0000-0000-0000-000000000000"]).eq("status", "active").order("room_name").order("id");
-  const [cleaners, propertyAssignees, services, workLogs, rooms, activeShifts, dashboardSummary] = await Promise.all([
+  const [cleaners, propertyAssignees, services, workLogs, rooms, activeShifts, dashboardSummary, attendanceSummary] = await Promise.all([
     fetchAllRows("cleaners", (from, to) => cleanersQuery.range(from, to)),
     fetchAllRows("property assignees", (from, to) => assigneesQuery.range(from, to)),
     fetchAllRows("services", (from, to) => servicesQuery.range(from, to)),
@@ -246,7 +247,9 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
     fetchAllRows("rooms", (from, to) => roomsQuery.range(from, to)),
     fetchAllRows("active shifts", (from, to) => shiftsQuery.range(from, to)),
     dashboardSummaryPromise,
+    attendanceSummaryPromise,
   ]);
+  if (attendanceSummary.error) throw new Error(`Unable to load attendance summary: ${attendanceSummary.error.message}`);
   const tenantOwnerIds = new Set(visibleHotels.map((hotel) => hotel.owner_id).filter((id): id is string => Boolean(id)));
   const visibleServices = isPlatformAdmin(user.role)
     ? services
@@ -311,6 +314,7 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
     activeTasks: activeTasks,
     currentUserId: user.userId,
     summary: dashboardSummary,
+    attendance: parseWorkforceAttendanceSummary(attendanceSummary.data),
     userRole: user.role,
     canViewServices: isPlatformAdmin(user.role) || servicePermission === null || servicePermission.can_view === true,
     canManageServices: isPlatformAdmin(user.role) || servicePermission === null || (servicePermission.can_create === true && servicePermission.can_edit === true && servicePermission.can_delete === true),
@@ -320,6 +324,28 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
     userEmail: currentUser?.email ?? user.email,
     userAvatarUrl: currentUser?.avatar_url ?? null,
     brief,
+  };
+}
+
+function parseWorkforceAttendanceSummary(value: unknown) {
+  if (!value || typeof value !== "object") throw new Error("Attendance summary was returned in an invalid format.");
+  const summary = value as Record<string, unknown>;
+  const count = (key: string) => {
+    const number = summary[key];
+    if (typeof number !== "number" || !Number.isFinite(number) || number < 0) {
+      throw new Error(`Attendance summary field "${key}" is invalid.`);
+    }
+    return number;
+  };
+  const compliancePercent = summary.compliancePercent;
+  if (compliancePercent !== null && (typeof compliancePercent !== "number" || !Number.isFinite(compliancePercent) || compliancePercent < 0 || compliancePercent > 100)) {
+    throw new Error("Attendance compliance score is invalid.");
+  }
+  return {
+    activeShifts: count("activeShifts"),
+    compliantClockIns: count("compliantClockIns"),
+    breachAttempts: count("breachAttempts"),
+    compliancePercent,
   };
 }
 

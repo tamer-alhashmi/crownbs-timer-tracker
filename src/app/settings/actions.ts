@@ -47,7 +47,7 @@ async function requireSettingsAccess(action: FeatureAction = "view") {
   }
   const actor = { ...session, role: normalizeUserRole(profile.role as UserRole) };
   if (!isPlatformAdmin(actor.role) && !["owner", "manager"].includes(actor.role)) throw new Error("Management settings access required.");
-  const { data: hotels, error } = await supabase.from("hotels").select("id, name, location, room_count, total_rooms, floor_count, is_active, owner_id, manager_id").is("archived_at", null).order("name");
+  const { data: hotels, error } = await supabase.from("hotels").select("id, name, location, latitude, longitude, room_count, total_rooms, floor_count, is_active, owner_id, manager_id").is("archived_at", null).order("name");
   if (error) throw new Error(error.message);
   const visibleHotels = isPlatformAdmin(actor.role) ? hotels ?? [] : (hotels ?? []).filter((hotel) => actor.role === "owner" ? hotel.owner_id === actor.userId : hotel.manager_id === actor.userId);
   return { actor, supabase, visibleHotels };
@@ -155,6 +155,8 @@ export async function getSettingsData() {
       id: hotel.id,
       name: hotel.name,
       location: hotel.location,
+      latitude: hotel.latitude,
+      longitude: hotel.longitude,
       roomCount: roomStats.roomCount || Math.max(hotel.room_count ?? 0, hotel.total_rooms ?? 0),
       floorCount: roomStats.floorCount || hotel.floor_count || 0,
       isActive: hotel.is_active,
@@ -664,7 +666,7 @@ export async function unassignManagedUserFromHotel(userId: string, hotelId: stri
   revalidatePath("/manager");
 }
 
-export type PropertyInput = { name: string; location: string; roomCount: number; floorCount: number; managerId: string | null };
+export type PropertyInput = { name: string; location: string; latitude: number | null; longitude: number | null; roomCount: number; floorCount: number; managerId: string | null };
 export type ServiceInput = {
   hotelId: string;
   name: string;
@@ -693,7 +695,14 @@ function validateProperty(input: PropertyInput) {
   if (!Number.isInteger(input.floorCount) || input.floorCount < 0 || input.floorCount > 1000) {
     throw new Error("Floor count must be a whole number between 0 and 1,000.");
   }
-  return { name, location, roomCount: input.roomCount, floorCount: input.floorCount, managerId: input.managerId || null };
+  const latitude = input.latitude === null ? null : Number(input.latitude);
+  const longitude = input.longitude === null ? null : Number(input.longitude);
+  if ((latitude === null) !== (longitude === null)
+    || (latitude !== null && (!Number.isFinite(latitude) || latitude < -90 || latitude > 90))
+    || (longitude !== null && (!Number.isFinite(longitude) || longitude < -180 || longitude > 180))) {
+    throw new Error("Choose a valid map location or clear both GPS coordinates.");
+  }
+  return { name, location, latitude, longitude, roomCount: input.roomCount, floorCount: input.floorCount, managerId: input.managerId || null };
 }
 
 async function validateManagerAssignment(
@@ -738,6 +747,8 @@ export async function createOwnedProperty(input: PropertyInput): Promise<ActionR
     const { error } = await context.supabase.from("hotels").insert({
       name: values.name,
       location: values.location,
+      latitude: values.latitude,
+      longitude: values.longitude,
       room_count: values.roomCount,
       total_rooms: values.roomCount,
       floor_count: values.floorCount,
@@ -766,7 +777,7 @@ export async function updateOwnedProperty(propertyId: string, input: PropertyInp
     const floorCount = roomStats.floorCount || values.floorCount;
     let query = context.supabase
       .from("hotels")
-      .update({ name: values.name, location: values.location, room_count: roomCount, total_rooms: roomCount, floor_count: floorCount, manager_id: values.managerId })
+      .update({ name: values.name, location: values.location, latitude: values.latitude, longitude: values.longitude, room_count: roomCount, total_rooms: roomCount, floor_count: floorCount, manager_id: values.managerId })
       .eq("id", propertyId)
       .is("archived_at", null);
     if (!isPlatformAdmin(context.actor.role)) query = query.eq("owner_id", context.actor.userId);

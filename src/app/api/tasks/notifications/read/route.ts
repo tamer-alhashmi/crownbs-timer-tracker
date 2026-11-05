@@ -10,16 +10,17 @@ export async function PATCH(request: Request) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Provide a valid task notification." }, { status: 400 });
+    return NextResponse.json({ error: "Provide a valid notification." }, { status: 400 });
   }
   if (
     typeof body !== "object"
     || body === null
-    || !("taskId" in body)
-    || typeof body.taskId !== "string"
-    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.taskId)
+    || !(
+      ("taskId" in body && typeof body.taskId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.taskId))
+      || ("shiftEventNotificationId" in body && typeof body.shiftEventNotificationId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.shiftEventNotificationId))
+    )
   ) {
-    return NextResponse.json({ error: "Provide a valid task notification." }, { status: 400 });
+    return NextResponse.json({ error: "Provide a valid notification." }, { status: 400 });
   }
 
   const supabase = createPrivilegedServerSupabaseClient();
@@ -36,6 +37,25 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Your session is no longer valid." }, { status: 403 });
   }
 
+  if ("shiftEventNotificationId" in body && typeof body.shiftEventNotificationId === "string") {
+    const { data: updated, error: shiftReadError } = await supabase
+      .from("workforce_shift_notifications")
+      .update({ is_read: true })
+      .eq("id", body.shiftEventNotificationId)
+      .eq("recipient_id", actor.id)
+      .select("id")
+      .maybeSingle();
+    if (shiftReadError) {
+      console.error("Shift notification read-state update failed:", shiftReadError.message);
+      return NextResponse.json({ error: "Could not update this attendance notification." }, { status: 500 });
+    }
+    if (!updated) return NextResponse.json({ error: "Attendance notification not found." }, { status: 404 });
+    return NextResponse.json({ success: true });
+  }
+
+  if (!("taskId" in body) || typeof body.taskId !== "string") {
+    return NextResponse.json({ error: "Provide a valid task notification." }, { status: 400 });
+  }
   const { data: task, error: taskError } = await supabase.from("work_logs")
     .select("id, assigned_to, status, start_time, end_time, deleted_at, cancelled_at")
     .eq("id", body.taskId)

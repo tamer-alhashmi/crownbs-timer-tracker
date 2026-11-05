@@ -60,7 +60,7 @@ export function MobileWorkspaceNav<Tab extends string>({
     <nav
       aria-label="Workspace sections"
       style={{ gridTemplateColumns: `repeat(${links.length}, minmax(0, 1fr))` }}
-      className={`mobile-workspace-nav fixed inset-x-0 bottom-0 z-40 grid h-14 border-t border-line bg-surface/95 backdrop-blur transition-transform duration-200 md:hidden ${hidden ? "translate-y-full" : "translate-y-0"}`}
+      className={`mobile-workspace-nav fixed inset-x-0 bottom-0 z-40 grid h-[calc(3.5rem+env(safe-area-inset-bottom,0px))] pb-[env(safe-area-inset-bottom,0px)] border-t border-line bg-surface/95 backdrop-blur transition-transform duration-200 md:hidden ${hidden ? "translate-y-full" : "translate-y-0"}`}
       aria-hidden={hidden}
     >
       {links.map(({ id, label, Icon, href }) => (

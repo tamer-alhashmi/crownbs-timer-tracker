@@ -8,5 +8,5 @@ export default async function TenantAccountsPage() {
   if (!user) redirect("/login");
   if (user.role !== "super_admin") redirect("/admin");
   const initialData = await getTenantAccountsPage();
-  return <TenantAccountsHub initialData={initialData} />;
+  return <TenantAccountsHub initialData={initialData} user={{ name: user.email, email: user.email, avatarUrl: null }} />;
 }

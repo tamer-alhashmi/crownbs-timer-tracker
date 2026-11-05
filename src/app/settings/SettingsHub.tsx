@@ -10,6 +10,7 @@ import type { WorkspaceNavTab } from "@/components/layout/MobileWorkspaceNav";
 type Tab = "profile" | "users" | "properties" | "payroll";
 type Props = {
   role: UserRole;
+  user?: { name: string; email: string; avatarUrl: string | null };
   utility: ReactNode;
   profile: ReactNode;
   billing?: ReactNode;
@@ -32,7 +33,7 @@ function isTabVisible(id: Tab, role: UserRole) {
     (id === "properties" && ["super_admin", "admin", "owner"].includes(role));
 }
 
-export default function SettingsHub({ role, utility, profile, billing, payroll, users, properties }: Props) {
+export default function SettingsHub({ role, user, utility, profile, billing, payroll, users, properties }: Props) {
   const visibleTabs = tabs.filter(({ id }) => isTabVisible(id, role));
   const workspacePath = role === "cleaner" ? "/dashboard"
     : role === "owner" ? "/owner"
@@ -104,7 +105,7 @@ export default function SettingsHub({ role, utility, profile, billing, payroll, 
   };
 
   return (
-    <main className="theme-workspace min-h-screen overflow-y-auto bg-canvas px-3 py-5 text-ink sm:px-6 sm:py-8">
+    <main className="theme-workspace min-h-screen overflow-y-auto bg-canvas px-3 pt-5 pb-[calc(env(safe-area-inset-bottom,0px)+5rem)] text-ink sm:px-6 sm:pt-8 md:ml-64 md:pb-8">
       <div className="mx-auto max-w-7xl">
         <header className="mb-5 border-b border-line pb-3 pt-2">
           <div className="mb-4 flex items-center justify-between gap-4">
@@ -114,7 +115,7 @@ export default function SettingsHub({ role, utility, profile, billing, payroll, 
             </div>
             <div className="flex shrink-0 items-center gap-2">{billing}{utility}</div>
           </div>
-          <nav aria-label="Settings sections" role="tablist" className="flex gap-2 overflow-x-auto">
+          <nav aria-label="Settings sections" role="tablist" className="no-scrollbar flex gap-2 overflow-x-auto whitespace-nowrap scroll-smooth [-webkit-overflow-scrolling:touch] md:hidden">
             {visibleTabs.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
@@ -136,19 +137,41 @@ export default function SettingsHub({ role, utility, profile, billing, payroll, 
             ))}
           </nav>
         </header>
-        <SharedWorkspaceShell role={role} activeTab={null} tabs={workspaceTabs} />
-        {visibleTabs.map(({ id }) => (
-          <section
-            key={id}
-            id={`settings-panel-${id}`}
-            role="tabpanel"
-            aria-labelledby={`settings-tab-${id}`}
-            hidden={activeTab !== id}
-            className="min-w-0"
-          >
-            {content[id]}
-          </section>
-        ))}
+        <SharedWorkspaceShell role={role} activeTab={null} tabs={workspaceTabs} user={user ? { ...user, role } : undefined} />
+        <div className="mt-4 min-w-0 md:grid md:grid-cols-[15rem_minmax(0,1fr)] md:gap-6">
+          <nav aria-label="Desktop settings navigation" role="tablist" className="hidden h-fit rounded-2xl border border-line bg-surface p-2 md:sticky md:top-20 md:block">
+            {visibleTabs.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === id}
+                aria-controls={`settings-panel-${id}`}
+                onClick={() => selectTab(id)}
+                className={`mb-1 flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-semibold transition-colors ${
+                  activeTab === id ? "bg-accent/10 text-accent" : "text-ink-secondary hover:bg-surface-secondary hover:text-ink"
+                }`}
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                {role === "cleaner" && id === "profile" ? "Personal Information" : label}
+              </button>
+            ))}
+          </nav>
+          <div className="min-w-0">
+            {visibleTabs.map(({ id }) => (
+              <section
+                key={id}
+                id={`settings-panel-${id}`}
+                role="tabpanel"
+                aria-labelledby={`settings-tab-${id}`}
+                hidden={activeTab !== id}
+                className="min-w-0 pb-8"
+              >
+                {content[id]}
+              </section>
+            ))}
+          </div>
+        </div>
       </div>
     </main>
   );

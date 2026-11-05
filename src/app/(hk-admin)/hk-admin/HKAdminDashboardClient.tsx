@@ -7,6 +7,7 @@ import { Activity, Building2, CheckCheck, ClipboardList, Gauge, History, Images,
 import { LiveStatusIndicator } from "@/components/ui/LiveStatusIndicator";
 import { NotificationBell } from "@/components/chat/NotificationBell";
 import { ActiveAssignedTaskCard } from "@/components/dashboard/ActiveAssignedTaskCard";
+import { AttendanceSummaryWidget } from "@/components/dashboard/AttendanceSummaryWidget";
 import { ShiftDock } from "@/components/dashboard/ShiftDock";
 import { OperationalAuditTable } from "@/components/dashboard/OperationalAuditTable";
 import { HelpCenterButton } from "@/components/help/HelpCenterDrawer";
@@ -73,10 +74,12 @@ export default function HKAdminDashboardClient({
   data,
   dispatchData,
   intelligence,
+  profile,
 }: {
   data: HousekeepingDashboardData;
   dispatchData: DispatchData;
   intelligence: ReactNode;
+  profile: { email: string; role: string };
 }) {
   useWorkLogRealtimeRefresh();
   const [activeTab, setActiveTab] = useState<DashboardTab>("overview");
@@ -186,11 +189,12 @@ export default function HKAdminDashboardClient({
           </div>
         </div>
       </header>
-      <SharedWorkspaceShell role="hk_admin" activeTab={activeTab} onSelect={selectHKTab} tabs={WORKSPACE_TABS} />
-      <div className="mx-auto max-w-[1600px] space-y-5 p-4 sm:p-6">
+      <SharedWorkspaceShell role="hk_admin" activeTab={activeTab} onSelect={selectHKTab} tabs={WORKSPACE_TABS} user={{ name: data.userName, email: profile.email, avatarUrl: null, role: profile.role }} />
+      <div className="mx-auto max-w-[1600px] space-y-5 p-4 pb-[calc(env(safe-area-inset-bottom,0px)+5rem)] sm:p-6 md:ml-64 md:pb-6">
         {feedback && <p role={feedback.error ? "alert" : "status"} className={`rounded-xl border px-4 py-3 text-sm ${feedback.error ? "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-200" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200"}`}>{feedback.text}</p>}
 
         <section id="hk-panel-overview" role="tabpanel" aria-labelledby="hk-tab-overview" hidden={activeTab !== "overview"} className="space-y-5">
+          <AttendanceSummaryWidget {...data.attendance} />
           {data.activeTask && <ActiveAssignedTaskCard task={data.activeTask} />}
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <Metric label="Total rooms" value={totalRooms} icon={Building2} />
