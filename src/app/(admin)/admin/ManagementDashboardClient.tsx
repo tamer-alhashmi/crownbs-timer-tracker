@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Activity, Building2, Check, CircleDollarSign, ClipboardList, Clock, Gauge, History, Loader2, Pencil, UsersRound, X, Wallet, Columns3, Filter, Search, CreditCard, ShieldAlert } from "lucide-react";
+import { Activity, Building2, Check, ChevronDown, CircleDollarSign, ClipboardList, Clock, Gauge, History, Loader2, Pencil, UsersRound, X, Wallet, Columns3, Filter, Search, CreditCard, ShieldAlert } from "lucide-react";
 import { OperationalBrief } from "@/components/dashboard/OperationalBrief";
 import { AttendanceSummaryWidget } from "@/components/dashboard/AttendanceSummaryWidget";
 import { ServiceCard } from "@/components/dashboard/ServiceCard";
@@ -656,6 +656,7 @@ const WorkLogRow = memo(function WorkLogRow({ log, isOwnLog, canManager, canOwne
 
 export function WorkLogMobileCard(props: WorkLogRowProps) {
   const { log, isOwnLog, canManager, canOwner, canForceEndAndApprove, feedback, onEdit, onForceEndAndApprove, onApprove, onReject } = props;
+  const [expanded, setExpanded] = useState(false);
   const isPending = feedback?.kind === "pending";
   const hours = log.end_time ? durationHours(log.start_time, log.end_time) : null;
   const dateLabel = formatWorkLogDate(log.start_time);
@@ -668,8 +669,8 @@ export function WorkLogMobileCard(props: WorkLogRowProps) {
   const ownerStatus = log.owner_approved ? "approved" : log.owner_rejected ? "rejected" : "pending";
   const status: StatusKind = log.cancelled_at ? "cancelled" : log.is_locked ? "locked" : log.status === "active" ? "in_progress" : log.manager_rejected || log.owner_rejected ? "rejected" : log.status !== "completed" ? "pending" : "needs_action";
 
-  return <article className="space-y-3 rounded-2xl border border-line bg-surface p-4 shadow-sm transition-all hover:shadow-md dark:border-slate-800 dark:bg-slate-900">
-    <header className="flex items-center justify-between gap-3 border-b border-line pb-2 dark:border-slate-800">
+  return <article className={`rounded-2xl border border-line bg-surface shadow-sm transition-shadow hover:shadow-md dark:border-slate-800 dark:bg-slate-900 ${expanded ? "space-y-3 p-4" : "space-y-2 p-3"}`}>
+    <header className="flex items-center justify-between gap-3">
       <div className="flex min-w-0 items-center gap-2.5">
         <span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-sky-100 text-xs font-bold text-sky-800">{cleanerName.trim().split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase()}</span>
         <div className="min-w-0">
@@ -678,30 +679,40 @@ export function WorkLogMobileCard(props: WorkLogRowProps) {
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        <StatusBadge status={status} label={status === "pending" && log.status !== "completed" ? "Clock-out required" : undefined} className="text-[11px]" />
-        {canEditWorkLog(log) && <button type="button" aria-label={`Edit ${cleanerName} work log`} onClick={() => onEdit(log.id)} className="grid h-9 w-9 place-items-center rounded-lg text-ink-muted transition hover:bg-surface-secondary hover:text-ink dark:hover:bg-slate-800 dark:hover:text-white"><Pencil className="h-4 w-4" /></button>}
+        <StatusBadge status={status} label={status === "pending" && log.status !== "completed" ? "Clock-out required" : undefined} className="max-w-36 text-[11px]" />
+        {canEditWorkLog(log) && <button type="button" aria-label={`View or edit ${cleanerName} work log`} onClick={() => onEdit(log.id)} className="grid h-9 w-9 place-items-center rounded-lg text-ink-muted transition hover:bg-surface-secondary hover:text-ink dark:hover:bg-slate-800 dark:hover:text-white"><Pencil className="h-4 w-4" /></button>}
       </div>
     </header>
 
-    <div className="space-y-2.5">
-      <div className="flex items-center gap-2 text-sm text-ink-secondary dark:text-ink-muted">
+    <div className="min-w-0 border-t border-line pt-2 dark:border-slate-800">
+      <div className="flex min-w-0 items-center gap-2 text-sm text-ink-secondary dark:text-ink-muted">
         <Building2 className="h-4 w-4 shrink-0 text-ink-muted" />
-        <span className="min-w-0 flex-1 truncate font-medium">{hotelName} <span className="font-normal text-ink-muted">· {serviceName}</span></span>
+        <p className="min-w-0 flex-1 truncate font-medium text-ink">{hotelName}<span className="font-normal text-ink-muted"> · {serviceName}</span></p>
         <span className="shrink-0 rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] font-medium text-ink-secondary dark:bg-slate-800 dark:text-ink-muted">{roomCount} {roomCount === 1 ? "room" : "rooms"}</span>
       </div>
-      <div className="flex items-start gap-2 text-sm text-ink-secondary dark:text-ink-muted">
-        <Clock className="mt-0.5 h-4 w-4 shrink-0 text-ink-muted" />
-        <span className="min-w-0 flex-1">{dateLabel}</span>
-        <span className="shrink-0 rounded-lg bg-surface-secondary px-2 py-1 text-xs font-bold tabular-nums text-ink-secondary dark:bg-slate-800 dark:text-slate-200">{hours === null || !Number.isFinite(hours) ? "In progress" : `${hours.toFixed(2)} hrs`}</span>
+      <div className="mt-1.5 flex min-w-0 items-center gap-2 text-xs text-ink-secondary dark:text-ink-muted">
+        <Clock className="h-3.5 w-3.5 shrink-0 text-ink-muted" />
+        <span className="min-w-0 flex-1 truncate">{dateLabel}</span>
+        <span className="shrink-0 font-semibold tabular-nums text-ink-secondary dark:text-slate-200">{hours === null || !Number.isFinite(hours) ? "In progress" : `${hours.toFixed(2)} hrs`}</span>
       </div>
+      <button
+        type="button"
+        aria-expanded={expanded}
+        aria-controls={`work-log-details-${log.id}`}
+        onClick={() => setExpanded((current) => !current)}
+        className="mt-2 flex min-h-9 w-full items-center justify-between gap-2 border-t border-line pt-2 text-left text-xs font-semibold text-ink-secondary transition hover:text-accent dark:border-slate-800"
+      >
+        <span className="min-w-0 flex-1 truncate">{expanded ? "Hide review details" : `Review approvals · Manager ${managerStatus} · Owner ${ownerStatus}`}</span>
+        <ChevronDown aria-hidden="true" className={`h-4 w-4 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
+      </button>
     </div>
 
-    <div className="grid grid-cols-2 gap-2">
-      <ApprovalStatusPill label="Manager" status={managerStatus} />
-      <ApprovalStatusPill label="Owner" status={ownerStatus} />
-    </div>
-
-    <footer className="space-y-2 border-t border-line pt-3 dark:border-slate-800">
+    <div id={`work-log-details-${log.id}`} hidden={!expanded} className="space-y-3 border-t border-line pt-3 dark:border-slate-800">
+      <div className="grid grid-cols-2 gap-2">
+        <ApprovalStatusPill label="Manager" status={managerStatus} />
+        <ApprovalStatusPill label="Owner" status={ownerStatus} />
+      </div>
+      <footer className="space-y-2">
       {log.is_locked || bothApproved
         ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-xs font-semibold text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">Fully Approved</div>
         : log.status !== "completed"
@@ -715,9 +726,11 @@ export function WorkLogMobileCard(props: WorkLogRowProps) {
               {canOwner && !log.owner_approved && <ApprovalButtons label="Approve (Owner)" onApprove={() => onApprove(log.id, "owner")} onReject={(note) => onReject(log.id, "owner", note)} isPending={isPending} />}
               {canForceEndAndApprove && <button type="button" disabled={isPending} onClick={() => onForceEndAndApprove(log.id)} className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 text-sm font-semibold text-rose-900 disabled:opacity-60">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Finalizing..." : "Force End & Approve"}</button>}
               {!canManager && !canOwner && !canForceEndAndApprove && <p className="rounded-lg bg-surface-secondary px-3 py-2 text-center text-xs font-medium text-ink-secondary dark:bg-slate-800 dark:text-ink-muted">Awaiting approval.</p>}
-            </div>}
+            </div>
+      }
       {feedback && <p role={feedback.kind === "error" ? "alert" : "status"} className={`text-xs ${feedback.kind === "error" ? "font-medium text-rose-700" : feedback.kind === "success" ? "text-emerald-700" : "text-ink-muted"}`}>{feedback.text}</p>}
-    </footer>
+      </footer>
+    </div>
   </article>;
 }
 
