@@ -109,6 +109,17 @@ export async function GET() {
     console.error("Workforce shift notification query failed:", shiftEventsError.message);
     return NextResponse.json({ error: "Could not load workforce notifications." }, { status: 500 });
   }
+  const shiftEventIds = [...new Set((shiftEvents ?? []).map((notification) => notification.shift_event_id))];
+  const { data: shiftEventDetails, error: shiftEventDetailsError } = shiftEventIds.length
+    ? await supabase.from("workforce_shift_events")
+        .select("id, event_type, recorded_at")
+        .in("id", shiftEventIds)
+    : { data: [], error: null };
+  if (shiftEventDetailsError) {
+    console.error("Workforce shift event details lookup failed:", shiftEventDetailsError.message);
+    return NextResponse.json({ error: "Could not load workforce notification details." }, { status: 500 });
+  }
+  const shiftEventDetailsById = new Map((shiftEventDetails ?? []).map((event) => [event.id, event]));
   const { data: overtime, error: overtimeError } = await supabase
     .from("workforce_overtime_notifications")
     .select("id, source_type, source_id, title, body, is_read, created_at")
@@ -184,7 +195,14 @@ export async function GET() {
     incoming: (incoming ?? []).map((task) => ({ ...enrichTask(task), is_read: readTaskIds.has(task.id) })),
     outgoing: (outgoing ?? []).map(enrichTask),
     overdue,
-    shiftEvents: shiftEvents ?? [],
+    shiftEvents: (shiftEvents ?? []).map((notification) => {
+      const event = shiftEventDetailsById.get(notification.shift_event_id);
+      return {
+        ...notification,
+        event_type: event?.event_type ?? null,
+        clock_in_at: event?.event_type === "clock_in" ? event.recorded_at : null,
+      };
+    }),
     overtime: overtime ?? [],
     statusChanges: statusChanges ?? [],
   });

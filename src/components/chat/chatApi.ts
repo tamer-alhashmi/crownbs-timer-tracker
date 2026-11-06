@@ -45,7 +45,7 @@ export const fetchContacts = () =>
   request<{ contacts: ChatContact[] }>("/api/chat?view=contacts");
 
 export const fetchUnread = () =>
-  request<{ currentUserId: string; count: number; messages: UnreadMessage[] }>("/api/chat?view=unread");
+  request<{ currentUserId: string; count: number; messages: (UnreadMessage & { unread_count: number })[] }>("/api/chat?view=unread");
 
 export type TaskNotice = {
   id: string;
@@ -98,6 +98,8 @@ export type ShiftEventNotice = {
   body: string;
   is_read: boolean;
   created_at: string;
+  event_type?: string | null;
+  clock_in_at?: string | null;
 };
 
 export type OvertimeNotice = {
@@ -152,6 +154,12 @@ export const markTaskStatusNotificationRead = (statusNotificationId: string) =>
   request<{ success: true }>("/api/tasks/notifications/read", {
     method: "PATCH",
     body: JSON.stringify({ statusNotificationId }),
+  });
+
+export const markAllNotificationsRead = () =>
+  request<{ success: true }>("/api/tasks/notifications/read", {
+    method: "PATCH",
+    body: JSON.stringify({ markAll: true }),
   });
 
 export const fetchConversation = (contactId: string, channelId?: string) =>

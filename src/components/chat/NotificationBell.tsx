@@ -1,12 +1,12 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, Bell, Clock, Loader2, MapPin, MessageCircle, ShieldAlert, User } from "lucide-react";
+import { AlertCircle, Bell, Check, Clock, Loader2, MapPin, MessageCircle, ShieldAlert, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
-import { fetchTaskNotifications, fetchUnread, markOvertimeNotificationRead, markShiftEventNotificationRead, markTaskNotificationRead, markTaskStatusNotificationRead, type OverdueTaskNotice, type TaskNotice } from "./chatApi";
+import { fetchTaskNotifications, fetchUnread, markAllNotificationsRead, markOvertimeNotificationRead, markShiftEventNotificationRead, markTaskNotificationRead, markTaskStatusNotificationRead, type OverdueTaskNotice, type TaskNotice } from "./chatApi";
 import { useChatStore } from "./chatStore";
 import { roleLabel } from "@/lib/chat/types";
 import { UserAvatar } from "@/components/shared/UserAvatar";
@@ -38,6 +38,12 @@ function scheduledTime(value: string) {
   return new Intl.DateTimeFormat([], { dateStyle: "medium", timeStyle: "short" }).format(new Date(timestamp));
 }
 
+function clockInTime(value: string) {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return null;
+  return new Intl.DateTimeFormat([], { hour: "numeric", minute: "2-digit" }).format(new Date(timestamp));
+}
+
 function priorityStyle(priority: TaskNotice["priority"]) {
   if (priority === "urgent") return "bg-red-50 text-red-800";
   if (priority === "high") return "bg-amber-50 text-amber-900";
@@ -58,6 +64,7 @@ export function NotificationBell() {
   const [activeTaskWarning, setActiveTaskWarning] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [showPushHelp, setShowPushHelp] = useState(false);
+  const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
   const [popoverTop, setPopoverTop] = useState(0);
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -221,6 +228,30 @@ export function NotificationBell() {
     }
   };
 
+  const markAllRead = async () => {
+    setIsMarkingAllRead(true);
+    setTaskError("");
+    try {
+      await markAllNotificationsRead();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["chat", "unread"] }),
+        queryClient.invalidateQueries({ queryKey: ["chat", "contacts"] }),
+        queryClient.invalidateQueries({ queryKey: ["tasks", "notifications"] }),
+      ]);
+    } catch (error) {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["chat", "unread"] }),
+        queryClient.invalidateQueries({ queryKey: ["chat", "contacts"] }),
+        queryClient.invalidateQueries({ queryKey: ["tasks", "notifications"] }),
+      ]);
+      const message = safeChatError(error, "Unable to mark all notifications as read. Please try again.");
+      setTaskError(message);
+      showActionToast("error", message);
+    } finally {
+      setIsMarkingAllRead(false);
+    }
+  };
+
   const openAssignedTask = async (taskId: string) => {
     const task = incoming.find((item) => item.id === taskId);
     if (task && !task.is_read) await markTaskRead(taskId);
@@ -274,7 +305,20 @@ export function NotificationBell() {
                 {unreadCount} unread {unreadCount === 1 ? "notification" : "notifications"}
               </p>
             </div>
-            <MessageCircle className="h-4 w-4 text-emerald-700" />
+            <div className="flex items-center gap-2">
+              {unreadCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void markAllRead()}
+                  disabled={isMarkingAllRead}
+                  className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-accent/30 px-2.5 text-xs font-semibold text-accent transition hover:bg-accent/10 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {isMarkingAllRead ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                  {isMarkingAllRead ? "Marking..." : "Mark all as read"}
+                </button>
+              )}
+              <MessageCircle className="h-4 w-4 text-emerald-700" />
+            </div>
           </div>
           {pushPermission === "denied" && (
             <div className="border-b border-amber-200 bg-amber-50 px-4 py-3">
@@ -294,10 +338,10 @@ export function NotificationBell() {
             <>
             {taskQuery.error && <p role="alert" className="px-4 py-3 text-sm text-rose-600">{safeChatError(taskQuery.error, "Task notifications could not be loaded. Please try again.")}</p>}
             {taskError && <p role="alert" className="mx-2 mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{taskError}</p>}
-            {overdue.length > 0 && (
+            {unreadOverdue.length > 0 && (
               <div className="border-b border-rose-100 bg-rose-50/40 p-2">
                 <p className="px-2 py-1 text-xs font-bold uppercase tracking-wide text-rose-800">Overdue task alerts</p>
-                {overdue.map((alert: OverdueTaskNotice) => (
+                {unreadOverdue.map((alert: OverdueTaskNotice) => (
                   <article key={alert.id} className={`mb-2 rounded-lg border bg-white p-3 shadow-sm ${alert.is_read ? "border-rose-100" : "border-rose-300"}`}>
                     <h3 className="text-sm font-bold text-rose-800">⚠️ {alert.title}</h3>
                     <p className="mt-1 text-xs font-semibold text-slate-900">{alert.hotel_name} · {alert.task_title}</p>
@@ -311,15 +355,20 @@ export function NotificationBell() {
                 ))}
               </div>
             )}
-            {shiftEvents.length > 0 && (
+            {unreadShiftEvents.length > 0 && (
               <div className="border-b border-line p-2">
                 <p className="px-2 py-1 text-xs font-bold uppercase tracking-wide text-ink-secondary">Workforce attendance</p>
-                {shiftEvents.map((event) => (
+                {unreadShiftEvents.map((event) => (
                   <article key={event.id} className={`mb-2 rounded-lg border p-3 ${event.severity === "high" ? "border-rose-500/30 bg-rose-500/5" : "border-line bg-surface-secondary"}`}>
                     <h3 className={`flex items-center gap-2 text-sm font-bold ${event.severity === "high" ? "text-rose-700 dark:text-rose-300" : "text-ink"}`}>
                       {event.severity === "high" ? <ShieldAlert className="h-4 w-4" /> : <Clock className="h-4 w-4" />}{event.title}
                     </h3>
                     <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-ink-secondary">{event.body}</p>
+                    {event.clock_in_at && (
+                      <p className="mt-1.5 text-xs font-semibold text-ink">
+                        Clocked in at <time dateTime={event.clock_in_at}>{clockInTime(event.clock_in_at) ?? "time unavailable"}</time>
+                      </p>
+                    )}
                     <div className="mt-2 flex items-center justify-between gap-2">
                       <time className="text-[11px] text-ink-muted" dateTime={event.created_at}>{relativeDispatchTime(event.created_at)}</time>
                       {!event.is_read && <button type="button" onClick={() => void markShiftEventRead(event.id)} className="min-h-8 rounded-lg border border-line px-2.5 text-xs font-semibold text-ink-secondary hover:bg-surface">Mark read</button>}
@@ -328,10 +377,10 @@ export function NotificationBell() {
                 ))}
               </div>
             )}
-            {overtimeAlerts.length > 0 && (
+            {unreadOvertimeAlerts.length > 0 && (
               <div className="border-b border-amber-500/20 bg-amber-500/5 p-2">
                 <p className="px-2 py-1 text-xs font-bold uppercase tracking-wide text-amber-800 dark:text-amber-200">12-hour overtime</p>
-                {overtimeAlerts.map((alert) => (
+                {unreadOvertimeAlerts.map((alert) => (
                   <article key={alert.id} className={`mb-2 rounded-lg border p-3 ${alert.is_read ? "border-line bg-surface" : "border-amber-500/30 bg-surface-secondary"}`}>
                     <h3 className="flex items-center gap-2 text-sm font-bold text-amber-800 dark:text-amber-200"><Clock className="h-4 w-4" />{alert.title}</h3>
                     <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-ink-secondary">{alert.body}</p>
@@ -343,10 +392,10 @@ export function NotificationBell() {
                 ))}
               </div>
             )}
-            {statusChanges.length > 0 && (
+            {unreadStatusChanges.length > 0 && (
               <div className="border-b border-line p-2">
                 <p className="px-2 py-1 text-xs font-bold uppercase tracking-wide text-ink-secondary">Task status updates</p>
-                {statusChanges.map((change) => (
+                {unreadStatusChanges.map((change) => (
                   <article key={change.id} className={`mb-2 rounded-lg border p-3 ${change.is_read ? "border-line bg-surface" : "border-accent/30 bg-surface-secondary"}`}>
                     <h3 className="text-sm font-bold text-ink">{change.title}</h3>
                     <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-ink-secondary">{change.body}</p>
@@ -361,10 +410,10 @@ export function NotificationBell() {
                 ))}
               </div>
             )}
-            {incoming.length > 0 && (
+            {unreadAssignments.length > 0 && (
               <div className="border-b border-slate-100 p-2">
                 <p className="px-2 py-1 text-xs font-bold uppercase tracking-wide text-slate-500">Assigned tasks</p>
-                {incoming.map((task) => (
+                {unreadAssignments.map((task) => (
                   <article key={task.id} className={`mb-2 rounded-lg border bg-white p-3 transition hover:bg-slate-50 ${task.is_read ? "border-slate-100" : "border-sky-200"}`}>
                     <div className="flex items-start justify-between gap-2">
                       <h3 className="min-w-0 text-sm font-semibold text-slate-900">{task.service_name_snapshot ?? "Assigned task"}</h3>
@@ -448,10 +497,17 @@ export function NotificationBell() {
                       <span className="ml-1 text-slate-500">· {roleLabel(message.sender.role)}</span>
                     </span>
                   </span>
+                  <span
+                    aria-label={`${message.unread_count} unread messages`}
+                    title={`${message.unread_count} unread messages`}
+                    className="mt-1 inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 px-1.5 text-[10px] font-bold text-emerald-800"
+                  >
+                    {message.unread_count > 99 ? "99+" : message.unread_count}
+                  </span>
                 </button>
               ))}
             </div>
-            ) : incoming.length === 0 && outgoing.length === 0 ? (
+            ) : unreadCount === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-slate-600">You’re all caught up.</p>
             ) : null}
             </>

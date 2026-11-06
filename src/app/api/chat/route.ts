@@ -215,6 +215,27 @@ export async function GET(request: NextRequest) {
           : null;
       })
       .filter((message) => message !== null);
+    const unreadCountsBySender = await Promise.all([...new Set(messages.map((message) => message.sender_id))].map(async (senderId) => {
+      const { count: senderUnreadCount, error: senderCountError } = await supabase
+        .from("messages")
+        .select("id", { count: "exact", head: true })
+        .eq("receiver_id", currentUserId)
+        .eq("sender_id", senderId)
+        .eq("is_read", false);
+      if (senderCountError) {
+        console.error("[Chat System Error]:", senderCountError);
+        return null;
+      }
+      return [senderId, senderUnreadCount ?? 0] as const;
+    }));
+    if (unreadCountsBySender.some((item) => item === null)) return apiError("Could not load unread message counts.", 500);
+    const unreadCountBySender = new Map(
+      unreadCountsBySender.filter((item): item is readonly [string, number] => item !== null)
+    );
+    const messagesWithUnreadCounts = messages.map((message) => ({
+      ...message,
+      unread_count: unreadCountBySender.get(message.sender_id) ?? 0,
+    }));
     const { data: memberships, error: membershipsError } = await supabase
       .from("chat_channel_members")
       .select("channel_id, last_read_at")
@@ -238,7 +259,7 @@ export async function GET(request: NextRequest) {
     }));
     if (groupUnreadCounts.some((item) => item === null)) return apiError("Could not load group notifications.", 500);
     const groupUnreadCount = groupUnreadCounts.reduce<number>((total, value) => total + (value ?? 0), 0);
-    return NextResponse.json({ currentUserId, count: (count ?? 0) + groupUnreadCount, messages });
+    return NextResponse.json({ currentUserId, count: (count ?? 0) + groupUnreadCount, messages: messagesWithUnreadCounts });
   }
 
   if (view === "history") {
