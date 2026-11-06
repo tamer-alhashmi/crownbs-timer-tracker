@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } f
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
-import { ClipboardCheck, Loader2, Plus, X } from "lucide-react";
+import { ChevronDown, ClipboardCheck, Loader2, Plus, X } from "lucide-react";
 import { dispatchTask, type getTaskDispatchData } from "./taskActions";
 import type { UserRole } from "@/lib/roles";
 import { TaskManagementDialog } from "./TaskManagementDialog";
@@ -29,6 +29,7 @@ type Props = {
   rooms: { id: string; hotel_id: string; room_name: string; category: string; floor_section: string | null }[];
   tasks: Awaited<ReturnType<typeof getTaskDispatchData>>["tasks"];
   stats: { pending: number; active: number; completedToday: number };
+  compact?: boolean;
 };
 
 const schema = z.object({
@@ -78,8 +79,9 @@ const priorities = [
   { value: "urgent", label: "Urgent / Critical", classes: "border border-rose-500/30 bg-rose-500/10 font-semibold text-rose-400" },
 ] as const;
 
-export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks, stats }: Props) {
+export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks, stats, compact = false }: Props) {
   const [isOpen, setIsOpen] = useState(false);
+  const [queueExpanded, setQueueExpanded] = useState(false);
   const [taskListStatus, setTaskListStatus] = useState<"assigned" | "active" | "completed" | null>(null);
   const [notice, setNotice] = useState("");
   const [photo, setPhoto] = useState<File | null>(null);
@@ -224,21 +226,38 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
     }
   }));
 
+  const assignTaskButton = <button type="button" onClick={() => { setNotice(""); setIsOpen(true); }} disabled={!hotels.length} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-accent px-4 text-sm font-bold text-white shadow-sm transition hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:border disabled:border-line disabled:bg-surface-secondary disabled:text-ink-muted disabled:shadow-none">
+    <Plus className="h-4 w-4" /> Assign Task
+  </button>;
+  const taskStats = <>
+    <Stat label="Pending" value={stats.pending} tone="amber" onClick={() => setTaskListStatus("assigned")} />
+    <Stat label="Active" value={stats.active} tone="blue" onClick={() => setTaskListStatus("active")} />
+    <Stat label="Completed today" value={stats.completedToday} tone="emerald" onClick={() => setTaskListStatus("completed")} />
+  </>;
+
   return (
     <section className="rounded-3xl border border-line bg-surface p-5 shadow-sm sm:p-6">
-      <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-accent">Quick task dispatch</p>
-          <h2 className="mt-1 text-xl font-bold text-ink">Keep work moving</h2>
-          <p className="mt-1 text-sm text-ink-secondary">Assign hotel work directly to the right person. New tasks stay pending until started.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Stat label="Pending" value={stats.pending} tone="amber" onClick={() => setTaskListStatus("assigned")} />
-          <Stat label="Active" value={stats.active} tone="blue" onClick={() => setTaskListStatus("active")} />
-          <Stat label="Completed today" value={stats.completedToday} tone="emerald" onClick={() => setTaskListStatus("completed")} />
-          <button type="button" onClick={() => { setNotice(""); setIsOpen(true); }} disabled={!hotels.length} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-accent px-5 text-sm font-bold text-white shadow-sm transition hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:border disabled:border-line disabled:bg-surface-secondary disabled:text-ink-muted disabled:shadow-none">
-            <Plus className="h-4 w-4" /> Assign Task
-          </button>
+      {compact && <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+        <button type="button" aria-expanded={queueExpanded} aria-controls="overview-dispatch-queue" onClick={() => setQueueExpanded((value) => !value)} className="flex min-h-12 min-w-0 flex-1 items-center justify-between gap-3 rounded-xl text-left">
+          <span className="min-w-0">
+            <span className="block text-xs font-bold uppercase tracking-[0.16em] text-accent">Quick task dispatch</span>
+            <span className="mt-1 block truncate text-sm font-semibold text-ink">Pending {stats.pending} · Active {stats.active} · Completed today {stats.completedToday}</span>
+          </span>
+          <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-ink-secondary">{queueExpanded ? "Hide queue" : "View queue"}<ChevronDown aria-hidden="true" className={`h-4 w-4 transition-transform ${queueExpanded ? "rotate-180" : ""}`} /></span>
+        </button>
+        {assignTaskButton}
+      </div>}
+      <div id={compact ? "overview-dispatch-queue" : undefined} hidden={compact && !queueExpanded}>
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+          <div>
+            {!compact && <p className="text-xs font-bold uppercase tracking-[0.16em] text-accent">Quick task dispatch</p>}
+            <h2 className="mt-1 text-xl font-bold text-ink">{compact ? "Task queue" : "Keep work moving"}</h2>
+            <p className="mt-1 text-sm text-ink-secondary">Assign hotel work directly to the right person. New tasks stay pending until started.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {taskStats}
+            {!compact && assignTaskButton}
+          </div>
         </div>
       </div>
       {notice && (notice.startsWith("Task assigned")
@@ -348,6 +367,6 @@ function Field({ label, error, children }: { label: string; error?: string; chil
 }
 
 function Stat({ label, value, tone, onClick }: { label: string; value: number; tone: "amber" | "blue" | "emerald"; onClick: () => void }) {
-  const colors = { amber: "bg-amber-50 text-amber-900 ring-amber-200", blue: "bg-accent/10 text-accent ring-accent/30", emerald: "bg-emerald-50 text-emerald-900 ring-emerald-200" };
+  const colors = { amber: "bg-amber-500/10 text-amber-800 ring-amber-500/25 dark:text-amber-300", blue: "bg-accent/10 text-accent ring-accent/30", emerald: "bg-emerald-500/10 text-emerald-800 ring-emerald-500/25 dark:text-emerald-300" };
   return <button type="button" onClick={onClick} aria-label={`Open ${label} tasks`} className={`min-w-24 cursor-pointer rounded-xl px-3 py-2 text-center ring-1 transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-700 ${colors[tone]}`}><p className="text-lg font-bold leading-5">{value}</p><p className="mt-1 whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide">{label}</p></button>;
 }

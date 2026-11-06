@@ -46,13 +46,13 @@ export function ActiveAssignedTaskCard({ task }: { task: ActiveAssignedTaskDetai
     }
   });
 
-  return <section aria-label="Active task" className="rounded-3xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm sm:p-5">
+  return <section aria-label="Active task" className="rounded-3xl border border-emerald-500/25 bg-emerald-500/5 p-4 shadow-sm sm:p-5">
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div className="min-w-0">
-        <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-700">Active task</p>
-        <h2 className="mt-1 text-lg font-bold text-emerald-950">{task.name}</h2>
-        <p className="mt-1 text-sm text-emerald-800">{task.hotelName}{task.roomLabel ? ` · ${task.roomLabel}` : ""}</p>
-        <p className="mt-1 text-xs font-medium text-emerald-800">Running · {elapsed(task.startTime, now)}</p>
+        <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-700 dark:text-emerald-300">Active task</p>
+        <h2 className="mt-1 text-lg font-bold text-ink">{task.name}</h2>
+        <p className="mt-1 text-sm text-ink-secondary">{task.hotelName}{task.roomLabel ? ` · ${task.roomLabel}` : ""}</p>
+        <p className="mt-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">Running · {elapsed(task.startTime, now)}</p>
         {message && <ActionErrorMessage error={message} className="mt-2" />}
       </div>
       <button type="button" onClick={endTask} disabled={isPending} className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-wait disabled:opacity-60">

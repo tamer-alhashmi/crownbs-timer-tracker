@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Activity, Building2, Check, ChevronDown, CircleDollarSign, ClipboardList, Clock, Gauge, History, Loader2, Pencil, UsersRound, X, Wallet, Columns3, Filter, Search, CreditCard, ShieldAlert } from "lucide-react";
+import { Activity, ArrowUpRight, Building2, Check, ChevronDown, CircleDollarSign, ClipboardList, Clock, Gauge, History, Loader2, Pencil, UsersRound, X, Wallet, Columns3, Filter, Search, CreditCard, ShieldAlert } from "lucide-react";
 import { OperationalBrief } from "@/components/dashboard/OperationalBrief";
 import { AttendanceSummaryWidget } from "@/components/dashboard/AttendanceSummaryWidget";
 import { ServiceCard } from "@/components/dashboard/ServiceCard";
@@ -140,6 +140,7 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
   const [message, setMessage] = useState("");
   const [approvalFeedback, setApprovalFeedback] = useState<Record<string, ApprovalFeedback>>({});
   const [approvalOverrides, setApprovalOverrides] = useState<Record<string, Partial<Log>>>({});
+  const [showAdditionalOverviewMetrics, setShowAdditionalOverviewMetrics] = useState(false);
   const [workLogPage, setWorkLogPage] = useUrlPage(RECORDS_PER_PAGE);
   const [serverWorkLogResult, setServerWorkLogResult] = useState<{ key: string; result: Awaited<ReturnType<typeof getManagementWorkLogPage>> } | null>(null);
   const [serverWorkLogFailure, setServerWorkLogFailure] = useState<{ key: string; message: string } | null>(null);
@@ -277,6 +278,17 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
     const url = new URL(window.location.href);
     url.searchParams.set("tab", tab);
     setActiveTab(tab);
+    window.history.replaceState(window.history.state, "", url);
+  };
+  const openWorkLogs = (status?: string, needsAction = false) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", "work-logs");
+    url.searchParams.set("page", "1");
+    if (status) url.searchParams.set("status", status);
+    else url.searchParams.delete("status");
+    if (needsAction) url.searchParams.set("needsAction", "true");
+    else url.searchParams.delete("needsAction");
+    setActiveTab("work-logs");
     window.history.replaceState(window.history.state, "", url);
   };
   const run = (operation: () => Promise<unknown>, success = "Saved.") => startTransition(async () => {
@@ -424,7 +436,7 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
       <main className="mx-auto min-w-0 max-w-[1600px] space-y-4 px-gutter pb-[calc(env(safe-area-inset-bottom,0px)+5rem)] pt-4 sm:p-6 md:ml-64 md:pb-6 lg:p-8">
         {message && <p className="rounded-lg border border-line bg-surface px-4 py-3 text-sm text-ink-secondary shadow-sm" role="status">{message}</p>}
         <section id="panel-overview" role="tabpanel" aria-labelledby="tab-overview" hidden={activeTab !== "overview"} className="space-y-5">
-          {["owner", "manager"].includes(data.userRole) && <AttendanceSummaryWidget {...data.attendance} />}
+          {["owner", "manager"].includes(data.userRole) && <AttendanceSummaryWidget {...data.attendance} compact onOpenOperations={() => selectTab("operations")} />}
           {data.userRole === "manager" && (() => {
             const task = data.activeTasks.find((item) => item.user_id === data.currentUserId && item.status === "active" && !item.end_time);
             return task ? <ActiveAssignedTaskCard task={{
@@ -437,35 +449,36 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
               startTime: task.start_time,
             }} /> : null;
           })()}
-          {dispatchData && <TaskDispatchClient role={data.userRole as UserRole} {...dispatchData} />}
-          {tenantIntelligence}
+          {dispatchData && <TaskDispatchClient role={data.userRole as UserRole} {...dispatchData} compact />}
+          {tenantIntelligence && <OverviewDisclosure
+            id="overview-intelligence-details"
+            title="Business & staff intelligence"
+            description="Portfolio activity, workforce insights, and performance."
+            actionLabel="View insights"
+          >
+            {tenantIntelligence}
+          </OverviewDisclosure>}
           <DashboardHeading title="Executive overview" description="Portfolio performance, approvals, and operating costs at a glance." />
-          <section className="grid grid-cols-2 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <Metric label="Properties" value={data.hotels.length} icon={Building2} tone="sky" />
-            <Metric label="Total work logs" value={dashboardSummary.totalLogs} icon={ClipboardList} tone="violet" />
-            <Metric label="Completed work logs" value={dashboardSummary.completedLogs} icon={ClipboardList} tone="emerald" />
-            <Metric label="Awaiting approval" value={dashboardSummary.awaitingApprovalLogs} icon={ShieldAlert} tone="amber" />
-            <Metric label="Active cleaners" value={activeCleanerCount} icon={UsersRound} tone="violet" />
-            <Metric label="Operational labor cost" value={formatGBP(totalLaborCost)} icon={CircleDollarSign} tone="violet" />
-            <Metric label="Cost per cleaned room" value={formatGBP(completedRooms ? totalLaborCost / completedRooms : 0)} icon={CircleDollarSign} tone="sky" />
-            <Metric label="Locked payroll liability*" value={formatGBP(lockedPayrollLiability)} icon={Wallet} tone="amber" />
-            <Metric label="Service costs · brief period" value={formatGBP(periodServiceCost)} icon={CircleDollarSign} tone="emerald" />
-          </section>
-          <section aria-label="Live staff activity" className="rounded-2xl border border-emerald-100 bg-surface p-4 shadow-sm">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-sm font-semibold text-ink">Live staff activity</h2>
-              {data.activeShifts.length === 0 ? (
-                <span className="text-sm text-ink-muted">No cleaners are currently on shift.</span>
-              ) : (
-                data.activeShifts.map((shift) => (
-                  <span key={shift.id} className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-sm">
-                    <span className="font-medium text-ink-secondary">{shift.cleanerName}</span>
-                    <LiveStatusIndicator isClockedIn showLabel={false} />
-                  </span>
-                ))
-              )}
+          <section aria-label="Executive metrics" className="space-y-3">
+            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+              <Metric label="Properties" value={data.hotels.length} icon={Building2} tone="sky" href={["super_admin", "admin", "owner"].includes(data.userRole) ? "/settings?tab=properties" : undefined} />
+              <Metric label="Total work logs" value={dashboardSummary.totalLogs} icon={ClipboardList} tone="violet" onClick={() => openWorkLogs()} />
+              <Metric label="Awaiting approval" value={dashboardSummary.awaitingApprovalLogs} icon={ShieldAlert} tone="amber" onClick={() => openWorkLogs(undefined, true)} />
+              <Metric label="Active cleaners" value={activeCleanerCount} icon={UsersRound} tone="violet" onClick={() => selectTab("operations")} />
             </div>
+            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4" hidden={!showAdditionalOverviewMetrics}>
+              <Metric label="Completed work logs" value={dashboardSummary.completedLogs} icon={ClipboardList} tone="emerald" onClick={() => openWorkLogs("Completed")} />
+              <Metric label="Operational labor cost" value={formatGBP(totalLaborCost)} icon={CircleDollarSign} tone="violet" onClick={() => selectTab("financials")} />
+              <Metric label="Cost per cleaned room" value={formatGBP(completedRooms ? totalLaborCost / completedRooms : 0)} icon={CircleDollarSign} tone="sky" onClick={() => selectTab("financials")} />
+              <Metric label="Locked payroll liability*" value={formatGBP(lockedPayrollLiability)} icon={Wallet} tone="amber" onClick={() => selectTab("financials")} />
+              <Metric label="Service costs · brief period" value={formatGBP(periodServiceCost)} icon={CircleDollarSign} tone="emerald" onClick={() => selectTab("financials")} />
+            </div>
+            <button type="button" aria-expanded={showAdditionalOverviewMetrics} onClick={() => setShowAdditionalOverviewMetrics((visible) => !visible)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-line bg-surface px-3 text-sm font-semibold text-ink-secondary transition hover:border-accent/40 hover:bg-surface-secondary hover:text-ink">
+              {showAdditionalOverviewMetrics ? "Show fewer metrics" : "Show 5 more metrics"}
+              <ChevronDown aria-hidden="true" className={`h-4 w-4 transition-transform ${showAdditionalOverviewMetrics ? "rotate-180" : ""}`} />
+            </button>
           </section>
+          <LiveStaffActivity shifts={data.activeShifts} onOpen={() => selectTab("operations")} />
           <p className="payroll-disclaimer text-xs leading-5">*Payroll settlement status is not stored in the current data model. This figure is the value of locked payroll records, not a verified unpaid balance.</p>
           <section className="rounded-3xl bg-surface p-4 shadow-sm ring-1 ring-line sm:p-6">
             <DashboardHeading title="Operational brief" description={`Operating summary · ${data.brief.periodLabel}`} />
@@ -501,7 +514,7 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
             services={data.services.map(({ id, name }) => ({ id, name }))}
             tenants={data.propertyAssignees.filter((assignee) => assignee.role === "owner").map(({ id, name }) => ({ id, name }))}
             workers={cleanerOptions}
-            statuses={["Active", "Approved", "Pending approval", "Rejected", "Cancelled"]}
+            statuses={["Active", "Completed", "Approved", "Pending approval", "Rejected", "Cancelled"]}
             showTenants={data.userRole === "super_admin"}
             showWorkers={data.userRole !== "owner"}
             label="Work log filters"
@@ -511,8 +524,8 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
             <label className="text-xs font-semibold text-ink-secondary">Sort by<select value={sortColumn} onChange={(event) => changeWorkFilters({ sort: event.target.value })} className="mt-1 min-h-10 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink-secondary"><option value="date">Date</option><option value="cleaner">Cleaner</option><option value="hotel">Property</option><option value="service">Service</option><option value="status">Status</option></select></label>
             <label className="flex min-h-10 items-center gap-2 self-end rounded-lg border border-line px-3 text-xs font-semibold text-ink-secondary"><input type="checkbox" checked={sortAscending} onChange={(event) => changeWorkFilters({ ascending: event.target.checked ? "true" : "" })} className="h-4 w-4 accent-sky-700" />Ascending</label>
           </WorkspaceFilterBar>
-    <section className="rounded-2xl border border-line bg-surface p-4 shadow-sm sm:p-5">
-      <div id="work-logs-mobile-list" className="work-logs-mobile-list space-y-3">
+    <section className="min-w-0 max-w-full rounded-2xl border border-line bg-surface p-4 shadow-sm sm:p-5">
+      <div id="work-logs-mobile-list" className="work-logs-mobile-list min-w-0 w-full space-y-3">
         {visibleWorkLogs.length > 0
           ? visibleWorkLogs.map((log) => <WorkLogMobileCard key={log.id} {...workLogRowProps(log)} />)
           : <p className="rounded-xl border border-line bg-surface-secondary p-4 text-center text-sm text-ink-muted">No logs match your filter criteria.</p>}
@@ -728,7 +741,7 @@ export function WorkLogMobileCard(props: WorkLogRowProps) {
   const ownerStatus = log.owner_approved ? "approved" : log.owner_rejected ? "rejected" : "pending";
   const status: StatusKind = log.cancelled_at ? "cancelled" : log.is_locked ? "locked" : log.status === "active" ? "in_progress" : log.manager_rejected || log.owner_rejected ? "rejected" : log.status !== "completed" ? "pending" : "needs_action";
 
-  return <article className={`rounded-2xl border border-line bg-surface shadow-sm transition-shadow hover:shadow-md dark:border-slate-800 dark:bg-slate-900 ${expanded ? "space-y-3 p-4" : "space-y-2 p-3"}`}>
+  return <article className={`w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-line bg-surface shadow-sm transition-shadow hover:shadow-md dark:border-slate-800 dark:bg-slate-900 ${expanded ? "space-y-3 p-4" : "space-y-2 p-3"}`}>
     <header className="flex items-center justify-between gap-3">
       <div className="flex min-w-0 items-center gap-2.5">
         <span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-sky-100 text-xs font-bold text-sky-800">{cleanerName.trim().split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase()}</span>
@@ -830,20 +843,92 @@ function ApprovalButtons({ label, onApprove, onReject, isPending }: { label: str
     </div>}
   </div>;
 }
-function Metric({ label, value, icon: Icon, tone }: { label: string; value: number | string; icon: LucideIcon; tone: "sky" | "emerald" | "amber" | "violet" }) {
+function Metric({ label, value, icon: Icon, tone, href, onClick }: { label: string; value: number | string; icon: LucideIcon; tone: "sky" | "emerald" | "amber" | "violet"; href?: string; onClick?: () => void }) {
   const iconTone = {
-    sky: "bg-sky-50 text-sky-700",
-    emerald: "bg-emerald-50 text-emerald-700",
-    amber: "bg-amber-50 text-amber-700",
-    violet: "bg-violet-50 text-violet-700",
+    sky: "bg-sky-500/10 text-sky-700 dark:text-sky-300",
+    emerald: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    amber: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+    violet: "bg-violet-500/10 text-violet-700 dark:text-violet-300",
   }[tone];
-  return <article className="min-w-0 rounded-xl border border-line bg-surface p-3 shadow-sm sm:p-5">
-    <div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="text-xs font-medium text-ink-muted sm:text-sm">{label}</p><p className="mt-2 truncate text-lg font-semibold tabular-nums text-ink sm:text-2xl">{value}</p></div><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg sm:h-9 sm:w-9 ${iconTone}`}><Icon className="h-4 w-4" /></span></div>
-  </article>;
+  const className = `group block min-w-0 rounded-xl border border-line bg-surface p-3 text-left shadow-sm transition sm:p-4 ${href || onClick ? "cursor-pointer hover:-translate-y-0.5 hover:border-accent/50 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent" : ""}`;
+  const content = <>
+    <div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="text-xs font-medium text-ink-muted sm:text-sm">{label}</p><p className="mt-1.5 truncate text-lg font-semibold tabular-nums text-ink sm:text-2xl">{value}</p></div><span className={`relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg sm:h-9 sm:w-9 ${iconTone}`}><Icon className={`h-4 w-4 transition-opacity ${href || onClick ? "group-hover:opacity-0 group-focus-visible:opacity-0" : ""}`} />{(href || onClick) && <ArrowUpRight aria-hidden="true" className="absolute h-4 w-4 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />}</span></div>
+  </>;
+  if (href) return <Link href={href} aria-label={`${label}: ${value}. Open related settings.`} className={className}>{content}</Link>;
+  if (onClick) return <button type="button" onClick={onClick} aria-label={`${label}: ${value}. Open related dashboard.`} className={className}>{content}</button>;
+  return <article className={className}>{content}</article>;
+}
+
+function OverviewDisclosure({ id, title, description, actionLabel, children }: { id: string; title: string; description: string; actionLabel: string; children: ReactNode }) {
+  const [expanded, setExpanded] = useState(false);
+  return <section className="overflow-hidden rounded-2xl border border-line bg-surface shadow-sm">
+    <button type="button" aria-expanded={expanded} aria-controls={id} onClick={() => setExpanded((value) => !value)} className="flex min-h-16 w-full items-center justify-between gap-3 p-4 text-left transition hover:bg-surface-secondary">
+      <span className="min-w-0"><span className="block truncate text-sm font-semibold text-ink">{title}</span><span className="mt-0.5 block text-xs text-ink-secondary">{description}</span></span>
+      <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-accent">{expanded ? "Collapse" : actionLabel}<ChevronDown aria-hidden="true" className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`} /></span>
+    </button>
+    <div id={id} hidden={!expanded} className="border-t border-line">{expanded ? children : null}</div>
+  </section>;
+}
+
+function LiveStaffActivity({ shifts, onOpen }: { shifts: Props["data"]["activeShifts"]; onOpen: () => void }) {
+  const [showAll, setShowAll] = useState(false);
+  const visibleShifts = showAll ? shifts : shifts.slice(0, 3);
+  return <section aria-label="Live staff activity" className="rounded-2xl border border-emerald-500/20 bg-surface p-4 shadow-sm">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <h2 className="text-sm font-semibold text-ink">Live staff activity</h2>
+        <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">{shifts.length} on shift</span>
+      </div>
+      <button type="button" onClick={onOpen} className="inline-flex min-h-9 shrink-0 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-accent hover:bg-accent/10">View operations<ArrowUpRight aria-hidden="true" className="h-3.5 w-3.5" /></button>
+    </div>
+    {shifts.length === 0
+      ? <p className="mt-2 text-sm text-ink-muted">No cleaners are currently on shift.</p>
+      : <div className="mt-3 flex flex-wrap items-center gap-2">
+        {visibleShifts.map((shift) => <span key={shift.id} className="inline-flex items-center gap-2 rounded-full bg-emerald-500/10 px-3 py-1.5 text-sm">
+          <span className="font-medium text-ink-secondary">{shift.cleanerName}</span>
+          <LiveStatusIndicator isClockedIn showLabel={false} />
+        </span>)}
+        {shifts.length > 3 && <button type="button" onClick={() => setShowAll((value) => !value)} className="min-h-8 rounded-full border border-line px-3 text-xs font-semibold text-ink-secondary hover:bg-surface-secondary">{showAll ? "Show fewer" : `+${shifts.length - 3} more`}</button>}
+      </div>}
+  </section>;
 }
 type AuditColumnId = "date" | "workerFacility" | "owner" | "manager" | "snapshot" | "service" | "status" | "hours" | "value" | "approvals" | "room";
 type AuditFilter = { selected?: string[]; from?: string; to?: string; min?: string; max?: string };
 type AuditColumn = { id: AuditColumnId; label: string };
+
+function AuditHistoryRow({ log, columns, cells, onOpen }: {
+  log: Log;
+  columns: AuditColumn[];
+  cells: Record<AuditColumnId, ReactNode>;
+  onOpen: (log: Log) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const dateLabel = new Date(log.start_time).toLocaleString("en-GB", {
+    timeZone: "Africa/Cairo",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  return <tr className={`audit-history-row align-top hover:bg-surface-secondary ${expanded ? "audit-history-row-expanded" : ""}`}>
+    <td className="audit-mobile-summary">
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <div className="min-w-0">
+          <button type="button" onClick={() => onOpen(log)} className="audit-history-date text-left text-sm font-semibold underline decoration-transparent underline-offset-2 transition-colors hover:decoration-current focus:decoration-current">{dateLabel}</button>
+          <p className="mt-1 truncate text-sm font-medium text-ink">{log.cleanerName}</p>
+          <p className="truncate text-xs text-ink-muted">{log.hotelName}</p>
+        </div>
+        <button type="button" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)} className="inline-flex min-h-9 shrink-0 items-center gap-1 rounded-lg border border-line bg-surface px-2.5 text-xs font-semibold text-ink-secondary hover:bg-surface-secondary">
+          {expanded ? "Hide details" : "Details"}
+          <ChevronDown aria-hidden="true" className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`} />
+        </button>
+      </div>
+    </td>
+    {columns.map((column) => <td key={column.id} data-label={column.label} className="max-w-64 whitespace-nowrap px-3 py-3 text-ink-secondary">{cells[column.id]}</td>)}
+  </tr>;
+}
 
 const AUDIT_COLUMNS: AuditColumn[] = [
   { id: "date", label: "Task date/time" },
@@ -1149,7 +1234,7 @@ function SnapshotTransparency({ filterOptions, onOpen }: { filterOptions: Snapsh
             approvals: approvalSummary(log),
             room: logRoomReference(log),
           };
-          return <tr key={log.id} className="align-top hover:bg-surface-secondary">{visibleColumns.map((column) => <td key={column.id} data-label={column.label} className="max-w-64 whitespace-nowrap px-3 py-3 text-ink-secondary">{cells[column.id]}</td>)}</tr>;
+          return <AuditHistoryRow key={log.id} log={log} columns={visibleColumns} cells={cells} onOpen={onOpen} />;
         })}{loadedHistory && visibleLogs.length === 0 && <tr><td colSpan={visibleColumns.length} className="px-3 py-8 text-center text-ink-muted">No work-log snapshots match these filters.</td></tr>}</tbody>
         <tfoot><tr className="font-semibold text-ink"><td colSpan={visibleColumns.length} className="px-3 py-3">Filtered audit records <span className="float-right tabular-nums">{totalCount}</span></td></tr></tfoot>
       </table>

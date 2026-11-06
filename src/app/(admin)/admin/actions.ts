@@ -392,6 +392,7 @@ export async function getManagementWorkLogPage(request: ManagementWorkLogPageReq
     if (request.needsAction) query = query.eq("status", "completed").eq("is_locked", false).eq("manager_rejected", false).eq("owner_rejected", false);
     if (request.status === "Cancelled") query = query.not("cancelled_at", "is", null);
     else if (request.status === "Active") query = query.eq("status", "active").is("cancelled_at", null);
+    else if (request.status === "Completed") query = query.eq("status", "completed").is("cancelled_at", null);
     else if (request.status === "Approved") query = query.eq("is_locked", true).is("cancelled_at", null);
     else if (request.status === "Rejected") query = query.or("manager_rejected.eq.true,owner_rejected.eq.true").is("cancelled_at", null);
     else if (request.status === "Pending approval") query = query.eq("status", "completed").eq("is_locked", false).eq("manager_rejected", false).eq("owner_rejected", false).is("cancelled_at", null);
@@ -413,6 +414,7 @@ export async function getManagementWorkLogPage(request: ManagementWorkLogPageReq
     if (request.needsAction) query = query.eq("status", "completed").eq("is_locked", false).eq("manager_rejected", false).eq("owner_rejected", false);
     if (request.status === "Cancelled") query = query.not("cancelled_at", "is", null);
     else if (request.status === "Active") query = query.eq("status", "active").is("cancelled_at", null);
+    else if (request.status === "Completed") query = query.eq("status", "completed").is("cancelled_at", null);
     else if (request.status === "Approved") query = query.eq("is_locked", true).is("cancelled_at", null);
     else if (request.status === "Rejected") query = query.or("manager_rejected.eq.true,owner_rejected.eq.true").is("cancelled_at", null);
     else if (request.status === "Pending approval") query = query.eq("status", "completed").eq("is_locked", false).eq("manager_rejected", false).eq("owner_rejected", false).is("cancelled_at", null);
