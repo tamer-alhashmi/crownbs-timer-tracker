@@ -21,8 +21,9 @@ function GlobalChatWidgetContent({ user, profile }: { user: AppUserSession; prof
   const activeContact = useChatStore((state) => state.activeContact);
   const openChat = useChatStore((state) => state.openChat);
   const { soundNotificationsEnabled } = useSoundSettings();
-  const [toast, setToast] = useState<UnreadMessage | null>(null);
+  const [toast, setToast] = useState<{ message: UnreadMessage; count: number } | null>(null);
   const seenMessageIds = useRef<Set<string> | null>(null);
+  const lastSoundBySender = useRef<Map<string, number>>(new Map());
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { data } = useQuery({
     queryKey: ["chat", "unread"],
@@ -65,14 +66,28 @@ function GlobalChatWidgetContent({ user, profile }: { user: AppUserSession; prof
       seenMessageIds.current = currentIds;
       return;
     }
-    const newMessage = data.messages.find((message) => !seenMessageIds.current?.has(message.id));
+    const newMessages = data.messages.filter((message) => !seenMessageIds.current?.has(message.id));
     seenMessageIds.current = currentIds;
-    if (!newMessage || (isChatOpen && activeContact?.id === newMessage.sender_id)) return;
+    const notifications = newMessages.filter((message) => !(isChatOpen && activeContact?.id === message.sender_id));
+    const newestMessage = notifications[0];
+    if (!newestMessage) return;
 
-    setToast(newMessage);
+    const sameSenderCount = notifications.filter((message) => message.sender_id === newestMessage.sender_id).length;
+    setToast((current) => ({
+      message: newestMessage,
+      count: current?.message.sender_id === newestMessage.sender_id ? current.count + sameSenderCount : sameSenderCount,
+    }));
     if (toastTimeout.current) clearTimeout(toastTimeout.current);
     toastTimeout.current = setTimeout(() => setToast(null), 6000);
-    if (soundNotificationsEnabled) playChatSound("received");
+    const now = Date.now();
+    const lastSoundAt = lastSoundBySender.current.get(newestMessage.sender_id) ?? 0;
+    for (const [senderId, playedAt] of lastSoundBySender.current) {
+      if (now - playedAt > 60_000) lastSoundBySender.current.delete(senderId);
+    }
+    if (soundNotificationsEnabled && now - lastSoundAt >= 5000) {
+      playChatSound("received");
+      lastSoundBySender.current.set(newestMessage.sender_id, now);
+    }
   }, [activeContact?.id, data, isChatOpen, soundNotificationsEnabled]);
 
   if (sessionUserId !== user.userId) return null;
@@ -84,15 +99,15 @@ function GlobalChatWidgetContent({ user, profile }: { user: AppUserSession; prof
           <button
             type="button"
             onClick={() => {
-              openChat(toast.sender);
+              openChat(toast.message.sender);
               setToast(null);
             }}
             className="flex min-w-0 flex-1 items-center gap-3 text-left"
           >
-            <UserAvatar name={toast.sender.full_name} avatarUrl={toast.sender.avatar_url} role={toast.sender.role} className="h-10 w-10 bg-emerald-100 text-sm font-semibold text-emerald-800" />
+            <UserAvatar name={toast.message.sender.full_name} avatarUrl={toast.message.sender.avatar_url} role={toast.message.sender.role} className="h-10 w-10 bg-emerald-100 text-sm font-semibold text-emerald-800" />
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-semibold text-slate-900">{toast.sender.full_name}</span>
-              <span className="block truncate text-xs text-slate-600">{toast.content || (toast.attachment_type === "image" ? "Shared a photo" : "Shared an attachment")}</span>
+              <span className="block truncate text-sm font-semibold text-slate-900">{toast.message.sender.full_name}{toast.count > 1 ? ` · ${toast.count} new messages` : ""}</span>
+              <span className="block truncate text-xs text-slate-600">{toast.message.content || (toast.message.attachment_type === "image" ? "Shared a photo" : "Shared an attachment")}</span>
             </span>
           </button>
           <button type="button" aria-label="Dismiss chat notification" onClick={() => setToast(null)} className="rounded-full p-1.5 text-slate-500 hover:bg-slate-100">

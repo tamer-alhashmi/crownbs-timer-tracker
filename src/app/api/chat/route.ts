@@ -481,10 +481,10 @@ export async function POST(request: NextRequest) {
       try {
         await dispatchPushNotification({
           userId: data.receiver_id,
-          title: `New message from ${actor.email || "a teammate"}`,
-          body: "Open Crown Operations to view your message.",
+          title: `New message from ${actor.name || "a teammate"}`,
+          body: "Open Crown Operations to view your latest message.",
           url: "/",
-          tag: `message-${data.id}`,
+          tag: `direct-message-${data.receiver_id}-${actor.id}`,
         });
       } catch (pushError) {
         console.error("Direct message was sent, but push delivery could not be completed:", pushError);

@@ -48,6 +48,7 @@ function priorityStyle(priority: TaskNotice["priority"]) {
 export function NotificationBell() {
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const seenTaskIds = useRef<Set<string> | null>(null);
   const taskToastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isOpen, setIsOpen] = useState(false);
@@ -90,6 +91,10 @@ export function NotificationBell() {
   const unreadMessages = data?.messages.filter((message) =>
     message.sender_id !== data.currentUserId && !message.is_read
   ) ?? [];
+  const latestUnreadMessageBySender = [...unreadMessages.reduce((latestBySender, message) => {
+    if (!latestBySender.has(message.sender_id)) latestBySender.set(message.sender_id, message);
+    return latestBySender;
+  }, new Map<string, (typeof unreadMessages)[number]>()).values()];
   const unreadCount = (data?.count ?? 0) + unreadAssignments.length + unreadOverdue.length + unreadShiftEvents.length + unreadOvertimeAlerts.length + unreadStatusChanges.length;
 
   useEffect(() => {
@@ -105,16 +110,23 @@ export function NotificationBell() {
     const dismissEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setIsOpen(false);
     };
-    const dismissOnViewportChange = () => setIsOpen(false);
+    const repositionPopover = () => {
+      const trigger = triggerRef.current;
+      if (trigger) setPopoverTop(trigger.getBoundingClientRect().bottom);
+    };
+    const repositionOnScroll = (event: Event) => {
+      if (dropdownRef.current?.contains(event.target as Node)) return;
+      repositionPopover();
+    };
     document.addEventListener("pointerdown", dismissOutside);
     document.addEventListener("keydown", dismissEscape);
-    window.addEventListener("resize", dismissOnViewportChange);
-    window.addEventListener("scroll", dismissOnViewportChange, true);
+    window.addEventListener("resize", repositionPopover);
+    document.addEventListener("scroll", repositionOnScroll, true);
     return () => {
       document.removeEventListener("pointerdown", dismissOutside);
       document.removeEventListener("keydown", dismissEscape);
-      window.removeEventListener("resize", dismissOnViewportChange);
-      window.removeEventListener("scroll", dismissOnViewportChange, true);
+      window.removeEventListener("resize", repositionPopover);
+      document.removeEventListener("scroll", repositionOnScroll, true);
     };
   }, [isOpen]);
 
@@ -234,6 +246,7 @@ export function NotificationBell() {
         </div>
       )}
       <button
+        ref={triggerRef}
         type="button"
         aria-label={`Notifications${unreadCount ? `, ${unreadCount} pending notifications` : ""}`}
         aria-expanded={isOpen}
@@ -253,7 +266,7 @@ export function NotificationBell() {
       </button>
       {isOpen && (
         createPortal(
-        <div ref={dropdownRef} data-back-button-overlay="true" style={{ position: "fixed", right: 12, left: "auto", maxWidth: "calc(100vw - 24px)", top: popoverTop }} className="absolute right-0 top-full z-50 mt-2 max-h-[calc(85dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-1rem)] w-[calc(100vw-1.5rem)] max-w-sm origin-top-right overflow-y-auto overscroll-contain rounded-2xl border border-line bg-surface text-ink shadow-2xl sm:w-96">
+        <div ref={dropdownRef} data-back-button-overlay="true" style={{ position: "fixed", right: 12, left: "auto", maxWidth: "calc(100vw - 24px)", top: popoverTop }} className="absolute right-0 top-full z-50 mt-2 max-h-[calc(85dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-1rem)] w-[calc(100vw-1.5rem)] max-w-sm origin-top-right touch-pan-y overflow-y-auto overscroll-contain rounded-2xl border border-line bg-surface text-ink shadow-2xl sm:w-96">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-slate-900">Notifications</p>
@@ -407,7 +420,7 @@ export function NotificationBell() {
             )}
             {unreadMessages.length ? (
             <div className="max-h-80 overflow-y-auto p-2">
-              {unreadMessages.map((message) => (
+              {latestUnreadMessageBySender.map((message) => (
                 <button
                   type="button"
                   key={message.id}
