@@ -20,12 +20,12 @@ type Props = {
   properties: ReactNode;
 };
 
-const tabs: { id: Tab; label: string; icon: typeof UserRound }[] = [
-  { id: "profile", label: "Profile & Security", icon: ShieldCheck },
-  { id: "payroll", label: "Payroll & History", icon: CalendarDays },
-  { id: "users", label: "User Management", icon: UserRound },
-  { id: "properties", label: "Properties", icon: Building2 },
-  { id: "billing", label: "Billing & Subscription", icon: Wallet },
+const tabs: { id: Tab; label: string; shortLabel: string; icon: typeof UserRound }[] = [
+  { id: "profile", label: "Profile & Security", shortLabel: "Profile", icon: ShieldCheck },
+  { id: "payroll", label: "Payroll & History", shortLabel: "Payroll", icon: CalendarDays },
+  { id: "users", label: "User Management", shortLabel: "Users", icon: UserRound },
+  { id: "properties", label: "Properties", shortLabel: "Properties", icon: Building2 },
+  { id: "billing", label: "Billing & Subscription", shortLabel: "Billing", icon: Wallet },
 ];
 
 function isTabVisible(id: Tab, role: UserRole) {
@@ -135,11 +135,12 @@ export default function SettingsHub({ role, user, utility, profile, billing, pay
             role="tablist"
             className={`mt-4 min-w-0 rounded-2xl border border-line p-1.5 ${
               useGridTabs
-                ? "grid w-full grid-cols-3 gap-1.5 bg-surface-secondary/50"
+                ? "grid w-full gap-1.5 bg-surface-secondary/50"
                 : "no-scrollbar flex gap-2 overflow-x-auto whitespace-nowrap bg-surface scroll-smooth [-webkit-overflow-scrolling:touch]"
             }`}
+            style={useGridTabs ? { gridTemplateColumns: `repeat(${visibleTabs.length}, minmax(0, 1fr))` } : undefined}
           >
-            {visibleTabs.map(({ id, label, icon: Icon }) => (
+            {visibleTabs.map(({ id, label, shortLabel, icon: Icon }) => (
               <button
                 key={id}
                 type="button"
@@ -147,9 +148,11 @@ export default function SettingsHub({ role, user, utility, profile, billing, pay
                 role="tab"
                 aria-selected={activeTab === id}
                 aria-controls={`settings-panel-${id}`}
+                aria-label={role === "cleaner" && id === "profile" ? "Personal Information" : label}
+                title={role === "cleaner" && id === "profile" ? "Personal Information" : label}
                 onClick={() => selectTab(id)}
-                className={`flex min-h-12 items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-center text-xs font-medium leading-tight transition-all sm:text-sm ${
-                  useGridTabs ? "w-full min-w-0 flex-1" : "min-w-[10rem] shrink-0"
+                className={`flex min-h-12 min-w-0 items-center justify-center gap-1.5 rounded-xl border px-2 py-2 text-center text-xs font-medium leading-tight transition-all focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:px-3 sm:text-sm ${
+                  useGridTabs ? "w-full" : "min-w-[7rem] shrink-0 sm:min-w-[10rem]"
                 } ${
                   activeTab === id
                     ? "border-accent/30 bg-accent/10 text-accent shadow-sm"
@@ -157,9 +160,10 @@ export default function SettingsHub({ role, user, utility, profile, billing, pay
                 }`}
               >
                 <Icon className="h-4 w-4 shrink-0" />
-                <span className={useGridTabs ? "min-w-0 break-words" : "whitespace-nowrap"}>
+                <span className="hidden min-w-0 truncate sm:inline-flex">
                   {role === "cleaner" && id === "profile" ? "Personal Information" : label}
                 </span>
+                <span className="min-w-0 truncate sm:hidden">{shortLabel}</span>
               </button>
             ))}
           </nav>
