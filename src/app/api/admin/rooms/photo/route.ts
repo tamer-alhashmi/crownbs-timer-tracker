@@ -4,6 +4,7 @@ import { getVerifiedChatSessionUser } from "@/lib/auth";
 import { hasSameOrigin } from "@/lib/chat/server";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { isPlatformAdmin, normalizeUserRole, type UserRole } from "@/lib/roles";
+import { hasPropertyOwnerAccess } from "@/lib/propertyOwnership";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
     .eq("id", hotelId)
     .maybeSingle();
   if (hotelError) return NextResponse.json({ error: `Unable to verify property access: ${hotelError.message}` }, { status: 500 });
-  if (!hotel || (profile?.role === "owner" && hotel.owner_id !== session.userId) || (profile?.role === "manager" && hotel.manager_id !== session.userId)) {
+  if (!hotel || (profile?.role === "owner" && !await hasPropertyOwnerAccess(supabase, hotel.id, session.userId)) || (profile?.role === "manager" && hotel.manager_id !== session.userId)) {
     return NextResponse.json({ error: "That property is outside your management scope." }, { status: 403 });
   }
   const extension = MIME_EXTENSIONS[file.type];

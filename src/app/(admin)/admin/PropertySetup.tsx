@@ -7,13 +7,14 @@ import { showActionToast } from "@/components/ui/ActionToast";
 import { ActionErrorMessage } from "@/components/ui/ActionErrorMessage";
 import { formatUserMessage } from "@/lib/userMessages";
 
-type Assignee = { id: string; name: string; role: "owner" | "manager" };
+type Assignee = { id: string; name: string; role: "owner" | "manager"; is_active: boolean; email_verified: boolean };
 type RoomDraft = RoomSetupInput & { photoFiles: File[]; photos: string[] };
 type PropertyForm = {
   name: string;
   location: string;
   owner_id: string;
   manager_id: string;
+  co_owner_ids: string[];
   latitude: number | null;
   longitude: number | null;
   floors_sections: string[];
@@ -21,7 +22,7 @@ type PropertyForm = {
   rooms: RoomDraft[];
 };
 
-const EMPTY_FORM: PropertyForm = { name: "", location: "", owner_id: "", manager_id: "", latitude: null, longitude: null, floors_sections: [], total_rooms: 0, rooms: [] };
+const EMPTY_FORM: PropertyForm = { name: "", location: "", owner_id: "", manager_id: "", co_owner_ids: [], latitude: null, longitude: null, floors_sections: [], total_rooms: 0, rooms: [] };
 const newRoom = (roomName: string): RoomDraft => ({
   room_name: roomName,
   floor_section: "",
@@ -50,6 +51,7 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
   const [isPending, startTransition] = useTransition();
   const owners = assignees.filter((person) => person.role === "owner");
+  const eligiblePartners = owners.filter((person) => person.is_active && person.email_verified);
   const managers = assignees.filter((person) => person.role === "manager");
   const ownerNames = new Map(owners.map((person) => [person.id, person.name]));
   const managerNames = new Map(managers.map((person) => [person.id, person.name]));
@@ -73,6 +75,7 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
       location: property.location ?? "",
       owner_id: property.owner_id ?? "",
       manager_id: property.manager_id ?? "",
+      co_owner_ids: property.co_owner_ids ?? [],
       latitude: property.latitude,
       longitude: property.longitude,
       floors_sections: property.floors_sections ?? [],
@@ -195,6 +198,7 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
         location: property.location ?? "",
         owner_id: property.owner_id ?? "",
         manager_id: property.manager_id ?? "",
+        co_owner_ids: property.co_owner_ids ?? [],
         latitude: property.latitude,
         longitude: property.longitude,
         floors_sections: property.floors_sections ?? [],
@@ -221,7 +225,7 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
       <div className="grid min-w-0 grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
       {properties.map((property) => <article key={property.id} className="min-w-0 rounded-xl border border-line/80 bg-surface p-4 shadow-sm">
         <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h4 className="break-words font-semibold text-ink">{property.name}</h4><p className="mt-1 text-sm text-ink-secondary">{property.location || "No location"}</p></div><div className="flex shrink-0 flex-col items-end gap-2"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${property.is_active ? "bg-emerald-50 text-emerald-800" : "bg-surface-secondary text-ink-secondary"}`}>{property.is_active ? "Active" : "Inactive"}</span>{(property.latitude === null || property.longitude === null) && <span className="max-w-full rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-right text-xs font-semibold text-amber-700 dark:text-amber-300">GPS Coordinates Missing - Set Location</span>}</div></div>
-        <dl className="mt-3 space-y-1.5 border-t border-line pt-3 text-xs text-ink-secondary"><div className="flex justify-between gap-3"><dt>Owner</dt><dd className="text-right text-ink-secondary">{ownerNames.get(property.owner_id ?? "") ?? "Unassigned"}</dd></div><div className="flex justify-between gap-3"><dt>Manager</dt><dd className="text-right text-ink-secondary">{managerNames.get(property.manager_id ?? "") ?? "Unassigned"}</dd></div><div><dt className="sr-only">Property UUID</dt><dd className="break-all font-mono text-[11px]">{property.id}</dd></div><div className="flex justify-between gap-3"><dt>Created</dt><dd>{new Date(property.created_at).toLocaleString()}</dd></div></dl>
+        <dl className="mt-3 space-y-1.5 border-t border-line pt-3 text-xs text-ink-secondary"><div className="flex justify-between gap-3"><dt>Owner</dt><dd className="text-right text-ink-secondary">{ownerNames.get(property.owner_id ?? "") ?? "Unassigned"}</dd></div><div className="flex justify-between gap-3"><dt>Manager</dt><dd className="text-right text-ink-secondary">{managerNames.get(property.manager_id ?? "") ?? "Unassigned"}</dd></div>{Boolean(property.co_owner_ids?.length) && <div className="flex justify-between gap-3"><dt>Partners</dt><dd className="text-right text-ink-secondary">{property.co_owner_ids.map((id) => ownerNames.get(id) ?? "Owner account").join(", ")}</dd></div>}<div><dt className="sr-only">Property UUID</dt><dd className="break-all font-mono text-[11px]">{property.id}</dd></div><div className="flex justify-between gap-3"><dt>Created</dt><dd>{new Date(property.created_at).toLocaleString()}</dd></div></dl>
         {canManage && <div className="mt-3 flex flex-wrap justify-end gap-2 border-t border-line pt-2">
           <button type="button" onClick={() => openEdit(property)} aria-label={`Edit ${property.name}`} title="Edit property" className="flex h-11 w-11 items-center justify-center rounded-lg text-ink-secondary hover:bg-surface-secondary hover:text-ink"><Pencil className="h-4 w-4" /></button>
           <button type="button" role="switch" aria-checked={property.is_active} onClick={() => toggleProperty(property)} disabled={isPending} aria-label={`${property.is_active ? "Deactivate" : "Activate"} ${property.name}`} title={property.is_active ? "Deactivate property" : "Activate property"} className={`flex h-11 w-11 items-center justify-center rounded-lg disabled:opacity-50 ${property.is_active ? "text-emerald-700 hover:bg-emerald-50" : "text-ink-muted hover:bg-surface-secondary hover:text-emerald-700"}`}><Power className="h-4 w-4" /></button>
@@ -234,6 +238,12 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
         <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-800">Property setup</p><h3 id="property-form-title" className="mt-1 text-lg font-bold text-ink">{editing ? "Edit property" : "Add property"}</h3></div>        <button type="button" onClick={() => { editingPropertyId.current = null; setFormOpen(false); }} aria-label="Close form" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-ink-muted hover:bg-surface-secondary hover:text-ink"><X className="h-4 w-4" /></button></div>
         <div className="mt-5 grid gap-4">
           <label className="text-sm font-medium text-ink-secondary">Property name<input required maxLength={120} value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} className="mt-1.5 min-h-11 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-ink outline-none focus:border-cyan-700" /></label>
+          <label className="text-sm font-medium text-ink-secondary">Co-owners
+            <select multiple value={form.co_owner_ids} onChange={(event) => setForm((current) => ({ ...current, co_owner_ids: Array.from(event.currentTarget.selectedOptions, (option) => option.value) }))} className="mt-1.5 min-h-28 w-full rounded-xl border border-line bg-surface px-3 py-2 text-ink outline-none focus:border-cyan-700">
+              {eligiblePartners.filter((owner) => owner.id !== form.owner_id).map((owner) => <option key={owner.id} value={owner.id}>{owner.name}</option>)}
+            </select>
+            <span className="mt-1 block text-xs font-normal text-ink-muted">Select any number of active, verified Owner accounts. Use Ctrl or Command to select multiple.</span>
+          </label>
           <div className="text-sm font-medium text-ink-secondary"><label htmlFor="property-location">Address / location</label><div className="mt-1.5 flex gap-2"><input id="property-location" required maxLength={240} value={form.location} onChange={(event) => setForm((current) => ({ ...current, location: event.target.value, latitude: null, longitude: null }))} className="min-h-11 min-w-0 flex-1 rounded-xl border border-line bg-surface px-3 py-2.5 text-ink outline-none focus:border-cyan-700" /><button type="button" onClick={locateProperty} aria-label="Detect property location" title="Detect current location" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-line text-cyan-800 hover:bg-cyan-50"><MapPin className="h-5 w-5" /></button></div>{form.latitude !== null && form.longitude !== null && <p className="mt-1 text-xs text-ink-muted">GPS: {form.latitude.toFixed(5)}, {form.longitude.toFixed(5)}</p>}</div>
           <section className="rounded-xl border border-line p-3">
             <h4 className="text-sm font-semibold text-ink-secondary">Floors and sections</h4>
@@ -254,7 +264,7 @@ export const PropertySetup = forwardRef<PropertySetupHandle, { initialProperties
             </div>)}</div>
           </section>
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="text-sm font-medium text-ink-secondary">Owner<select value={form.owner_id} onChange={(event) => setForm((current) => ({ ...current, owner_id: event.target.value }))} className="mt-1.5 min-h-11 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-ink"><option value="">Unassigned</option>{owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.name}</option>)}</select></label>
+            <label className="text-sm font-medium text-ink-secondary">Owner<select value={form.owner_id} onChange={(event) => setForm((current) => ({ ...current, owner_id: event.target.value, co_owner_ids: current.co_owner_ids.filter((id) => id !== event.target.value) }))} className="mt-1.5 min-h-11 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-ink"><option value="">Unassigned</option>{owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.name}</option>)}</select></label>
             <label className="text-sm font-medium text-ink-secondary">Manager<select value={form.manager_id} onChange={(event) => setForm((current) => ({ ...current, manager_id: event.target.value }))} className="mt-1.5 min-h-11 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-ink"><option value="">Unassigned</option>{managers.map((manager) => <option key={manager.id} value={manager.id}>{manager.name}</option>)}</select></label>
           </div>
           <p className="text-xs text-ink-secondary">A UUID and creation timestamp are generated automatically. New properties are active by default.</p>

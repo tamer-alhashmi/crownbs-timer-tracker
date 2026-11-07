@@ -33,7 +33,6 @@ type Props = {
   role: UserRole;
   emailVerified: boolean;
   weeklyDigestEnabled: boolean;
-  monthlyDigestEnabled: boolean;
   pushPublicKey: string | null;
 };
 
@@ -46,7 +45,6 @@ export default function PersonalProfileSettings({
   role,
   emailVerified,
   weeklyDigestEnabled,
-  monthlyDigestEnabled,
   pushPublicKey,
 }: Props) {
   const router = useRouter();
@@ -291,7 +289,6 @@ export default function PersonalProfileSettings({
         email={email}
         emailVerified={emailVerified}
         weeklyDigestEnabled={weeklyDigestEnabled}
-        monthlyDigestEnabled={monthlyDigestEnabled}
         pushPublicKey={pushPublicKey}
       />
     </section>

@@ -421,7 +421,7 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
               form.setValue("hotelIds", [propertyFilter]);
               form.setValue("primaryHotelId", propertyFilter);
             }} className="mb-3 flex min-h-14 w-full items-center justify-between rounded-xl border border-dashed border-accent/50 bg-accent/5 px-4 text-left text-sm font-semibold text-accent hover:bg-accent/10">
-              No HK Admin assigned - Click to assign <UserPlus className="h-4 w-4" />
+              No Housekeeping Leader assigned - Click to assign <UserPlus className="h-4 w-4" />
             </button>
           )}
           <div className="space-y-2">

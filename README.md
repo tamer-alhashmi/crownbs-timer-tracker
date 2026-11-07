@@ -15,16 +15,18 @@ From automated shift logging and room cleaning tracking to granular piece-rate/h
 ### 1. Multi-Tenant Enterprise Architecture & Six-Role Access Hierarchy
 The platform enforces strict, role-scoped data isolation across all organizational levels:
 * **Super Admin and Platform Admin**: Global portfolio oversight and support operations, with destructive platform controls reserved for Super Admin.
-* **Property Owner**: Multi-property asset control, customized service catalog configurations, room pricing models, executive financials, and staff assignments.
+* **Property Owner**: Multi-property asset control, customized service catalog configurations, room pricing models, executive financials, staff assignments, and verified co-ownership with shared property operations.
 * **Property Manager**: Day-to-day property orchestration, shift approvals, emergency managerial overrides, and real-time cleaner attendance tracking.
-* **Housekeeping Admin**: A dedicated, property-scoped operations dashboard for room readiness, live cleaner shifts, floor inspections, task interventions, photo evidence review, and non-financial work history.
+* **Housekeeping Leader**: A dedicated, property-scoped operations dashboard for room readiness, live cleaner shifts, floor inspections, task interventions, photo evidence review, and non-financial work history.
 * **Field Cleaners**: Intuitive, high-speed mobile interface for clocking in/out, picking up tasks, tracking room completions, and reviewing verified earnings.
+
+Verified property partners receive the same property-scoped access and owner notification fan-out as the primary owner. Operational audit entries identify partner-owner actions. Weekly summaries and monthly closing reports are role-tailored and sent only to active users whose email is confirmed in Supabase Auth.
 
 ---
 
 ### 2. Live Task Dispatch & Concurrency Control
 Turn task delegation from a reactive headache into an automated, proactive workflow:
-* **Instant Hierarchical Task Dispatch**: Owners, Managers, and HK Admins can assign tasks down the organizational ladder directly from the **Overview Hero Card**.
+* **Instant Hierarchical Task Dispatch**: Owners, Managers, and Housekeeping Leaders can assign tasks down the organizational ladder directly from the **Overview Hero Card**.
 * **Dynamic Property-Aware Context**: The assignment interface dynamically adapts depending on the selected service type—instantly prompting for room numbers, named sections, shift durations, or maintenance photo attachments.
 * **Single Active Task Guard**: Proprietary concurrency locking prevents staff from juggling or leaving simultaneous incomplete tasks. Starting a new task strictly requires completing or formalizing the active one.
 * **Realtime In-App Notification Bell**: Instant alerts dispatch directly to the assignee's mobile and desktop trays with 1-click execution (`Start Task`). Assigners receive instant live progress timestamps when work begins.
@@ -46,6 +48,8 @@ Manage complex physical real estate with unmatched granularity:
 Apply `supabase/migrations/20261022_room_availability_status.sql` after the existing room and housekeeping migrations to enable separate room-availability states.
 
 Apply `supabase/migrations/20261105_pin_login_hardening.sql` before enabling PIN sign-in; it adds the safe PIN-presence field and service-role-only rate-limit functions used by the login action.
+
+Apply `supabase/migrations/20261110_multi_owner_partnerships.sql` after the existing property, workforce, and audit migrations to enable verified property partnerships, co-owner access policies, and partnership-aware operational audit records.
 
 ---
 

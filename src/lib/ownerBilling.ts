@@ -2,6 +2,7 @@ import "server-only";
 import { getSessionUser } from "@/lib/auth";
 import { isPlatformAdmin } from "@/lib/roles";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
+import { getOwnerPropertyIds } from "@/lib/propertyOwnership";
 
 export const RATE_PER_COMPLETED_TASK = 0.08;
 
@@ -32,16 +33,7 @@ export async function getOwnerBillingUsage(ownerId: string): Promise<OwnerBillin
   const supabase = createPrivilegedServerSupabaseClient();
   const now = new Date();
   const { cycleStart: monthStart, cycleEnd: nextMonth, monthLabel } = getCurrentBillingCycle(now);
-  const { data: hotels, error: hotelsError } = await supabase
-    .from("hotels")
-    .select("id")
-    .eq("owner_id", ownerId);
-  if (hotelsError) {
-    console.error("[Owner Billing]: Failed to load owner properties.", hotelsError);
-    throw new Error("Unable to load current month usage.");
-  }
-
-  const hotelIds = (hotels ?? []).map((hotel) => hotel.id);
+  const hotelIds = await getOwnerPropertyIds(supabase, ownerId);
   const [completedTasks, activeShifts] = hotelIds.length
     ? await Promise.all([
         supabase.from("work_logs")

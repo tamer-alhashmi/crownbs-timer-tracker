@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { apiError, getChatActor, hasSameOrigin, isUuid } from "@/lib/chat/server";
 import { isHousekeepingAdmin } from "@/lib/roles";
+import { getManagerPropertyIds, getOwnerPropertyIds, getPropertyOwnerIds, hasPropertyOwnerAccess } from "@/lib/propertyOwnership";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,23 +19,30 @@ export async function GET(request: NextRequest) {
       console.error("[Chat System Error]:", hotelsError ?? assignmentsError ?? usersError);
       return apiError("Could not load group options.", 500);
     }
+    const ownerHotelIds = context.actor.role === "owner" ? new Set(await getOwnerPropertyIds(context.supabase, context.actor.id)) : null;
+    const managerHotelIds = context.actor.role === "manager" ? new Set(await getManagerPropertyIds(context.supabase, context.actor.id)) : null;
     const eligibleHotels = (hotels ?? []).filter((hotel) => hotel.is_active && (
       context.actor.role === "owner"
-        ? hotel.owner_id === context.actor.id
+        ? ownerHotelIds?.has(hotel.id)
         : context.actor.role === "manager"
-          ? hotel.manager_id === context.actor.id || context.actor.primaryHotelId === hotel.id ||
+          ? managerHotelIds?.has(hotel.id) || context.actor.primaryHotelId === hotel.id ||
             (assignments ?? []).some((item) => item.user_id === context.actor.id && item.hotel_id === hotel.id)
           : context.actor.primaryHotelId === hotel.id ||
             (assignments ?? []).some((item) => item.user_id === context.actor.id && item.hotel_id === hotel.id)
     ));
     const propertyIds = new Set(eligibleHotels.map((hotel) => hotel.id));
+    const propertyOwners = await getPropertyOwnerIds(context.supabase, [...propertyIds]);
+    const canCreateCompanyWide = context.actor.role === "owner" && (hotels ?? []).some((hotel) => hotel.owner_id === context.actor.id);
     const people = (users ?? []).filter((person) =>
-      context.actor.role === "owner"
+      canCreateCompanyWide
         ? true
         : (context.actor.role === "manager"
             ? ["hk_admin", "cleaner"].includes(person.role)
-            : person.role === "cleaner") &&
-          ([...(assignments ?? []).filter((item) => item.user_id === person.id).map((item) => item.hotel_id), person.primary_hotel_id]
+            : context.actor.role === "owner"
+              ? ["owner", "manager", "hk_admin", "housekeeping_admin", "cleaner"].includes(person.role)
+              : person.role === "cleaner") &&
+          ([...(assignments ?? []).filter((item) => item.user_id === person.id).map((item) => item.hotel_id), person.primary_hotel_id,
+            ...[...propertyOwners.entries()].filter(([, ownerIds]) => ownerIds.includes(person.id)).map(([hotelId]) => hotelId)]
             .some((id) => id && propertyIds.has(id)))
     ).map((person) => ({
       id: person.id,
@@ -48,7 +56,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       properties: eligibleHotels.map(({ id, name }) => ({ id, name })),
       members: people,
-      allowCompanyWide: context.actor.role === "owner",
+      allowCompanyWide: canCreateCompanyWide,
     });
   }
   const { data: memberships, error: membershipsError } = await context.supabase
@@ -160,6 +168,8 @@ export async function POST(request: NextRequest) {
       return apiError("Could not verify group members.", 500);
     }
     (primaryUsers ?? []).forEach((item) => propertyUsers.add(item.id));
+    if (selectedProperty?.manager_id) propertyUsers.add(selectedProperty.manager_id);
+    (await getPropertyOwnerIds(context.supabase, [propertyId])).get(propertyId)?.forEach((ownerId) => propertyUsers.add(ownerId));
     if (context.actor.role === "manager" && (selectedProperty?.manager_id === context.actor.id || context.actor.primaryHotelId === propertyId)) {
       propertyUsers.add(context.actor.id);
     }
@@ -168,7 +178,9 @@ export async function POST(request: NextRequest) {
     }
   }
   if (context.actor.role === "owner") {
-    if (propertyId && selectedProperty?.owner_id !== context.actor.id) {
+    const canCreateCompanyWide = (hotels ?? []).some((hotel) => hotel.owner_id === context.actor.id);
+    if (!propertyId && !canCreateCompanyWide) return apiError("Select one of your co-owned properties for this group.", 400);
+    if (propertyId && (!selectedProperty || !await hasPropertyOwnerAccess(context.supabase, propertyId, context.actor.id))) {
       return apiError("You can only create groups for your properties.", 403);
     }
   } else {
@@ -182,7 +194,8 @@ export async function POST(request: NextRequest) {
       return apiError("You can only create groups for your assigned property.", 403);
     }
   }
-  if (context.actor.role !== "owner" && memberIds.some((id) => !propertyUsers.has(id))) {
+  const canCreateCompanyWide = context.actor.role === "owner" && (hotels ?? []).some((hotel) => hotel.owner_id === context.actor.id);
+  if ((!canCreateCompanyWide || context.actor.role !== "owner") && propertyId && memberIds.some((id) => !propertyUsers.has(id))) {
     return apiError("Group members must belong to the selected property.", 403);
   }
   const { data: members, error: memberLookupError } = await context.supabase

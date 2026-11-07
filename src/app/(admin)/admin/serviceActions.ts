@@ -6,9 +6,11 @@ import { isPlatformAdmin } from "@/lib/roles";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import type { BillingUnit } from "@/lib/servicePricing";
 import type { UserRole } from "@/lib/roles";
+import { getOwnerPropertyIds, getPropertyOwnerIds } from "@/lib/propertyOwnership";
 
 export type ServiceRecord = {
   id: string;
+  hotel_id: string | null;
   name: string;
   description: string;
   unit: BillingUnit;
@@ -27,7 +29,7 @@ type ServiceInput = {
 
 type ServiceUpdates = Partial<ServiceInput> & { is_active?: boolean };
 
-const SERVICE_COLUMNS = "id, name, description, unit, default_rate, is_active, owner_id, created_at";
+const SERVICE_COLUMNS = "id, hotel_id, name, description, unit, default_rate, is_active, owner_id, created_at";
 const BILLING_UNITS: BillingUnit[] = ["hourly", "per_room", "fixed"];
 
 async function requireAdmin(action: "view" | "create" | "edit" | "delete") {
@@ -54,10 +56,34 @@ function revalidateServiceViews() {
   for (const path of ["/admin", "/dashboard", "/settings", "/manager", "/owner"]) revalidatePath(path);
 }
 
+async function getOwnerServiceScope(supabase: ReturnType<typeof createPrivilegedServerSupabaseClient>, userId: string) {
+  const propertyIds = await getOwnerPropertyIds(supabase, userId);
+  const ownersByProperty = await getPropertyOwnerIds(supabase, propertyIds);
+  const ownerIds = [...new Set([userId, ...[...ownersByProperty.values()].flat()])];
+  return { propertyIds, ownerIds };
+}
+
+async function assertServiceScope(
+  supabase: ReturnType<typeof createPrivilegedServerSupabaseClient>,
+  userId: string,
+  serviceId: string,
+) {
+  const { data: service, error } = await supabase.from("services_config").select("id, owner_id, hotel_id").eq("id", serviceId).maybeSingle();
+  if (error || !service) throw new Error(error?.message ?? "Service was not found.");
+  const scope = await getOwnerServiceScope(supabase, userId);
+  if ((service.hotel_id && scope.propertyIds.includes(service.hotel_id)) || (service.owner_id && scope.ownerIds.includes(service.owner_id))) {
+    return service;
+  }
+  throw new Error("Service was not found in your property scope.");
+}
+
 export async function getServices(): Promise<ServiceRecord[]> {
   const { supabase, user } = await requireAdmin("view");
   let query = supabase.from("services_config").select(SERVICE_COLUMNS);
-  if (!isPlatformAdmin(user.role)) query = query.eq("owner_id", user.userId);
+  if (!isPlatformAdmin(user.role)) {
+    const scope = await getOwnerServiceScope(supabase, user.userId);
+    query = query.or(`owner_id.in.(${scope.ownerIds.join(",")}),hotel_id.in.(${(scope.propertyIds.length ? scope.propertyIds : ["00000000-0000-0000-0000-000000000000"]).join(",")})`);
+  }
   const { data, error } = await query.order("name");
   if (error) throw new Error(error.message);
   return (data ?? []) as ServiceRecord[];
@@ -94,8 +120,8 @@ export async function updateService(id: string, updates: ServiceUpdates): Promis
   if (updates.description !== undefined) values.description = updates.description.trim();
   if (updates.is_active !== undefined) values.is_active = updates.is_active;
   if (!Object.keys(values).length) throw new Error("No service changes were provided.");
-  let query = supabase.from("services_config").update({ ...values, updated_at: new Date().toISOString() }).eq("id", id);
-  if (!isPlatformAdmin(user.role)) query = query.eq("owner_id", user.userId);
+  if (!isPlatformAdmin(user.role)) await assertServiceScope(supabase, user.userId, id);
+  const query = supabase.from("services_config").update({ ...values, updated_at: new Date().toISOString() }).eq("id", id);
   const { data, error } = await query.select(SERVICE_COLUMNS).maybeSingle();
   if (error || !data) throw new Error(error?.message ?? "Service was not found.");
   revalidateServiceViews();
@@ -105,8 +131,8 @@ export async function updateService(id: string, updates: ServiceUpdates): Promis
 export async function deleteService(id: string): Promise<ServiceRecord> {
   const { supabase, user } = await requireAdmin("delete");
   if (!id) throw new Error("Service id is required.");
-  let query = supabase.from("services_config").update({ is_active: false, updated_at: new Date().toISOString() }).eq("id", id);
-  if (!isPlatformAdmin(user.role)) query = query.eq("owner_id", user.userId);
+  if (!isPlatformAdmin(user.role)) await assertServiceScope(supabase, user.userId, id);
+  const query = supabase.from("services_config").update({ is_active: false, updated_at: new Date().toISOString() }).eq("id", id);
   const { data, error } = await query.select(SERVICE_COLUMNS).maybeSingle();
   if (error || !data) throw new Error(error?.message ?? "Service was not found.");
   revalidateServiceViews();

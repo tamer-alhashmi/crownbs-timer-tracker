@@ -90,7 +90,7 @@ async function getHKAdminContext() {
     .select("id, role, full_name, primary_hotel_id")
     .eq("id", session.userId)
     .maybeSingle();
-  if (actorError) throw new Error(`Unable to verify housekeeping administrator: ${actorError.message}`);
+  if (actorError) throw new Error(`Unable to verify Housekeeping Leader: ${actorError.message}`);
   if (!actor || !isHousekeepingAdmin(normalizeUserRole(actor.role as UserRole))) throw new Error("Your role could not be verified. Sign in again.");
 
   const { data: assignments, error: assignmentsError } = await supabase
@@ -118,7 +118,7 @@ function normalizeHousekeepingStatus(value: unknown): HousekeepingStatus {
 export async function getHKAdminDashboardData(): Promise<HousekeepingDashboardData> {
   const { actor, supabase, hotelIds } = await getHKAdminContext();
   if (!hotelIds.length) {
-    return { userName: actor.full_name ?? "Housekeeping Admin", attendance: { activeShifts: 0, compliantClockIns: 0, breachAttempts: 0, compliancePercent: null }, activeTask: null, hotels: [], cleaners: [], shifts: [], logs: [], evidence: [] };
+    return { userName: actor.full_name ?? "Housekeeping Leader", attendance: { activeShifts: 0, compliantClockIns: 0, breachAttempts: 0, compliancePercent: null }, activeTask: null, hotels: [], cleaners: [], shifts: [], logs: [], evidence: [] };
   }
 
   const [
@@ -211,7 +211,7 @@ export async function getHKAdminDashboardData(): Promise<HousekeepingDashboardDa
   }
 
   return {
-    userName: actor.full_name ?? "Housekeeping Admin",
+    userName: actor.full_name ?? "Housekeeping Leader",
     attendance: parseHousekeepingAttendanceSummary(attendanceData),
     activeTask: activeOwnTask && ownTaskHotel ? {
       id: activeOwnTask.id,
@@ -219,6 +219,8 @@ export async function getHKAdminDashboardData(): Promise<HousekeepingDashboardDa
       hotelName: ownTaskHotel,
       roomLabel: ownTaskRooms.join(", ") || (Array.isArray(activeOwnTask.room_numbers) ? activeOwnTask.room_numbers.join(", ") : activeOwnTask.room_number ?? ""),
       startTime: activeOwnTask.start_time,
+      status: "active",
+      pausedAt: null,
     } : null,
     hotels: activeHotels.map((hotel) => ({
       id: hotel.id,
@@ -363,7 +365,7 @@ export async function interveneHKActiveTask(taskId: string, action: "force_compl
   if (!task || !hotelIds.includes(task.hotel_id)) throw new Error("This task is outside your assigned properties or is no longer active.");
   const { data: cleaner, error: cleanerError } = await supabase.from("users").select("role").eq("id", task.user_id).maybeSingle();
   if (cleanerError) throw new Error(`Unable to verify task assignee: ${cleanerError.message}`);
-  if (cleaner?.role !== "cleaner") throw new Error("Housekeeping Admin interventions are limited to cleaner tasks.");
+  if (cleaner?.role !== "cleaner") throw new Error("Housekeeping Leader interventions are limited to cleaner tasks.");
 
   const { error } = await supabase.rpc("record_management_override", {
     p_entity_type: "task",

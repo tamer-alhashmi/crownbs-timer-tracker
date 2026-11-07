@@ -438,7 +438,7 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
         <section id="panel-overview" role="tabpanel" aria-labelledby="tab-overview" hidden={activeTab !== "overview"} className="space-y-5">
           {["owner", "manager"].includes(data.userRole) && <AttendanceSummaryWidget {...data.attendance} compact onOpenOperations={() => selectTab("operations")} />}
           {data.userRole === "manager" && (() => {
-            const task = data.activeTasks.find((item) => item.user_id === data.currentUserId && item.status === "active" && !item.end_time);
+            const task = data.activeTasks.find((item) => item.user_id === data.currentUserId && ["active", "paused"].includes(item.status) && !item.end_time);
             return task ? <ActiveAssignedTaskCard task={{
               id: task.id,
               name: task.service_name_snapshot ?? task.services_config?.[0]?.name ?? "Active task",
@@ -447,6 +447,8 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
                 ? task.roomDetails.map((room) => `${room.name} (${room.floor})`).join(", ")
                 : (Array.isArray(task.room_numbers) ? task.room_numbers.filter((room): room is string => typeof room === "string") : []).join(", ") || task.room_number || "",
               startTime: task.start_time,
+              status: task.status === "paused" ? "paused" : "active",
+              pausedAt: task.paused_at ?? null,
             }} /> : null;
           })()}
           {dispatchData && <TaskDispatchClient role={data.userRole as UserRole} {...dispatchData} compact />}
@@ -490,7 +492,7 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
           {data.userRole === "manager" && <ShiftDock
             role="manager"
             properties={data.hotels.map((hotel) => ({ id: hotel.id, name: hotel.name, latitude: hotel.latitude, longitude: hotel.longitude }))}
-            hasActiveTask={data.activeTasks.some((task) => task.user_id === data.currentUserId && task.status === "active" && !task.end_time)}
+            hasActiveTask={data.activeTasks.some((task) => task.user_id === data.currentUserId && ["active", "paused"].includes(task.status) && !task.end_time)}
             visible={activeTab === "operations"}
           />}
           <div id="operations-live" className="scroll-mt-24">

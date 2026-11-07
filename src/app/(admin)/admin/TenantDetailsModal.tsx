@@ -374,9 +374,9 @@ function TenantDetailsModalContent({ tenant, onClose, onUpdated }: Props) {
   const toggleWorkerStatus = (workerId: string, workerName: string, isActive: boolean) =>
     runPropertyAction(() => setTenantWorkerActive(tenant.id, workerId, !isActive), `${workerName} ${isActive ? "deactivated" : "reactivated"}.`, "Unable to update workforce status.");
 
-  const saveAssignments = (propertyId: string, managerId: string | null, housekeepingAdminId: string | null, cleanerIds: string[]) => startTransition(async () => {
+  const saveAssignments = (propertyId: string, managerIds: string[], housekeepingLeaderIds: string[], cleanerIds: string[]) => startTransition(async () => {
     try {
-      await updateTenantPropertyAssignments(tenant.id, propertyId, managerId, housekeepingAdminId, cleanerIds);
+      await updateTenantPropertyAssignments(tenant.id, propertyId, managerIds, housekeepingLeaderIds, cleanerIds);
       showActionToast("success", "Property team assignments saved.");
       onUpdated();
       setIsLoading(true);
@@ -600,7 +600,7 @@ function OperationsTab({ details, isPending, onToggleProperty, onSaveAssignments
   details: TenantDetails;
   isPending: boolean;
   onToggleProperty: (propertyId: string, isActive: boolean) => void;
-  onSaveAssignments: (propertyId: string, managerId: string | null, housekeepingAdminId: string | null, cleanerIds: string[]) => void;
+  onSaveAssignments: (propertyId: string, managerIds: string[], housekeepingLeaderIds: string[], cleanerIds: string[]) => void;
   onSavePropertyDetails: (propertyId: string, updates: { name: string; location: string; rooms: number; floors: number }) => Promise<boolean>;
   onArchiveProperty: (propertyId: string, archived: boolean) => Promise<boolean>;
   onTransferProperty: (propertyId: string, targetOwnerId: string) => Promise<boolean>;
@@ -608,8 +608,8 @@ function OperationsTab({ details, isPending, onToggleProperty, onSaveAssignments
   onToggleWorkerStatus: (workerId: string, workerName: string, isActive: boolean) => Promise<boolean>;
 }) {
   const [editingPropertyId, setEditingPropertyId] = useState<string | null>(null);
-  const [managerId, setManagerId] = useState<string | null>(null);
-  const [housekeepingAdminId, setHousekeepingAdminId] = useState<string | null>(null);
+  const [managerIds, setManagerIds] = useState<string[]>([]);
+  const [housekeepingLeaderIds, setHousekeepingLeaderIds] = useState<string[]>([]);
   const [cleanerIds, setCleanerIds] = useState<string[]>([]);
   const [candidateSearch, setCandidateSearch] = useState("");
   const [staffSearch, setStaffSearch] = useState("");
@@ -625,6 +625,14 @@ function OperationsTab({ details, isPending, onToggleProperty, onSaveAssignments
   const [propertyConfirmation, setPropertyConfirmation] = useState("");
   const managerCandidates = details.assignmentCandidates.filter((candidate) => candidate.role === "manager" && candidate.isActive);
   const housekeepingAdminCandidates = details.assignmentCandidates.filter((candidate) => ["housekeeping_admin", "hk_admin"].includes(candidate.role) && candidate.isActive);
+  const inactiveAssignedManagers = details.workforce
+    .filter((worker) => worker.role === "manager" && !worker.isActive && worker.propertyIds.includes(editingPropertyId ?? ""))
+    .map((worker) => ({ id: worker.id, name: worker.name, email: worker.email, role: worker.role, isActive: false }));
+  const inactiveAssignedLeaders = details.workforce
+    .filter((worker) => ["housekeeping_admin", "hk_admin"].includes(worker.role) && !worker.isActive && worker.propertyIds.includes(editingPropertyId ?? ""))
+    .map((worker) => ({ id: worker.id, name: worker.name, email: worker.email, role: worker.role, isActive: false }));
+  const managerOptions = [...managerCandidates, ...inactiveAssignedManagers];
+  const housekeepingLeaderOptions = [...housekeepingAdminCandidates, ...inactiveAssignedLeaders];
   const activeCleanerCandidates = details.assignmentCandidates
     .filter((candidate) => candidate.role === "cleaner" && candidate.isActive);
   const inactiveAssignedCleaners = details.workforce
@@ -660,8 +668,8 @@ function OperationsTab({ details, isPending, onToggleProperty, onSaveAssignments
   };
   const editAssignments = (property: TenantDetails["properties"][number]) => {
     setEditingPropertyId(property.id);
-    setManagerId(property.managerId);
-    setHousekeepingAdminId(details.workforce.find((worker) => ["housekeeping_admin", "hk_admin"].includes(worker.role) && worker.propertyIds.includes(property.id))?.id ?? null);
+    setManagerIds(property.managerIds);
+    setHousekeepingLeaderIds(property.housekeepingLeaderIds);
     setCleanerIds(details.workforce.filter((worker) => worker.role === "cleaner" && worker.propertyIds.includes(property.id)).map((worker) => worker.id));
     setCandidateSearch("");
     setStaffSearch("");
@@ -698,23 +706,21 @@ function OperationsTab({ details, isPending, onToggleProperty, onSaveAssignments
           {editingPropertyId === property.id && !property.archivedAt && <div className="w-full rounded-xl border border-line bg-surface-secondary p-4">
             <div className="mb-3 flex flex-wrap gap-2 text-[11px] font-semibold">
               <span className="rounded-full bg-surface-secondary px-2.5 py-1 text-ink-secondary">Property Owner · {details.owner.fullName || "Tenant"}</span>
-              <span className="rounded-full bg-surface-secondary px-2.5 py-1 text-ink-secondary">{managerId ? "1 Manager" : "No Manager"}</span>
-              <span className="rounded-full bg-surface-secondary px-2.5 py-1 text-ink-secondary">{housekeepingAdminId ? "1 HK Admin" : "No HK Admin"}</span>
+              <span className="rounded-full bg-surface-secondary px-2.5 py-1 text-ink-secondary">{managerIds.length} Managers</span>
+              <span className="rounded-full bg-surface-secondary px-2.5 py-1 text-ink-secondary">{housekeepingLeaderIds.length} Housekeeping Leaders</span>
               <span className="rounded-full bg-surface-secondary px-2.5 py-1 text-ink-secondary">{cleanerIds.length} Cleaners assigned</span>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-3">
                 <label className="block text-xs font-semibold text-ink-secondary">Search staff<input value={staffSearch} onChange={(event) => setStaffSearch(event.target.value)} placeholder="Search staff" className="mt-1.5 min-h-11 w-full rounded-lg border border-line bg-surface-secondary px-3 text-sm text-ink" /></label>
-                <label className="block text-xs font-semibold text-ink-secondary">Property manager<select value={managerId ?? ""} onChange={(event) => setManagerId(event.target.value || null)} className="mt-1.5 min-h-11 w-full rounded-lg border border-line bg-surface-secondary px-3 text-sm text-ink">
-                  <option value="">Unassigned</option>
-                  {property.managerId && !managerCandidates.some((candidate) => candidate.id === property.managerId) && <option value={property.managerId} disabled>{property.managerName ?? "Current manager"} (inactive or unavailable)</option>}
-                  {filteredStaff(managerCandidates).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name} · Property Manager</option>)}
-                </select></label>
-                <label className="block text-xs font-semibold text-ink-secondary">Housekeeping Admin<select value={housekeepingAdminId ?? ""} onChange={(event) => setHousekeepingAdminId(event.target.value || null)} className="mt-1.5 min-h-11 w-full rounded-lg border border-line bg-surface-secondary px-3 text-sm text-ink">
-                  <option value="">Unassigned</option>
-                  {housekeepingAdminId && !housekeepingAdminCandidates.some((candidate) => candidate.id === housekeepingAdminId) && <option value={housekeepingAdminId} disabled>{details.workforce.find((worker) => worker.id === housekeepingAdminId)?.name ?? "Current Housekeeping Admin"} (inactive or unavailable)</option>}
-                  {filteredStaff(housekeepingAdminCandidates).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name} · Housekeeping Admin</option>)}
-                </select></label>
+                <fieldset className="rounded-lg border border-line p-2"><legend className="px-1 text-xs font-semibold text-ink-secondary">Property Managers</legend><div className="max-h-36 space-y-1 overflow-y-auto">
+                  {filteredStaff(managerOptions).map((candidate) => { const checked = managerIds.includes(candidate.id); return <label key={candidate.id} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs text-ink-secondary hover:bg-surface"><input type="checkbox" checked={checked} disabled={!candidate.isActive && !checked} onChange={(event) => setManagerIds((current) => event.target.checked ? [...current, candidate.id] : current.filter((id) => id !== candidate.id))} /><span className="min-w-0"><span className="block truncate font-medium">{candidate.name}{!candidate.isActive && " · Inactive (remove)"}</span><span className="block truncate text-[10px] text-ink-muted">{candidate.email}</span></span></label>; })}
+                  {!filteredStaff(managerOptions).length && <p className="p-3 text-center text-xs text-ink-muted">No active managers match.</p>}
+                </div></fieldset>
+                <fieldset className="rounded-lg border border-line p-2"><legend className="px-1 text-xs font-semibold text-ink-secondary">Housekeeping Leaders</legend><div className="max-h-36 space-y-1 overflow-y-auto">
+                  {filteredStaff(housekeepingLeaderOptions).map((candidate) => { const checked = housekeepingLeaderIds.includes(candidate.id); return <label key={candidate.id} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs text-ink-secondary hover:bg-surface"><input type="checkbox" checked={checked} disabled={!candidate.isActive && !checked} onChange={(event) => setHousekeepingLeaderIds((current) => event.target.checked ? [...current, candidate.id] : current.filter((id) => id !== candidate.id))} /><span className="min-w-0"><span className="block truncate font-medium">{candidate.name}{!candidate.isActive && " · Inactive (remove)"}</span><span className="block truncate text-[10px] text-ink-muted">{candidate.email}</span></span></label>; })}
+                  {!filteredStaff(housekeepingLeaderOptions).length && <p className="p-3 text-center text-xs text-ink-muted">No active Housekeeping Leaders match.</p>}
+                </div></fieldset>
               </div>
               <div><label className="block text-xs font-semibold text-ink-secondary" htmlFor={`cleaner-search-${property.id}`}>Assigned cleaners</label><div className="relative mt-1.5"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" /><input id={`cleaner-search-${property.id}`} value={candidateSearch} onChange={(event) => setCandidateSearch(event.target.value)} placeholder="Filter cleaners" className="min-h-11 w-full rounded-lg border border-line bg-surface-secondary pl-9 pr-3 text-sm text-ink" /></div>
                 <div className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-lg border border-line bg-surface p-2">
@@ -723,7 +729,7 @@ function OperationsTab({ details, isPending, onToggleProperty, onSaveAssignments
                 </div>
               </div>
             </div>
-            <div className="mt-3 flex justify-end gap-2"><button type="button" onClick={() => setEditingPropertyId(null)} className="min-h-9 rounded-lg border border-line bg-surface-secondary px-3 text-xs font-semibold text-ink">Cancel</button><button type="button" disabled={isPending} onClick={() => onSaveAssignments(property.id, managerId, housekeepingAdminId, cleanerIds)} className="min-h-9 rounded-lg bg-accent px-3 text-xs font-semibold text-white hover:bg-accent-hover disabled:opacity-50">Save team assignments</button></div>
+            <div className="mt-3 flex justify-end gap-2"><button type="button" onClick={() => setEditingPropertyId(null)} className="min-h-9 rounded-lg border border-line bg-surface-secondary px-3 text-xs font-semibold text-ink">Cancel</button><button type="button" disabled={isPending} onClick={() => onSaveAssignments(property.id, managerIds, housekeepingLeaderIds, cleanerIds)} className="min-h-9 rounded-lg bg-accent px-3 text-xs font-semibold text-white hover:bg-accent-hover disabled:opacity-50">Save team assignments</button></div>
           </div>}
         </article>)}
         {!details.properties.length && <EmptyState title="No owned properties" text="No hotels are currently assigned to this owner account." />}

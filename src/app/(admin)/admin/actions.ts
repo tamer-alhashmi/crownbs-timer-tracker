@@ -7,6 +7,7 @@ import { notifyWorkLogStatusChange } from "@/lib/notifications/taskStatusNotific
 import { getManagementOperationalBrief } from "@/lib/operationalBrief";
 import { requireFeatureAccess } from "@/lib/featureAccess";
 import { isPlatformAdmin } from "@/lib/roles";
+import { getManagerPropertyIds, getOwnerPropertyIds, getPropertyOwnerIds, hasPropertyOwnerAccess } from "@/lib/propertyOwnership";
 import {
   fetchManagementAuditPage,
   fetchManagementHistoryPage,
@@ -106,13 +107,10 @@ function parseDashboardSummary(value: unknown): ManagementDashboardSummary {
 
 async function getScopedManagementHotelIds(user: Awaited<ReturnType<typeof requireManagement>>, supabase: ReturnType<typeof createPrivilegedServerSupabaseClient>) {
   if (isPlatformAdmin(user.role)) return null;
-  let hotelsQuery = supabase.from("hotels").select("id, owner_id, manager_id").is("archived_at", null);
-  hotelsQuery = user.role === "owner"
-    ? hotelsQuery.eq("owner_id", user.userId)
-    : hotelsQuery.eq("manager_id", user.userId);
-  const { data: hotels, error } = await hotelsQuery;
-  if (error) throw new Error(`Unable to verify assigned properties: ${error.message}`);
-  return [...new Set([...(hotels ?? []).map((hotel) => hotel.id), ...(user.hotelId ? [user.hotelId] : [])])];
+  if (user.role === "owner") {
+    return await getOwnerPropertyIds(supabase, user.userId);
+  }
+  return [...new Set([...(await getManagerPropertyIds(supabase, user.userId)), ...(user.hotelId ? [user.hotelId] : [])])];
 }
 
 async function loadManagementDashboardSummary(
@@ -189,11 +187,17 @@ async function assertRoleControlsLog(role: ApprovalRole, log: { user_id: string;
     const { data: assignee, error } = await supabase.from("users").select("role").eq("id", log.user_id).maybeSingle();
     if (error) throw new Error(`Unable to verify the assigned user's role: ${error.message}`);
     if (!assignee || !["housekeeping_admin", "hk_admin", "cleaner"].includes(assignee.role)) {
-      throw new Error("Managers can approve only work logs completed by HK Admins or Cleaners.");
+      throw new Error("Managers can approve only work logs completed by Housekeeping Leaders or Cleaners.");
     }
   }
-  const snapshotId = role === "owner" ? log.owner_id : log.manager_id;
-  if (snapshotId !== user.userId) throw new Error(`This work log belongs to the previous ${role} assignment and cannot be changed by the current ${role}.`);
+  if (role === "owner") {
+    const supabase = createPrivilegedServerSupabaseClient();
+    if (!await hasPropertyOwnerAccess(supabase, log.hotel_id, user.userId)) {
+      throw new Error("This property is outside your current ownership scope.");
+    }
+  } else if (log.manager_id !== user.userId) {
+    throw new Error("This work log belongs to the previous manager assignment and cannot be changed by the current manager.");
+  }
   return user;
 }
 
@@ -226,14 +230,20 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
   const briefPromise = getManagementOperationalBrief(user, period);
   const hotelsQuery = supabase.from("hotels").select("id, name, location, owner_id, manager_id, created_at, is_active, latitude, longitude, floors_sections, total_rooms").is("archived_at", null).order("name").order("id");
   const hotels = await fetchAllRows("properties", (from, to) => hotelsQuery.range(from, to));
+  const ownerPropertyIds = user.role === "owner" ? new Set(await getOwnerPropertyIds(supabase, user.userId)) : null;
+  const managerPropertyIds = user.role === "manager" ? new Set(await getManagerPropertyIds(supabase, user.userId)) : null;
   const assignedHotelId = user.hotelId ?? null;
   const visibleHotels = isPlatformAdmin(user.role)
     ? hotels ?? []
     : (hotels ?? []).filter((hotel) => {
-      const assignedUserId = user.role === "owner" ? hotel.owner_id : hotel.manager_id;
-      return assignedUserId === user.userId || hotel.id === assignedHotelId;
+      return (user.role === "owner" ? ownerPropertyIds?.has(hotel.id) : managerPropertyIds?.has(hotel.id) || hotel.id === assignedHotelId);
     });
   const hotelIds = visibleHotels.map((hotel) => hotel.id);
+  const propertyOwners = await getPropertyOwnerIds(supabase, hotelIds);
+  const propertiesWithCoOwners = visibleHotels.map((hotel) => ({
+    ...hotel,
+    co_owner_ids: (propertyOwners.get(hotel.id) ?? []).filter((ownerId) => ownerId !== hotel.owner_id),
+  }));
   const hotelFilter = isPlatformAdmin(user.role) ? null : hotelIds;
   const summaryTo = new Date().toISOString().slice(0, 10);
   const summaryFrom = `${summaryTo.slice(0, 7)}-01`;
@@ -244,14 +254,14 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
   );
   const attendanceSummaryPromise = supabase.rpc("get_workforce_attendance_summary", { p_property_ids: hotelIds });
   const cleanersQuery = supabase.from("users").select("id, full_name, email, role, primary_hotel_id").eq("role", "cleaner").order("full_name").order("id");
-  const assigneesQuery = supabase.from("users").select("id, full_name, email, role").in("role", ["owner", "manager"]).order("full_name").order("id");
-  const logsQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, shift_id, start_time, end_time, task_date, status, rooms_completed, room_ids, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, cost_override, deleted_at, cancelled_at, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, rejection_notes, hotels(name), users!work_logs_user_id_fkey(full_name, email, role), services_config(name, description, default_rate, unit)").is("deleted_at", null).is("cancelled_at", null).eq("status", "active").is("end_time", null).order("start_time", { ascending: false }).order("id");
+  const assigneesQuery = supabase.from("users").select("id, full_name, email, role, is_active, email_verified").in("role", ["owner", "manager"]).order("full_name").order("id");
+  const logsQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, shift_id, start_time, end_time, paused_at, task_date, status, rooms_completed, room_ids, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, cost_override, deleted_at, cancelled_at, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, rejection_notes, hotels(name), users!work_logs_user_id_fkey(full_name, email, role), services_config(name, description, default_rate, unit)").is("deleted_at", null).is("cancelled_at", null).in("status", ["active", "paused"]).is("end_time", null).order("start_time", { ascending: false }).order("id");
   const shiftsQuery = supabase.from("master_shifts").select("id, user_id, start_time, end_time, status").eq("status", "active").is("end_time", null).order("start_time").order("id");
   if (hotelFilter) {
     const scopedHotelIds = hotelIds.length ? hotelIds : ["00000000-0000-0000-0000-000000000000"];
     logsQuery.in("hotel_id", scopedHotelIds);
   }
-  const servicesQuery = supabase.from("services_config").select("id, name, description, unit, default_rate, is_active, owner_id, created_at").order("name").order("id");
+  const servicesQuery = supabase.from("services_config").select("id, hotel_id, name, description, unit, default_rate, is_active, owner_id, created_at").order("name").order("id");
   const roomsQuery = supabase.from("rooms").select("id, hotel_id, room_name, floor_section, category, status").in("hotel_id", hotelIds.length ? hotelIds : ["00000000-0000-0000-0000-000000000000"]).eq("status", "active").order("room_name").order("id");
   const [cleaners, propertyAssignees, services, workLogs, rooms, activeShifts, dashboardSummary, attendanceSummary] = await Promise.all([
     fetchAllRows("cleaners", (from, to) => cleanersQuery.range(from, to)),
@@ -264,7 +274,7 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
     attendanceSummaryPromise,
   ]);
   if (attendanceSummary.error) throw new Error(`Unable to load attendance summary: ${attendanceSummary.error.message}`);
-  const tenantOwnerIds = new Set(visibleHotels.map((hotel) => hotel.owner_id).filter((id): id is string => Boolean(id)));
+  const tenantOwnerIds = new Set(visibleHotels.flatMap((hotel) => propertyOwners.get(hotel.id) ?? []));
   const visibleServices = isPlatformAdmin(user.role)
     ? services
     : services.filter((service) => service.owner_id === null || tenantOwnerIds.has(service.owner_id));
@@ -300,7 +310,7 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
       assigneeRole: linkedUser?.role ?? "cleaner",
     };
   });
-  const activeTasks = workLogsWithNames.filter((log) => !log.cancelled_at && log.status === "active" && !log.end_time);
+  const activeTasks = workLogsWithNames.filter((log) => !log.cancelled_at && ["active", "paused"].includes(log.status) && !log.end_time);
   const cleanerRecordsById = new Map(cleaners.map((cleaner) => [cleaner.id, cleaner]));
   const visibleActiveShifts = activeShifts.filter((shift) => {
     if (isPlatformAdmin(user.role)) return true;
@@ -312,15 +322,19 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
   }).map((shift) => ({
     ...shift,
     cleanerName: cleanerRecordsById.get(shift.user_id)?.full_name || cleanerRecordsById.get(shift.user_id)?.email || "Unknown cleaner",
-    task: activeTasks.find((task) => task.shift_id === shift.id) ?? activeTasks.find((task) => task.user_id === shift.user_id) ?? null,
+    task: activeTasks.find((task) => task.shift_id === shift.id && task.status === "active")
+      ?? activeTasks.find((task) => task.shift_id === shift.id)
+      ?? activeTasks.find((task) => task.user_id === shift.user_id && task.status === "active")
+      ?? activeTasks.find((task) => task.user_id === shift.user_id)
+      ?? null,
   }));
   const brief = await briefPromise;
   return {
     cleaners: cleanersInScope.map((cleaner) => ({ id: cleaner.id, name: cleaner.full_name || cleaner.email, primary_hotel_id: cleaner.primary_hotel_id ?? null })),
-    hotels: visibleHotels,
+    hotels: propertiesWithCoOwners,
     propertyAssignees: propertyAssignees
       .filter((assignee) => isPlatformAdmin(user.role) || visibleHotels.some((hotel) => hotel.owner_id === assignee.id || hotel.manager_id === assignee.id))
-      .map((assignee) => ({ id: assignee.id, name: assignee.full_name || assignee.email, role: assignee.role })),
+      .map((assignee) => ({ id: assignee.id, name: assignee.full_name || assignee.email, role: assignee.role, is_active: assignee.is_active, email_verified: assignee.email_verified })),
     services: visibleServices,
     rooms,
     workLogs: workLogsWithNames,
@@ -376,6 +390,9 @@ export async function getManagementWorkLogPage(request: ManagementWorkLogPageReq
   const { data: scopedHotels, error: hotelError } = await hotelQuery;
   if (hotelError) throw new Error(`Unable to verify property access for work logs: ${hotelError.message}`);
   let hotelIds = (scopedHotels ?? []).map((hotel) => hotel.id);
+  if (user.role === "owner") {
+    hotelIds = [...new Set([...hotelIds, ...await getOwnerPropertyIds(supabase, user.userId)])];
+  }
   if (request.tenant && isPlatformAdmin(user.role)) {
     hotelIds = hotelIds.filter((id) => scopedHotels?.some((hotel) => hotel.id === id && hotel.owner_id === request.tenant));
   }
@@ -479,9 +496,12 @@ export async function getManagementPayrollPage(request: ManagementPayrollPageReq
   }
   const { data: scopedHotels, error: hotelError } = await hotelQuery;
   if (hotelError) throw new Error(`Unable to verify property access for payroll: ${hotelError.message}`);
-  const hotelIds = (scopedHotels ?? [])
+  let hotelIds = (scopedHotels ?? [])
     .filter((hotel) => !request.tenant || !isPlatformAdmin(user.role) || hotel.owner_id === request.tenant)
     .map((hotel) => hotel.id);
+  if (user.role === "owner") {
+    hotelIds = [...new Set([...hotelIds, ...await getOwnerPropertyIds(supabase, user.userId)])];
+  }
   const scopedHotelIds = hotelIds.length ? hotelIds : ["00000000-0000-0000-0000-000000000000"];
   const columns = "id, user_id, hotel_id, service_id, shift_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, room_ids, service_name_snapshot, service_description_snapshot, notes, cost_override, deleted_at, cancelled_at, travel_time_included, manager_approved, owner_approved, manager_approved_at, owner_approved_at, manager_rejected, owner_rejected, manager_rejected_at, owner_rejected_at, rejection_notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, import_key, is_locked, created_at, updated_at, hotels(name, location), users!work_logs_user_id_fkey(full_name, email), services_config(name, description, default_rate, unit)";
   const buildQuery = () => {
@@ -604,8 +624,10 @@ async function assertManagementControlsHotel(user: Awaited<ReturnType<typeof req
   const supabase = createPrivilegedServerSupabaseClient();
   const { data: hotel, error } = await supabase.from("hotels").select("owner_id, manager_id").eq("id", hotelId).maybeSingle();
   if (error) throw new Error(error.message);
-  const assignedId = user.role === "owner" ? hotel?.owner_id : hotel?.manager_id;
-  if (!hotel || assignedId !== user.userId) throw new Error("This operation is outside your assigned properties.");
+  const allowed = hotel && (user.role === "owner"
+    ? await hasPropertyOwnerAccess(supabase, hotelId, user.userId)
+    : (await getManagerPropertyIds(supabase, user.userId)).includes(hotelId));
+  if (!allowed) throw new Error("This operation is outside your assigned properties.");
 }
 
 export async function overrideActiveOperation(input: ManagementOverrideInput) {
@@ -651,6 +673,24 @@ export async function overrideActiveOperation(input: ManagementOverrideInput) {
     p_end_time: input.endTime || null,
   });
   if (error) throw new Error(error.message);
+  if (input.entityType === "task") {
+    const resumedTaskId = data && typeof data === "object" && "resumed_task_id" in data && typeof data.resumed_task_id === "string"
+      ? data.resumed_task_id
+      : null;
+    try {
+      await notifyWorkLogStatusChange({
+        workLogId: input.entityId,
+        actorId: user.userId,
+        previousStatus: "active",
+        newStatus: input.action === "cancel_task" ? "cancelled" : "completed",
+      });
+      if (resumedTaskId) {
+        await notifyWorkLogStatusChange({ workLogId: resumedTaskId, actorId: user.userId, previousStatus: "paused", newStatus: "active" });
+      }
+    } catch (notificationError) {
+      console.error("Management task override succeeded, but status notifications could not be recorded:", notificationError);
+    }
+  }
   for (const path of ["/admin", "/manager", "/owner", "/dashboard"]) revalidatePath(path);
   return data;
 }
@@ -751,8 +791,10 @@ export async function updateWorkLog(logId: string, changes: WorkLogUpdate) {
     throw new Error("Only an admin can change a work log status.");
   }
   if (!isPlatformAdmin(user.role)) {
-    const snapshotId = user.role === "owner" ? log.owner_id : log.manager_id;
-    if (snapshotId !== user.userId) throw new Error("This work log belongs to the previous management assignment and cannot be edited.");
+    const allowed = user.role === "owner"
+      ? await hasPropertyOwnerAccess(supabase, log.hotel_id, user.userId)
+      : (await getManagerPropertyIds(supabase, user.userId)).includes(log.hotel_id);
+    if (!allowed) throw new Error("This work log belongs to a previous management assignment or is outside your property scope.");
   }
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
   const nextStartTime = changes.startTime ? Date.parse(changes.startTime) : Date.parse(log.start_time);

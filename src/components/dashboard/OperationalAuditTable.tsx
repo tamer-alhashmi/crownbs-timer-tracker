@@ -92,7 +92,7 @@ export function OperationalAuditTable({ loadPage }: { loadPage: AuditPageLoader 
     <section className="rounded-2xl border border-line bg-surface p-4 text-ink shadow-sm sm:p-5">
       <header className="mb-4">
         <h2 className="text-base font-semibold">Operational intervention audit</h2>
-        <p className="mt-1 text-sm text-ink-secondary">Review clock-outs and task overrides, including the actor, reason, and recorded changes.</p>
+        <p className="mt-1 text-sm text-ink-secondary">Review task approvals, changes, clock-outs, and overrides, including the actor, property, and recorded details.</p>
       </header>
       <form onSubmit={applyTextFilters} className="mb-4 grid gap-3 rounded-xl border border-line bg-surface-secondary p-3 md:grid-cols-[minmax(10rem,1fr)_minmax(10rem,1fr)_minmax(10rem,1fr)_minmax(10rem,1fr)_auto] md:items-end">
         <label className="text-xs font-semibold text-ink-secondary">Action
@@ -101,6 +101,12 @@ export function OperationalAuditTable({ loadPage }: { loadPage: AuditPageLoader 
             <option value="force_clock_out">Force clock out</option>
             <option value="force_complete_task">Force complete task</option>
             <option value="cancel_task">Cancel task</option>
+            <option value="created">Work log created</option>
+            <option value="edited">Work log edited</option>
+            <option value="approved">Work log approved</option>
+            <option value="rejected">Work log rejected</option>
+            <option value="unapproved">Approval removed</option>
+            <option value="deleted">Work log deleted</option>
           </select>
         </label>
         <label className="text-xs font-semibold text-ink-secondary">Actor
@@ -119,14 +125,14 @@ export function OperationalAuditTable({ loadPage }: { loadPage: AuditPageLoader 
       {!loadedPage && !errorMessage && <p role="status" className="mb-3 text-sm text-ink-secondary">Loading this audit page…</p>}
       <div className="overflow-x-auto rounded-lg border border-line">
         <table className="min-w-[900px] w-full text-left text-sm">
-          <thead className="bg-surface-secondary text-ink-secondary"><tr><th className="px-3 py-3">When</th><th className="px-3 py-3">Entity / action</th><th className="px-3 py-3">Actor</th><th className="px-3 py-3">Reason</th><th className="px-3 py-3">Recorded change</th></tr></thead>
+          <thead className="bg-surface-secondary text-ink-secondary"><tr><th className="px-3 py-3">When</th><th className="px-3 py-3">Entity / action</th><th className="px-3 py-3">Actor</th><th className="px-3 py-3">Reason / context</th><th className="px-3 py-3">Recorded change</th></tr></thead>
           <tbody className="divide-y divide-line">
             {records.map((entry) => {
               const changes = getChanges(entry);
               return <tr key={entry.id} className="align-top text-ink transition-colors hover:bg-surface-secondary">
                 <td className="whitespace-nowrap px-3 py-3 text-ink-secondary">{new Date(entry.created_at).toLocaleString("en-GB", { timeZone: "Africa/Cairo" })}</td>
                 <td className="px-3 py-3"><span className="font-semibold capitalize">{entry.entity_type}</span><span className="block text-xs text-ink-secondary">{entry.action.replaceAll("_", " ")}</span><span className="mt-1 block max-w-48 text-xs text-ink-secondary">{entry.target_label}</span></td>
-                <td className="max-w-40 px-3 py-3"><span className="block truncate font-medium">{entry.actor_name}</span></td>
+                <td className="max-w-40 px-3 py-3"><span className="block truncate font-medium">{entry.actor_name}</span>{entry.is_co_owner_action && <span className="mt-1 inline-flex rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold text-violet-800 dark:text-violet-200">Co-owner</span>}</td>
                 <td className="max-w-sm whitespace-normal px-3 py-3 text-ink-secondary">{entry.override_reason}</td>
                 <td className="px-3 py-3 text-xs text-ink-secondary">
                   <div className="space-y-1.5">{changes.length ? changes.map((change) => <p key={change.label}><span className="font-semibold text-ink">{change.label}:</span> {change.before} <span aria-label="changed to" className="px-1 text-ink-muted">→</span> {change.after}</p>) : <span>No tracked fields changed</span>}</div>

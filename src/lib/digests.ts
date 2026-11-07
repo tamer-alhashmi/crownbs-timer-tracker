@@ -3,6 +3,8 @@ import { render } from "@react-email/render";
 import { BrandedEmail } from "@/components/email/BrandedEmail";
 import { isUserRole, normalizeUserRole, type UserRole } from "@/lib/roles";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
+import { calculateTaskCost, resolveBillingUnit, resolveServiceRate } from "@/lib/servicePricing";
+import { getPropertyOwnerIds } from "@/lib/propertyOwnership";
 
 type Cadence = "weekly" | "monthly";
 type Metric = { label: string; value: string };
@@ -12,8 +14,8 @@ type DigestUser = {
   email: string | null;
   role: string;
   email_verified: boolean;
+  is_active: boolean;
   weekly_digest_enabled: boolean;
-  monthly_digest_enabled: boolean;
   primary_hotel_id: string | null;
   created_at: string;
 };
@@ -31,6 +33,8 @@ type DigestWorkLog = {
   room_ids: string[] | null;
   manager_approved: boolean;
   owner_approved: boolean;
+  cost_override: number | string | null;
+  services_config: { name: string | null; unit: string | null; default_rate: number | string | null } | { name: string | null; unit: string | null; default_rate: number | string | null }[] | null;
   deleted_at: string | null;
   cancelled_at: string | null;
 };
@@ -43,6 +47,8 @@ type DigestHotel = {
 };
 type DigestAssignment = { user_id: string; hotel_id: string };
 type DigestAudit = { work_log_id: string; actor_id: string; created_at: string };
+type DigestShift = { id: string; user_id: string; hotel_id: string | null; start_time: string; end_time: string | null };
+type DigestSecurityIncident = { property_id: string; occurred_at: string };
 type Period = { from: Date; to: Date; cycleKey: string };
 
 function digestPeriod(cadence: Cadence, now: Date): Period {
@@ -76,6 +82,28 @@ function hoursFor(logs: DigestWorkLog[]) {
   }, 0);
 }
 
+function shiftHoursFor(shifts: DigestShift[]) {
+  return shifts.reduce((total, shift) => {
+    if (!shift.end_time) return total;
+    const hours = (Date.parse(shift.end_time) - Date.parse(shift.start_time)) / 3_600_000;
+    return Number.isFinite(hours) && hours > 0 ? total + hours : total;
+  }, 0);
+}
+
+function costFor(log: DigestWorkLog) {
+  const service = Array.isArray(log.services_config) ? log.services_config[0] : log.services_config;
+  const name = service?.name ?? "Work task";
+  const rate = resolveServiceRate({ name, default_rate: service?.default_rate });
+  const hours = log.end_time
+    ? Math.max(0, (Date.parse(log.end_time) - Date.parse(log.start_time)) / 3_600_000)
+    : 0;
+  return calculateTaskCost(hours, log.rooms_completed ?? 0, {
+    name,
+    unit: resolveBillingUnit(service?.unit, name),
+    default_rate: rate,
+  }, log.cost_override);
+}
+
 function generateRoleScopedDigest(
   user: DigestUser,
   period: Period,
@@ -84,9 +112,12 @@ function generateRoleScopedDigest(
   assignments: DigestAssignment[],
   audits: DigestAudit[],
   allUsers: DigestUser[],
+  propertyOwners: Map<string, string[]>,
+  shifts: DigestShift[],
+  securityIncidents: DigestSecurityIncident[],
 ): Metric[] {
   const role = normalizeUserRole(user.role as UserRole);
-  const ownedHotelIds = hotels.filter((hotel) => hotel.owner_id === user.id).map((hotel) => hotel.id);
+  const ownedHotelIds = hotels.filter((hotel) => (propertyOwners.get(hotel.id) ?? []).includes(user.id)).map((hotel) => hotel.id);
   const assignedHotelIds = new Set([
     ...hotels.filter((hotel) => hotel.manager_id === user.id).map((hotel) => hotel.id),
     ...assignments.filter((assignment) => assignment.user_id === user.id).map((assignment) => assignment.hotel_id),
@@ -102,6 +133,11 @@ function generateRoleScopedDigest(
         : liveLogs;
   const completed = userLogs.filter((log) => log.status === "completed");
   const verified = completed.filter((log) => log.manager_approved && log.owner_approved);
+  const userShifts = role === "owner"
+    ? shifts.filter((shift) => shift.hotel_id !== null && ownedHotelIds.includes(shift.hotel_id))
+    : role === "manager" || role === "housekeeping_admin"
+      ? shifts.filter((shift) => shift.hotel_id !== null && assignedHotelIds.has(shift.hotel_id))
+      : shifts;
   const roomCount = completed.reduce((total, log) => total + Math.max(0, log.rooms_completed ?? 0), 0);
   const roomsAssigned = userLogs.reduce((total, log) => total + (log.room_ids?.length ?? 0), 0);
   const overdue = userLogs.filter((log) =>
@@ -122,7 +158,8 @@ function generateRoleScopedDigest(
       { label: "New tenant accounts", value: String(newTenants) },
       { label: "Active tenant accounts", value: String(activeTenantIds.size) },
       { label: "Completed platform tasks", value: String(completed.length) },
-      { label: "Accrued task revenue", value: `$${(completed.length * 0.08).toFixed(2)}` },
+      { label: "Platform labor cost", value: `GBP ${verified.reduce((total, log) => total + costFor(log), 0).toFixed(2)}` },
+      { label: "Geofence incidents", value: String(securityIncidents.length) },
     ];
   }
   if (role === "admin") {
@@ -136,30 +173,43 @@ function generateRoleScopedDigest(
       { label: "Tasks assigned by Super Admin", value: String(assignedByPlatformOwner.length) },
       { label: "Platform tasks handled by you", value: String(handledTaskIds.size) },
       { label: "Platform tasks completed", value: String(completed.length) },
+      { label: "Geofence incidents", value: String(securityIncidents.length) },
     ];
   }
   if (role === "owner") {
     const propertyUsage = hotels
-      .filter((hotel) => hotel.owner_id === user.id)
+      .filter((hotel) => ownedHotelIds.includes(hotel.id))
       .map((hotel) => {
-        const taskCount = completed.filter((log) => log.hotel_id === hotel.id).length;
-        return {
-          label: hotel.name,
-          value: `${taskCount} tasks · $${(taskCount * 0.08).toFixed(2)}`,
-        };
+        const propertyLogs = userLogs.filter((log) => log.hotel_id === hotel.id);
+        const approvedLogs = propertyLogs.filter((log) => log.status === "completed" && log.manager_approved && log.owner_approved);
+        const cost = approvedLogs.reduce((total, log) => total + costFor(log), 0);
+        return { label: hotel.name, value: `${approvedLogs.length} approved tasks · GBP ${cost.toFixed(2)}` };
       });
+    const approvedCost = verified.reduce((total, log) => total + costFor(log), 0);
     return [
-      { label: "Rooms turned", value: String(roomCount) },
-      { label: "Verified cleaner shifts (approved work records)", value: String(verified.length) },
-      { label: "Billing task usage", value: `${completed.length} tasks · $${(completed.length * 0.08).toFixed(2)}` },
+      { label: "Approved labor hours", value: `${verifiedHours.toFixed(1)} hrs` },
+      { label: "Approved labor cost", value: `GBP ${approvedCost.toFixed(2)}` },
+      { label: "Property health", value: `${completionRate}% complete · ${overdue} overdue · ${roomCount} rooms turned` },
+      { label: "Security incidents", value: String(securityIncidents.filter((incident) => ownedHotelIds.includes(incident.property_id)).length) },
       ...propertyUsage,
     ];
   }
   if (role === "manager") {
+    const propertySummaries = hotels.filter((hotel) => assignedHotelIds.has(hotel.id)).map((hotel) => {
+      const propertyLogs = userLogs.filter((log) => log.hotel_id === hotel.id);
+      const propertyShifts = userShifts.filter((shift) => shift.hotel_id === hotel.id);
+      const cleanerIds = new Set(propertyShifts.map((shift) => shift.user_id));
+      const cleanerHours = hoursFor(propertyLogs.filter((log) => cleanerIds.has(log.assigned_to ?? log.user_id)));
+      const pending = propertyLogs.filter((log) => log.status !== "completed").length;
+      const completedCount = propertyLogs.filter((log) => log.status === "completed").length;
+      return { label: hotel.name, value: `${propertyShifts.length} shifts · ${cleanerHours.toFixed(1)} cleaner hrs · ${pending} pending / ${completedCount} complete` };
+    });
     return [
       { label: "Assigned-property completion", value: `${completionRate}%` },
-      { label: "Manager-approved work hours", value: `${hoursFor(completed.filter((log) => log.manager_approved)).toFixed(1)} hrs` },
+      { label: "Cleaner shift hours", value: `${shiftHoursFor(userShifts).toFixed(1)} hrs` },
+      { label: "Shift count", value: String(userShifts.length) },
       { label: "Overdue tasks", value: String(overdue) },
+      ...propertySummaries,
     ];
   }
   if (role === "housekeeping_admin") {
@@ -169,6 +219,7 @@ function generateRoleScopedDigest(
       { label: "Approved shift inspections (approved task records)", value: String(verifiedChecks) },
       { label: "Team tasks completed", value: String(completed.length) },
       { label: "Room readiness (rooms turned / assigned)", value: `${readiness}%` },
+      { label: "Shift count", value: String(userShifts.length) },
     ];
   }
   return [
@@ -182,12 +233,26 @@ async function fetchAllDigestUsers(supabase: ReturnType<typeof createPrivilegedS
   const users: DigestUser[] = [];
   for (let offset = 0; ; offset += 1000) {
     const { data, error } = await supabase.from("users")
-      .select("id, full_name, email, role, email_verified, weekly_digest_enabled, monthly_digest_enabled, primary_hotel_id, created_at")
+      .select("id, full_name, email, role, email_verified, is_active, weekly_digest_enabled, primary_hotel_id, created_at")
       .range(offset, offset + 999);
     if (error) throw new Error(`Unable to load digest recipients: ${error.message}`);
     const page = (data ?? []) as DigestUser[];
     users.push(...page);
     if (page.length < 1000) return users;
+  }
+
+}
+
+async function fetchConfirmedAuthUserIds(supabase: ReturnType<typeof createPrivilegedServerSupabaseClient>) {
+  const confirmedIds = new Set<string>();
+  for (let page = 1; ; page += 1) {
+    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error) throw new Error(`Unable to verify digest recipient emails: ${error.message}`);
+    const users = data.users ?? [];
+    for (const user of users) {
+      if (user.email_confirmed_at) confirmedIds.add(user.id);
+    }
+    if (users.length < 1000) return confirmedIds;
   }
 }
 
@@ -210,7 +275,7 @@ export async function dispatchRoleScopedDigests(cadence: Cadence) {
   const period = digestPeriod(cadence, new Date());
   const fromDate = period.from.toISOString().slice(0, 10);
   const toDate = period.to.toISOString().slice(0, 10);
-  const [allUsers, hotels, assignments, workLogs, audits] = await Promise.all([
+  const [allUsers, hotels, assignments, workLogs, audits, shifts, securityIncidents, confirmedAuthUserIds] = await Promise.all([
     fetchAllDigestUsers(supabase),
     fetchAllRows<DigestHotel>((from, to) => supabase.from("hotels")
       .select("id, name, owner_id, manager_id, is_active")
@@ -219,7 +284,7 @@ export async function dispatchRoleScopedDigests(cadence: Cadence) {
       .select("user_id, hotel_id")
       .range(from, to), "property assignments"),
     fetchAllRows<DigestWorkLog>((from, to) => supabase.from("work_logs")
-      .select("id, user_id, assigned_to, assigned_by, hotel_id, status, start_time, end_time, due_at, rooms_completed, room_ids, manager_approved, owner_approved, deleted_at, cancelled_at")
+      .select("id, user_id, assigned_to, assigned_by, hotel_id, status, start_time, end_time, due_at, rooms_completed, room_ids, manager_approved, owner_approved, cost_override, deleted_at, cancelled_at, services_config(name, unit, default_rate)")
       .gte("task_date", fromDate)
       .lte("task_date", toDate)
       .range(from, to), "work records"),
@@ -228,7 +293,19 @@ export async function dispatchRoleScopedDigests(cadence: Cadence) {
       .gte("created_at", period.from.toISOString())
       .lte("created_at", period.to.toISOString())
       .range(from, to), "task audit records"),
+    fetchAllRows<DigestShift>((from, to) => supabase.from("master_shifts")
+      .select("id, user_id, hotel_id, start_time, end_time")
+      .gte("start_time", period.from.toISOString())
+      .lte("start_time", period.to.toISOString())
+      .range(from, to), "workforce shifts"),
+    fetchAllRows<DigestSecurityIncident>((from, to) => supabase.from("workforce_security_incidents")
+      .select("property_id, occurred_at")
+      .gte("occurred_at", period.from.toISOString())
+      .lte("occurred_at", period.to.toISOString())
+      .range(from, to), "security incidents"),
+    fetchConfirmedAuthUserIds(supabase),
   ]);
+  const propertyOwners = await getPropertyOwnerIds(supabase, hotels.map((hotel) => hotel.id));
 
   const { error: staleCodesError } = await supabase.from("email_verification_codes")
     .delete()
@@ -239,9 +316,7 @@ export async function dispatchRoleScopedDigests(cadence: Cadence) {
   const fromEmail = process.env.RESEND_FROM_EMAIL;
   if (!apiKey || !fromEmail) throw new Error("Digest email is not configured. Set RESEND_API_KEY and RESEND_FROM_EMAIL.");
   const resend = new Resend(apiKey);
-  const recipients = allUsers.filter((user) =>
-    cadence === "weekly" ? user.weekly_digest_enabled : user.monthly_digest_enabled
-  );
+  const recipients = allUsers.filter((user) => cadence === "monthly" || user.weekly_digest_enabled);
 
   let sent = 0;
   let skipped = 0;
@@ -256,6 +331,10 @@ export async function dispatchRoleScopedDigests(cadence: Cadence) {
       assignments,
       workLogs,
       audits,
+      propertyOwners,
+      shifts,
+      securityIncidents,
+      confirmedAuthUserIds,
       supabase,
       resend,
       fromEmail,
@@ -276,6 +355,10 @@ async function sendDigestToUser({
   assignments,
   workLogs,
   audits,
+  propertyOwners,
+  shifts,
+  securityIncidents,
+  confirmedAuthUserIds,
   supabase,
   resend,
   fromEmail,
@@ -288,11 +371,15 @@ async function sendDigestToUser({
   assignments: DigestAssignment[];
   workLogs: DigestWorkLog[];
   audits: DigestAudit[];
+  propertyOwners: Map<string, string[]>;
+  shifts: DigestShift[];
+  securityIncidents: DigestSecurityIncident[];
+  confirmedAuthUserIds: Set<string>;
   supabase: ReturnType<typeof createPrivilegedServerSupabaseClient>;
   resend: Resend;
   fromEmail: string;
 }): Promise<"sent" | "skipped" | "failed"> {
-  if (!user.email || !user.email_verified) return "skipped";
+  if (!user.email || !user.email_verified || !user.is_active || !confirmedAuthUserIds.has(user.id)) return "skipped";
   if (!isUserRole(user.role)) return "skipped";
 
   const { error: claimError } = await supabase.from("digest_dispatches").insert({
@@ -307,7 +394,7 @@ async function sendDigestToUser({
   }
 
   const title = cadence === "weekly" ? "Weekly Executive Summary" : "Monthly Operations Closure";
-  const metrics = generateRoleScopedDigest(user, period, workLogs, hotels, assignments, audits, allUsers);
+  const metrics = generateRoleScopedDigest(user, period, workLogs, hotels, assignments, audits, allUsers, propertyOwners, shifts, securityIncidents);
   let sendFailure: string | null = null;
   try {
     const { error: sendError } = await resend.emails.send({

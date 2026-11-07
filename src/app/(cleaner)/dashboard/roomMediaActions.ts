@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getSessionUser } from "@/lib/auth";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { isPlatformAdmin } from "@/lib/roles";
+import { getManagerPropertyIds, hasPropertyOwnerAccess } from "@/lib/propertyOwnership";
 
 const BUCKET = "room-media";
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
@@ -144,10 +145,11 @@ export async function getWorkLogRoomMedia(workLogId: string): Promise<RoomMediaG
 
   let authorized = isPlatformAdmin(user.role) || (user.role === "cleaner" && log.user_id === user.userId);
   if (!authorized && (user.role === "owner" || user.role === "manager")) {
-    const responsibilityId = user.role === "owner" ? log.owner_id : log.manager_id;
-    const assignmentColumn = user.role === "owner" ? "owner_id" : "manager_id";
-    const { data: hotel } = await supabase.from("hotels").select("owner_id, manager_id").eq("id", log.hotel_id).maybeSingle();
-    authorized = responsibilityId === user.userId || hotel?.[assignmentColumn] === user.userId;
+    if (user.role === "owner") {
+      authorized = await hasPropertyOwnerAccess(supabase, log.hotel_id, user.userId);
+    } else {
+      authorized = (await getManagerPropertyIds(supabase, user.userId)).includes(log.hotel_id);
+    }
   }
   if (!authorized) throw new Error("You do not have access to this work evidence.");
 

@@ -4,6 +4,7 @@ import { ArrowLeft, CalendarClock, MapPin } from "lucide-react";
 import { getSessionUser } from "@/lib/auth";
 import { isHousekeepingAdmin, isPlatformAdmin } from "@/lib/roles";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
+import { getManagerPropertyIds, hasPropertyOwnerAccess } from "@/lib/propertyOwnership";
 
 function dashboardHref(role: string) {
   if (role === "cleaner") return "/dashboard";
@@ -35,7 +36,7 @@ export default async function TaskDeepLinkPage({ params }: { params: Promise<{ t
   if (!hotel) notFound();
 
   let canView = isPlatformAdmin(user.role);
-  if (user.role === "owner") canView = hotel.owner_id === user.userId;
+  if (user.role === "owner") canView = await hasPropertyOwnerAccess(supabase, hotel.id, user.userId);
   if (user.role === "cleaner") canView = (task.assigned_to ?? task.user_id) === user.userId;
   if (user.role === "manager" || isHousekeepingAdmin(user.role)) {
     const { data: assignment, error: assignmentError } = await supabase.from("user_hotel_assignments")
@@ -45,7 +46,7 @@ export default async function TaskDeepLinkPage({ params }: { params: Promise<{ t
       .maybeSingle();
     if (assignmentError) throw new Error(`Unable to verify your property access: ${assignmentError.message}`);
     canView = user.role === "manager"
-      ? hotel.manager_id === user.userId || user.hotelId === hotel.id || Boolean(assignment)
+      ? (await getManagerPropertyIds(supabase, user.userId)).includes(hotel.id) || user.hotelId === hotel.id || Boolean(assignment)
       : user.hotelId === hotel.id || Boolean(assignment);
   }
   if (!canView) notFound();

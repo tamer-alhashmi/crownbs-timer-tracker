@@ -2,6 +2,7 @@ import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { isPlatformAdmin } from "@/lib/roles";
 import type { AppUserSession } from "@/lib/auth";
 import { calculateTaskCost, resolveBillingUnit, resolveServiceRate } from "@/lib/servicePricing";
+import { getManagerPropertyIds, getOwnerPropertyIds } from "@/lib/propertyOwnership";
 
 export type CleanerBrief = {
   kind: "cleaner";
@@ -62,7 +63,10 @@ export type ManagementBrief = {
 
 export type ManagementBriefPeriod = { from: string; to: string };
 
-function hoursBetween(start: string, end: string | null) {
+function hoursBetween(start: string, end: string | null, status?: string, pausedAt?: string | null) {
+  if (status === "paused" && pausedAt) {
+    return Math.max(0, (Date.parse(pausedAt) - Date.parse(start)) / 3_600_000);
+  }
   return Math.max(0, ((end ? new Date(end) : new Date()).getTime() - new Date(start).getTime()) / 3_600_000);
 }
 
@@ -116,11 +120,13 @@ export async function getManagementOperationalBrief(user: AppUserSession, period
   const matchingAuthUser = (authUsers?.users ?? []).find((authUser) => authUser.email?.toLowerCase() === user.email.toLowerCase());
   const identityIds = new Set([user.userId, matchingAuthUser?.id].filter((id): id is string => Boolean(id)));
   let hotelsQuery = supabase.from("hotels").select("id, name, owner_id, manager_id").is("archived_at", null).order("name");
-  if (user.role === "owner") hotelsQuery = hotelsQuery.eq("owner_id", user.userId);
-  if (user.role === "manager") hotelsQuery = hotelsQuery.eq("manager_id", user.userId);
+  const ownerHotelIds = user.role === "owner" ? new Set(await getOwnerPropertyIds(supabase, user.userId)) : null;
+  if (ownerHotelIds) hotelsQuery = hotelsQuery.in("id", ownerHotelIds.size ? [...ownerHotelIds] : ["00000000-0000-0000-0000-000000000000"]);
+  const managerHotelIds = user.role === "manager" ? await getManagerPropertyIds(supabase, user.userId) : null;
+  if (managerHotelIds) hotelsQuery = hotelsQuery.in("id", managerHotelIds.length ? managerHotelIds : ["00000000-0000-0000-0000-000000000000"]);
   let logQuery = supabase
     .from("work_logs")
-    .select("id, hotel_id, user_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, cost_override, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, rejection_notes, hotels(name), users!work_logs_user_id_fkey(full_name, email), services_config(name, description, default_rate, unit)")
+    .select("id, hotel_id, user_id, start_time, end_time, paused_at, task_date, status, rooms_completed, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, cost_override, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, rejection_notes, hotels(name), users!work_logs_user_id_fkey(full_name, email), services_config(name, description, default_rate, unit)")
     .is("deleted_at", null)
     .is("cancelled_at", null)
     .order("start_time", { ascending: false });
@@ -128,7 +134,7 @@ export async function getManagementOperationalBrief(user: AppUserSession, period
     logQuery = logQuery.gte("start_time", period.from).lt("start_time", period.to);
   } else {
     logQuery = logQuery
-      .or(`status.eq.active,start_time.gte.${periodStart(1)}`)
+      .or(`status.in.(active,paused),start_time.gte.${periodStart(1)}`)
       .lt("start_time", new Date().toISOString());
   }
   const [{ data: hotels, error: hotelError }, { data: logs, error: logError }] = await Promise.all([
@@ -138,7 +144,9 @@ export async function getManagementOperationalBrief(user: AppUserSession, period
   if (hotelError) throw new Error(hotelError.message);
   if (logError) throw new Error(logError.message);
 
-  const visibleHotels = (hotels ?? []).filter((hotel) => isPlatformAdmin(user.role) || identityIds.has(hotel[`${user.role}_id` as "owner_id" | "manager_id"] ?? "") || hotel.id === (user.hotelId ?? null));
+  const visibleHotels = (hotels ?? []).filter((hotel) => isPlatformAdmin(user.role)
+    || (ownerHotelIds ? ownerHotelIds.has(hotel.id) : identityIds.has(hotel[`${user.role}_id` as "owner_id" | "manager_id"] ?? ""))
+    || (user.role === "manager" && managerHotelIds?.includes(hotel.id)));
   const visibleIds = new Set(visibleHotels.map((hotel) => hotel.id));
   const grouped = new Map<string, ManagementBriefHotel>();
   for (const hotel of visibleHotels) {
@@ -166,7 +174,7 @@ export async function getManagementOperationalBrief(user: AppUserSession, period
     const counts = serviceCounts.get(log.hotel_id) ?? new Map<string, number>();
     counts.set(service, (counts.get(service) ?? 0) + 1);
     serviceCounts.set(log.hotel_id, counts);
-    const hours = hoursBetween(log.start_time, log.end_time);
+    const hours = hoursBetween(log.start_time, log.end_time, log.status, log.paused_at);
     const rooms = log.rooms_completed ?? 0;
     const rate = resolveServiceRate({ name: service, default_rate: serviceConfig?.default_rate });
     const unit = resolveBillingUnit(serviceConfig?.unit, service);

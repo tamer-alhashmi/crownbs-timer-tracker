@@ -2,6 +2,7 @@ import "server-only";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { dispatchPushNotification } from "@/lib/notifications/notificationDispatcher";
 import { isHousekeepingAdmin, normalizeUserRole, type UserRole } from "@/lib/roles";
+import { getManagerPropertyIds, getOwnerPropertyIds, getPropertyOwnerIds, getPropertyWorkforceIds } from "@/lib/propertyOwnership";
 
 const STALE_AFTER_HOURS = 12;
 const PAGE_SIZE = 500;
@@ -65,32 +66,23 @@ export async function createOverdueTaskAlerts(actorId: string, actorRole: UserRo
     hotelIds = (properties ?? []).map((property) => property.id);
   } else if (actorRole !== "cleaner") {
     if (actorRole === "owner") {
-      const { data: hotels, error } = await supabase.from("hotels").select("id").eq("owner_id", actorId).eq("is_active", true).is("archived_at", null);
-      if (error) {
-        console.error("[Task Escalation]: Failed to load owner properties.", error);
-        throw new Error("Unable to load property scope for overdue task alerts.");
-      }
-      hotelIds = (hotels ?? []).map((hotel) => hotel.id);
+      hotelIds = await getOwnerPropertyIds(supabase, actorId);
     } else {
       const [
         { data: assignments, error: assignmentsError },
         { data: profile, error: profileError },
-        { data: managedHotels, error: managedHotelsError },
       ] = await Promise.all([
         supabase.from("user_hotel_assignments").select("hotel_id").eq("user_id", actorId),
         supabase.from("users").select("primary_hotel_id").eq("id", actorId).maybeSingle(),
-        actorRole === "manager"
-          ? supabase.from("hotels").select("id").eq("manager_id", actorId).eq("is_active", true).is("archived_at", null)
-          : Promise.resolve({ data: [], error: null }),
       ]);
-      if (assignmentsError || profileError || managedHotelsError) {
-        console.error("[Task Escalation]: Failed to load assigned property scope.", assignmentsError ?? profileError ?? managedHotelsError);
+      if (assignmentsError || profileError) {
+        console.error("[Task Escalation]: Failed to load assigned property scope.", assignmentsError ?? profileError);
         throw new Error("Unable to load property scope for overdue task alerts.");
       }
       hotelIds = [...new Set([
         ...(assignments ?? []).map((assignment) => assignment.hotel_id),
         ...(profile?.primary_hotel_id ? [profile.primary_hotel_id] : []),
-        ...(managedHotels ?? []).map((hotel) => hotel.id),
+        ...(actorRole === "manager" ? await getManagerPropertyIds(supabase, actorId) : []),
       ])];
       if (hotelIds.length) {
         const { data: activeHotels, error } = await supabase.from("hotels").select("id").in("id", hotelIds).eq("is_active", true).is("archived_at", null);
@@ -163,35 +155,37 @@ export async function createOverdueTaskAlerts(actorId: string, actorRole: UserRo
     ...candidates.map((task) => task.assigned_to ?? task.user_id),
     ...shifts.map((shift) => shift.user_id),
   ])];
-  const [{ data: hotels, error: hotelsError }, { data: assignees, error: assigneesError }, { data: hkAssignments, error: hkError }, { data: superAdmins, error: superAdminsError }] = await Promise.all([
+  const [{ data: hotels, error: hotelsError }, { data: assignees, error: assigneesError }, { data: superAdmins, error: superAdminsError }] = await Promise.all([
     supabase.from("hotels").select("id, name, owner_id, manager_id, is_active, archived_at").in("id", relevantHotelIds),
     supabase.from("users").select("id, full_name, role, is_active").in("id", assigneeIds),
-    supabase.from("user_hotel_assignments").select("user_id, hotel_id").in("hotel_id", relevantHotelIds),
     supabase.from("users").select("id").eq("role", "super_admin").eq("is_active", true),
   ]);
-  if (hotelsError || assigneesError || hkError || superAdminsError) {
-    console.error("[Task Escalation]: Failed to resolve recipients.", hotelsError ?? assigneesError ?? hkError ?? superAdminsError);
+  if (hotelsError || assigneesError || superAdminsError) {
+    console.error("[Task Escalation]: Failed to resolve recipients.", hotelsError ?? assigneesError ?? superAdminsError);
     throw new Error("Unable to resolve recipients for overdue task alerts.");
   }
 
   const hotelById = new Map((hotels ?? []).map((hotel) => [hotel.id, hotel as TaskHotel]));
   const userById = new Map((assignees ?? []).map((user) => [user.id, user as TaskUser]));
-  const hkAdminsByHotel = new Map<string, string[]>();
-  const hkAdminIds = new Set((hkAssignments ?? []).map((assignment) => assignment.user_id));
-  if (hkAdminIds.size) {
-    const { data: hkAdmins, error } = await supabase.from("users").select("id, role").in("id", [...hkAdminIds]).eq("is_active", true).in("role", ["housekeeping_admin", "hk_admin"]);
-    if (error) {
-      console.error("[Task Escalation]: Failed to resolve housekeeping administrators.", error);
-      throw new Error("Unable to resolve recipients for overdue task alerts.");
-    }
-    const validHkAdminIds = new Set((hkAdmins ?? []).map((user) => user.id));
-    for (const assignment of hkAssignments ?? []) {
-      if (!validHkAdminIds.has(assignment.user_id)) continue;
-      const ids = hkAdminsByHotel.get(assignment.hotel_id) ?? [];
-      ids.push(assignment.user_id);
-      hkAdminsByHotel.set(assignment.hotel_id, ids);
-    }
-  }
+  const propertyOwners = await getPropertyOwnerIds(supabase, relevantHotelIds);
+  const workforceByHotel = await getPropertyWorkforceIds(
+    supabase,
+    relevantHotelIds,
+    ["manager", "housekeeping_admin", "hk_admin"],
+    true,
+  );
+  const workforceIds = [...new Set([...workforceByHotel.values()].flat())];
+  const { data: workforceUsers, error: workforceUsersError } = workforceIds.length
+    ? await supabase.from("users").select("id, role").in("id", workforceIds)
+    : { data: [], error: null };
+  if (workforceUsersError) throw new Error(`Unable to load workforce notification roles: ${workforceUsersError.message}`);
+  const workforceRoleById = new Map((workforceUsers ?? []).map((member) => [member.id, member.role]));
+  const ownerIds = [...new Set([...propertyOwners.values()].flat())];
+  const { data: verifiedOwners, error: verifiedOwnersError } = ownerIds.length
+    ? await supabase.from("users").select("id").in("id", ownerIds).eq("is_active", true).eq("email_verified", true)
+    : { data: [], error: null };
+  if (verifiedOwnersError) throw new Error(`Unable to verify property owners for overdue alerts: ${verifiedOwnersError.message}`);
+  const verifiedOwnerIds = new Set((verifiedOwners ?? []).map((owner) => owner.id));
 
   const superAdminIds = (superAdmins ?? []).map((admin) => admin.id);
   const activeUserIds = new Set((assignees ?? []).filter((user) => user.is_active).map((user) => user.id));
@@ -208,9 +202,16 @@ export async function createOverdueTaskAlerts(actorId: string, actorRole: UserRo
   }[] = [];
   const recipientsFor = (role: string, hotel: TaskHotel, workerId: string) => {
     const recipients = new Set<string>([workerId, ...superAdminIds]);
-    if (role === "cleaner") (hkAdminsByHotel.get(hotel.id) ?? []).forEach((id) => recipients.add(id));
-    if ((role === "cleaner" || isHousekeepingAdmin(role) || role === "manager") && hotel.manager_id) recipients.add(hotel.manager_id);
-    if (["cleaner", "housekeeping_admin", "hk_admin", "manager"].includes(role) && hotel.owner_id) recipients.add(hotel.owner_id);
+    const workforceIds = workforceByHotel.get(hotel.id) ?? [];
+    if (role === "cleaner") {
+      workforceIds.filter((id) => isHousekeepingAdmin(workforceRoleById.get(id) ?? "")).forEach((id) => recipients.add(id));
+    }
+    if (role === "cleaner" || isHousekeepingAdmin(role) || role === "manager") {
+      workforceIds.filter((id) => workforceRoleById.get(id) === "manager").forEach((id) => recipients.add(id));
+    }
+    if (["cleaner", "housekeeping_admin", "hk_admin", "manager"].includes(role)) {
+      (propertyOwners.get(hotel.id) ?? []).filter((ownerId) => verifiedOwnerIds.has(ownerId)).forEach((ownerId) => recipients.add(ownerId));
+    }
     return [...recipients].filter((id) => id !== workerId || activeUserIds.has(id));
   };
 

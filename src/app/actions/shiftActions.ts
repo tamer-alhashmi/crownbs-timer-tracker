@@ -48,7 +48,7 @@ async function getActiveWorkforceUser() {
     .maybeSingle();
   if (error) throw new Error(`Unable to verify your workforce account: ${error.message}`);
   if (!profile || profile.is_active !== true || !isWorkforceRole(profile.role) || normalizeUserRole(profile.role) !== normalizeUserRole(session.role)) {
-    throw new Error("Only active Cleaners, Managers, and Housekeeping Admins can manage on-site shifts.");
+    throw new Error("Only active Cleaners, Managers, and Housekeeping Leaders can manage on-site shifts.");
   }
   return { session, profile, supabase };
 }

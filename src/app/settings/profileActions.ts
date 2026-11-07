@@ -134,10 +134,10 @@ export async function verifyEmailAddress(rawEmail: string, rawCode: string) {
   revalidatePath("/", "layout");
 }
 
-export async function saveDigestPreferences(preferences: { weekly: boolean; monthly: boolean }) {
+export async function saveDigestPreferences(preferences: { weekly: boolean }) {
   const user = await getVerifiedChatSessionUser();
   if (!user) throw new Error("Your session has expired. Sign in again to update digest preferences.");
-  if (typeof preferences.weekly !== "boolean" || typeof preferences.monthly !== "boolean") {
+  if (typeof preferences.weekly !== "boolean") {
     throw new Error("Choose valid email digest preferences.");
   }
 
@@ -151,7 +151,6 @@ export async function saveDigestPreferences(preferences: { weekly: boolean; mont
 
   const { error } = await supabase.from("users").update({
     weekly_digest_enabled: preferences.weekly,
-    monthly_digest_enabled: preferences.monthly,
     updated_at: new Date().toISOString(),
   }).eq("id", user.userId);
   if (error) throw new Error(`Unable to save digest preferences: ${error.message}`);

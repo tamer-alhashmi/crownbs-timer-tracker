@@ -6,6 +6,7 @@ import { FEATURE_KEYS, type FeatureKey, type FeaturePermission } from "./permiss
 import { requireFeatureAccess, type FeatureAction } from "@/lib/featureAccess";
 import { isPlatformAdmin, isSuperAdmin, isUserRole, normalizeUserRole, USER_ROLES, type UserRole } from "@/lib/roles";
 import { geocodePropertyAddress } from "@/lib/propertyGeocoding";
+import { getManagerPropertyIds, getOwnerPropertyIds, getPropertyOwnerIds } from "@/lib/propertyOwnership";
 
 export type ManagedUser = {
   id: string;
@@ -50,7 +51,11 @@ async function requireSettingsAccess(action: FeatureAction = "view") {
   if (!isPlatformAdmin(actor.role) && !["owner", "manager"].includes(actor.role)) throw new Error("Management settings access required.");
   const { data: hotels, error } = await supabase.from("hotels").select("id, name, location, latitude, longitude, room_count, total_rooms, floor_count, is_active, owner_id, manager_id").is("archived_at", null).order("name");
   if (error) throw new Error(error.message);
-  const visibleHotels = isPlatformAdmin(actor.role) ? hotels ?? [] : (hotels ?? []).filter((hotel) => actor.role === "owner" ? hotel.owner_id === actor.userId : hotel.manager_id === actor.userId);
+  const ownerHotelIds = actor.role === "owner" ? new Set(await getOwnerPropertyIds(supabase, actor.userId)) : null;
+  const managerHotelIds = actor.role === "manager" ? new Set(await getManagerPropertyIds(supabase, actor.userId)) : null;
+  const visibleHotels = isPlatformAdmin(actor.role) ? hotels ?? [] : (hotels ?? []).filter((hotel) =>
+    ownerHotelIds ? ownerHotelIds.has(hotel.id) : managerHotelIds?.has(hotel.id)
+  );
   return { actor, supabase, visibleHotels };
 }
 
@@ -115,12 +120,12 @@ async function assertTargetScope(targetId: string, targetRole: ManagedUser["role
 }
 
 function assertHotelSlotsAvailable(role: ManagedUser["role"], hotelIds: string[], actor: Awaited<ReturnType<typeof requireSettingsAccess>>, userId?: string) {
-  const propertyColumn = role === "manager" ? "manager_id" : role === "owner" ? "owner_id" : null;
+  const propertyColumn = role === "owner" ? "owner_id" : null;
   if (!propertyColumn) return;
   for (const hotelId of hotelIds) {
     const property = actor.visibleHotels.find((hotel) => hotel.id === hotelId);
     if (!property) throw new Error("A selected property is outside your management scope.");
-    const currentAssignee = propertyColumn === "manager_id" ? property.manager_id : property.owner_id;
+    const currentAssignee = property.owner_id;
     if (currentAssignee && currentAssignee !== userId) {
       throw new Error(`${property.name} is already assigned to another ${role}.`);
     }
@@ -147,9 +152,10 @@ export async function getSettingsData() {
     .order("name");
   if (servicesError) throw new Error(servicesError.message);
   const hotelsById = new Map(context.visibleHotels.map((hotel) => [hotel.id, hotel.name]));
+  const propertyOwners = await getPropertyOwnerIds(context.supabase, context.visibleHotels.map((hotel) => hotel.id));
   const activeUserIds = new Set((activeShifts ?? []).map((shift) => shift.user_id));
   const managerNames = new Map((users ?? []).filter((user) => user.role === "manager").map((user) => [user.id, user.full_name]));
-  const visibleUsers = (users ?? []).filter((user) => isPlatformAdmin(context.actor.role) || (roleAllowed(context.actor.role, user.role) && (user.primary_hotel_id !== null && hotelsById.has(user.primary_hotel_id) || context.visibleHotels.some((hotel) => user.role === "owner" ? hotel.owner_id === user.id : user.role === "manager" ? hotel.manager_id === user.id : false) || (userHotelAssignments ?? []).some((assignment) => assignment.user_id === user.id && hotelsById.has(assignment.hotel_id)))));
+  const visibleUsers = (users ?? []).filter((user) => isPlatformAdmin(context.actor.role) || (roleAllowed(context.actor.role, user.role) && (user.primary_hotel_id !== null && hotelsById.has(user.primary_hotel_id) || context.visibleHotels.some((hotel) => user.role === "owner" ? (propertyOwners.get(hotel.id) ?? []).includes(user.id) : user.role === "manager" ? hotel.manager_id === user.id : false) || (userHotelAssignments ?? []).some((assignment) => assignment.user_id === user.id && hotelsById.has(assignment.hotel_id)))));
   const properties = await Promise.all(context.visibleHotels.map(async (hotel) => {
     const roomStats = await getActiveRoomStats(context.supabase, hotel.id);
     return {
@@ -163,7 +169,7 @@ export async function getSettingsData() {
       isActive: hotel.is_active,
       managerId: hotel.manager_id,
       managerName: hotel.manager_id ? managerNames.get(hotel.manager_id) ?? "Assigned manager" : null,
-      services: (services ?? []).filter((service) => service.hotel_id === hotel.id || (service.hotel_id === null && (service.owner_id === null || service.owner_id === hotel.owner_id))),
+      services: (services ?? []).filter((service) => service.hotel_id === hotel.id || (service.hotel_id === null && (service.owner_id === null || (propertyOwners.get(hotel.id) ?? []).includes(service.owner_id)))),
     };
   }));
   return {
@@ -174,10 +180,13 @@ export async function getSettingsData() {
     actorAvatarUrl: (users ?? []).find((user) => user.id === context.actor.userId)?.avatar_url ?? null,
     hotels: context.visibleHotels.filter((hotel) => hotel.is_active).map((hotel) => ({ id: hotel.id, name: hotel.name })),
     properties,
-    services: (services ?? []).filter((service) => isPlatformAdmin(context.actor.role) || service.owner_id === context.actor.userId),
+    services: (services ?? []).filter((service) => isPlatformAdmin(context.actor.role)
+      || Boolean(service.hotel_id && hotelsById.has(service.hotel_id))
+      || Boolean(service.hotel_id === null && service.owner_id && [...propertyOwners.values()].some((ownerIds) => ownerIds.includes(service.owner_id!)))),
     managers: (users ?? []).filter((candidate) => candidate.role === "manager" && candidate.is_active && (
       isPlatformAdmin(context.actor.role) ||
-      context.visibleHotels.some((hotel) => hotel.manager_id === candidate.id || hotel.id === candidate.primary_hotel_id)
+      context.visibleHotels.some((hotel) => hotel.id === candidate.primary_hotel_id || hotel.manager_id === candidate.id)
+      || (userHotelAssignments ?? []).some((assignment) => assignment.user_id === candidate.id && hotelsById.has(assignment.hotel_id))
     )).map(({ id, full_name }) => ({ id, full_name })),
     users: visibleUsers.map((user) => {
       const assignedHotelIds = (userHotelAssignments ?? [])
@@ -335,8 +344,12 @@ export async function createManagedUser(input: UserInput): Promise<ActionResult>
   }
   if (values.role === "manager" && values.hotelIds.length) {
     for (const hotelId of values.hotelIds) {
-      const { error: managerError } = await context.supabase.from("hotels").update({ manager_id: authUser.id }).eq("id", hotelId);
-      if (managerError) throw new Error(managerError.message);
+      const { data: hotel, error: hotelError } = await context.supabase.from("hotels").select("manager_id").eq("id", hotelId).maybeSingle();
+      if (hotelError || !hotel) throw new Error(hotelError?.message ?? "A selected property could not be loaded.");
+      if (!hotel.manager_id) {
+        const { error: managerError } = await context.supabase.from("hotels").update({ manager_id: authUser.id }).eq("id", hotelId);
+        if (managerError) throw new Error(managerError.message);
+      }
     }
   }
   revalidatePath("/settings");
@@ -370,9 +383,14 @@ export async function updateManagedUser(userId: string, input: UserInput): Promi
   const currentRole = current.role as ManagedUser["role"];
   const { data: currentAssignments, error: currentAssignmentsError } = await context.supabase.from("user_hotel_assignments").select("hotel_id").eq("user_id", userId);
   if (currentAssignmentsError) throw new Error(currentAssignmentsError.message);
-  const relatedHotelIds = context.visibleHotels
-    .filter((hotel) => currentRole === "manager" ? hotel.manager_id === userId : currentRole === "owner" ? hotel.owner_id === userId : false)
-    .map((hotel) => hotel.id);
+  const propertyOwners = currentRole === "owner"
+  ? await getPropertyOwnerIds(context.supabase, context.visibleHotels.map((hotel) => hotel.id))
+  : new Map<string, string[]>();
+  const relatedHotelIds = currentRole === "manager"
+    ? await getManagerPropertyIds(context.supabase, userId)
+    : currentRole === "owner"
+      ? context.visibleHotels.filter((hotel) => (propertyOwners.get(hotel.id) ?? []).includes(userId)).map((hotel) => hotel.id)
+      : [];
   const currentHotelIds = [...new Set([...(currentAssignments ?? []).map((row) => row.hotel_id), current.primary_hotel_id, ...relatedHotelIds].filter((id): id is string => Boolean(id)))];
   await assertTargetScope(userId, currentRole, currentHotelIds, context);
   await assertTargetScope(userId, values.role, values.hotelIds, context);
@@ -434,9 +452,10 @@ export async function updateManagedUser(userId: string, input: UserInput): Promi
     for (const hotelId of values.hotelIds) {
       const { data: hotel, error: hotelError } = await context.supabase.from("hotels").select("manager_id").eq("id", hotelId).maybeSingle();
       if (hotelError || !hotel) throw new Error(hotelError?.message ?? "A selected property could not be loaded.");
-      if (hotel.manager_id && hotel.manager_id !== userId) throw new Error("A selected property is already assigned to another manager.");
-      const { error: managerError } = await context.supabase.from("hotels").update({ manager_id: userId }).eq("id", hotelId);
-      if (managerError) throw new Error(managerError.message);
+      if (!hotel.manager_id || hotel.manager_id === userId) {
+        const { error: managerError } = await context.supabase.from("hotels").update({ manager_id: userId }).eq("id", hotelId);
+        if (managerError) throw new Error(managerError.message);
+      }
     }
   }
   if (values.role === "owner" && values.hotelIds.length) {
@@ -474,12 +493,14 @@ export async function setManagedUserPin(userId: string, pinCode: string | null) 
     .select("hotel_id")
     .eq("user_id", userId);
   if (assignmentsError) throw new Error(assignmentsError.message);
+  const managerHotelIds = targetRole === "manager" ? await getManagerPropertyIds(context.supabase, userId) : [];
   const assignedHotelIds = [
     ...(assignments ?? []).map((assignment) => assignment.hotel_id),
     ...(target.primary_hotel_id ? [target.primary_hotel_id] : []),
     ...context.visibleHotels
-      .filter((hotel) => targetRole === "owner" ? hotel.owner_id === userId : targetRole === "manager" ? hotel.manager_id === userId : false)
+      .filter((hotel) => targetRole === "owner" ? hotel.owner_id === userId : false)
       .map((hotel) => hotel.id),
+    ...managerHotelIds,
   ];
   await assertTargetScope(userId, targetRole, [...new Set(assignedHotelIds)], context);
   const { error } = await context.supabase
@@ -496,9 +517,11 @@ export async function deleteManagedUser(userId: string) {
   const { data: target, error: readError } = await context.supabase.from("users").select("id, role, primary_hotel_id, is_active").eq("id", userId).maybeSingle();
   if (readError || !target) throw new Error("User was not found.");
   const targetRole = target.role as ManagedUser["role"];
+  const managerHotelIds = targetRole === "manager" ? await getManagerPropertyIds(context.supabase, userId) : [];
   const targetHotelIds = [...new Set([
     ...(target.primary_hotel_id ? [target.primary_hotel_id] : []),
-    ...context.visibleHotels.filter((hotel) => targetRole === "owner" ? hotel.owner_id === userId : targetRole === "manager" ? hotel.manager_id === userId : false).map((hotel) => hotel.id),
+    ...context.visibleHotels.filter((hotel) => targetRole === "owner" ? hotel.owner_id === userId : false).map((hotel) => hotel.id),
+    ...managerHotelIds,
   ])];
   await assertTargetScope(userId, targetRole, targetHotelIds, context);
   if (target.is_active) {
@@ -729,13 +752,12 @@ export async function resolveOwnedPropertyCoordinates(propertyId: string): Promi
     if (!coordinates) {
       throw new Error("We couldn't find coordinates for this address. Use the map picker to set the property's exact location.");
     }
-    let query = context.supabase.from("hotels")
+    const query = context.supabase.from("hotels")
       .update({ latitude: coordinates.latitude, longitude: coordinates.longitude })
       .eq("id", propertyId)
       .is("archived_at", null)
       .or("latitude.is.null,longitude.is.null")
       .select("id");
-    if (!isPlatformAdmin(context.actor.role)) query = query.eq("owner_id", context.actor.userId);
     const { data, error } = await query.maybeSingle();
     if (error) throw new Error(error.message);
     if (!data) throw new Error("Property was not found or its location was already updated.");
@@ -817,12 +839,11 @@ export async function updateOwnedProperty(propertyId: string, input: PropertyInp
     const roomStats = await getActiveRoomStats(context.supabase, propertyId);
     const roomCount = roomStats.roomCount || values.roomCount;
     const floorCount = roomStats.floorCount || values.floorCount;
-    let query = context.supabase
+    const query = context.supabase
       .from("hotels")
       .update({ name: values.name, location: values.location, latitude: values.latitude, longitude: values.longitude, room_count: roomCount, total_rooms: roomCount, floor_count: floorCount, manager_id: values.managerId })
       .eq("id", propertyId)
       .is("archived_at", null);
-    if (!isPlatformAdmin(context.actor.role)) query = query.eq("owner_id", context.actor.userId);
     const { data, error } = await query.select("id").maybeSingle();
     if (error) throw new Error(error.message);
     if (!data) throw new Error("Property not found in your account.");
@@ -837,11 +858,13 @@ export async function updateOwnedProperty(propertyId: string, input: PropertyInp
 export async function archiveOwnedProperty(propertyId: string): Promise<ActionResult> {
   try {
     const context = await requireTenantAssetAccess("delete");
-    let query = context.supabase.from("hotels")
+    if (!isPlatformAdmin(context.actor.role) && !context.visibleHotels.some((hotel) => hotel.id === propertyId)) {
+      throw new Error("Property not found in your account.");
+    }
+    const query = context.supabase.from("hotels")
       .update({ is_active: false, archived_at: new Date().toISOString() })
       .eq("id", propertyId)
       .is("archived_at", null);
-    if (!isPlatformAdmin(context.actor.role)) query = query.eq("owner_id", context.actor.userId);
     const { data, error } = await query.select("id").maybeSingle();
     if (error) throw new Error(error.message);
     if (!data) throw new Error("Property not found in your account.");
@@ -859,7 +882,7 @@ export async function createServiceConfiguration(input: ServiceInput): Promise<A
     const values = validateService(input);
     const { data: hotel, error: hotelError } = await context.supabase.from("hotels").select("id, owner_id").eq("id", values.hotelId).maybeSingle();
     if (hotelError) throw new Error(hotelError.message);
-    if (!hotel || (!isPlatformAdmin(context.actor.role) && hotel.owner_id !== context.actor.userId)) throw new Error("Property not found in your account.");
+    if (!hotel || (!isPlatformAdmin(context.actor.role) && !context.visibleHotels.some((property) => property.id === hotel.id))) throw new Error("Property not found in your account.");
     const { error } = await context.supabase.from("services_config").insert({
       hotel_id: hotel.id,
       name: values.name,
@@ -884,12 +907,11 @@ export async function updateServiceConfiguration(serviceId: string, input: Servi
     const values = validateService(input);
     const { data: hotel, error: hotelError } = await context.supabase.from("hotels").select("id, owner_id").eq("id", values.hotelId).maybeSingle();
     if (hotelError) throw new Error(hotelError.message);
-    if (!hotel || (!isPlatformAdmin(context.actor.role) && hotel.owner_id !== context.actor.userId)) throw new Error("Property not found in your account.");
+    if (!hotel || (!isPlatformAdmin(context.actor.role) && !context.visibleHotels.some((property) => property.id === hotel.id))) throw new Error("Property not found in your account.");
     let query = context.supabase
       .from("services_config")
       .update({ hotel_id: hotel.id, name: values.name, description: values.description, unit: values.unit, default_rate: values.defaultRate, is_active: values.isActive, updated_at: new Date().toISOString() })
       .eq("id", serviceId);
-    if (!isPlatformAdmin(context.actor.role)) query = query.eq("owner_id", context.actor.userId);
     query = query.eq("hotel_id", values.hotelId);
     const { data, error } = await query.select("id").maybeSingle();
     if (error) throw new Error(error.message);
@@ -905,12 +927,14 @@ export async function updateServiceConfiguration(serviceId: string, input: Servi
 export async function archiveServiceConfiguration(serviceId: string, hotelId: string): Promise<ActionResult> {
   try {
     const context = await requireTenantAssetAccess("delete");
-    let query = context.supabase
+    if (!isPlatformAdmin(context.actor.role) && !context.visibleHotels.some((hotel) => hotel.id === hotelId)) {
+      throw new Error("Service not found in your account.");
+    }
+    const query = context.supabase
       .from("services_config")
       .update({ is_active: false, updated_at: new Date().toISOString() })
       .eq("id", serviceId)
       .eq("hotel_id", hotelId);
-    if (!isPlatformAdmin(context.actor.role)) query = query.eq("owner_id", context.actor.userId);
     const { data, error } = await query.select("id").maybeSingle();
     if (error) throw new Error(error.message);
     if (!data) throw new Error("Service not found in your account.");

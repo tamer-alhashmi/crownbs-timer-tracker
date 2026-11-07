@@ -8,3 +8,11 @@ package = "@netlify/plugin-nextjs"
 [[scheduled_functions]]
 function = "overtime-sweep"
 schedule = "*/15 * * * *"
+
+[[scheduled_functions]]
+function = "weekly-digest"
+schedule = "0 7 * * 1"
+
+[[scheduled_functions]]
+function = "monthly-closing"
+schedule = "0 7 27 * *"

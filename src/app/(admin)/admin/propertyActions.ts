@@ -18,6 +18,7 @@ export type PropertyRecord = {
   longitude: number | null;
   floors_sections: string[];
   total_rooms: number;
+  co_owner_ids: string[];
 };
 
 export type RoomSetupInput = {
@@ -39,6 +40,7 @@ type PropertyInput = {
   location: string;
   owner_id: string;
   manager_id: string;
+  co_owner_ids?: string[];
   latitude?: number | null;
   longitude?: number | null;
   floors_sections?: string[];
@@ -46,19 +48,22 @@ type PropertyInput = {
   rooms?: RoomSetupInput[];
 };
 
+type AdminContext = Awaited<ReturnType<typeof requireAdmin>>;
+type SupabaseClient = AdminContext["supabase"];
 const PROPERTY_COLUMNS = "id, name, location, owner_id, manager_id, created_at, is_active, latitude, longitude, floors_sections, total_rooms";
 
 async function requireAdmin(action: "create" | "edit") {
   const user = await requireFeatureAccess("settings", action);
   if (!isPlatformAdmin(user.role)) throw new Error("Only administrators can manage properties.");
-  return createPrivilegedServerSupabaseClient();
+  return { user, supabase: createPrivilegedServerSupabaseClient() };
 }
 
-async function validateProperty(supabase: Awaited<ReturnType<typeof requireAdmin>>, input: PropertyInput) {
+async function validateProperty(context: AdminContext, input: PropertyInput) {
   const name = input.name.trim();
   const location = input.location.trim();
   const ownerId = input.owner_id || null;
   const managerId = input.manager_id || null;
+  const coOwnerIds = [...new Set((input.co_owner_ids ?? []).filter((id) => typeof id === "string" && id.trim()).map((id) => id.trim()))];
   if (!name || name.length > 120) throw new Error("Property name is required and must be 120 characters or fewer.");
   if (!location || location.length > 240) throw new Error("Property location is required and must be 240 characters or fewer.");
   const latitude = input.latitude ?? null;
@@ -77,15 +82,18 @@ async function validateProperty(supabase: Awaited<ReturnType<typeof requireAdmin
     throw new Error("Every room floor/section must be defined in the property floor list.");
   }
 
-  const assigneeIds = [ownerId, managerId].filter((id): id is string => Boolean(id));
+  const assigneeIds = [...new Set([ownerId, managerId, ...coOwnerIds].filter((id): id is string => Boolean(id)))];
   if (assigneeIds.length) {
-    const { data: assignees, error } = await supabase.from("users").select("id, role").in("id", assigneeIds);
+    const { data: assignees, error } = await context.supabase.from("users").select("id, role, is_active, email_verified").in("id", assigneeIds);
     if (error) throw new Error(error.message);
     if (ownerId && !assignees?.some((assignee) => assignee.id === ownerId && assignee.role === "owner")) {
       throw new Error("Choose a valid owner account.");
     }
     if (managerId && !assignees?.some((assignee) => assignee.id === managerId && assignee.role === "manager")) {
       throw new Error("Choose a valid manager account.");
+    }
+    if (coOwnerIds.some((id) => id === ownerId || !assignees?.some((assignee) => assignee.id === id && assignee.role === "owner" && assignee.is_active && assignee.email_verified))) {
+      throw new Error("Property partners must be active, verified Owner accounts and cannot duplicate the primary owner.");
     }
   }
 
@@ -95,6 +103,7 @@ async function validateProperty(supabase: Awaited<ReturnType<typeof requireAdmin
       location,
       owner_id: ownerId,
       manager_id: managerId,
+      co_owner_ids: coOwnerIds,
       latitude,
       longitude,
       floors_sections: floors,
@@ -114,7 +123,7 @@ async function resolveRequiredCoordinates(values: Awaited<ReturnType<typeof vali
 }
 
 export async function resolvePropertyCoordinates(id: string) {
-  const supabase = await requireAdmin("edit");
+  const { supabase } = await requireAdmin("edit");
   if (!id) throw new Error("Property id is required.");
   const { data: property, error } = await supabase.from("hotels")
     .select("id, location, latitude, longitude")
@@ -153,7 +162,7 @@ export async function resolvePropertyCoordinates(id: string) {
   return coordinates;
 }
 
-async function saveRooms(supabase: Awaited<ReturnType<typeof requireAdmin>>, hotelId: string, rooms: RoomSetupInput[]) {
+async function saveRooms(supabase: SupabaseClient, hotelId: string, rooms: RoomSetupInput[]) {
   const seenNames = new Set<string>();
   for (const room of rooms) {
     const name = room.room_name.trim();
@@ -191,7 +200,7 @@ async function saveRooms(supabase: Awaited<ReturnType<typeof requireAdmin>>, hot
 }
 
 export async function getPropertyRooms(hotelId: string): Promise<ConfiguredRoom[]> {
-  const supabase = await requireAdmin("edit");
+  const { supabase } = await requireAdmin("edit");
   const { data: property, error: propertyError } = await supabase.from("hotels")
     .select("id")
     .eq("id", hotelId)
@@ -229,32 +238,60 @@ function revalidatePropertyViews() {
 }
 
 export async function createProperty(input: PropertyInput): Promise<PropertyRecord> {
-  const supabase = await requireAdmin("create");
-  const { values: rawValues, rooms } = await validateProperty(supabase, input);
+  const { user, supabase } = await requireAdmin("create");
+  const { values: rawValues, rooms } = await validateProperty({ user, supabase }, input);
   const values = await resolveRequiredCoordinates(rawValues);
-  const { data, error } = await supabase.from("hotels").insert(values).select(PROPERTY_COLUMNS).single();
+  const { data, error } = await supabase.from("hotels").insert({
+    name: values.name,
+    location: values.location,
+    owner_id: values.owner_id,
+    manager_id: values.manager_id,
+    latitude: values.latitude,
+    longitude: values.longitude,
+    floors_sections: values.floors_sections,
+    total_rooms: values.total_rooms,
+  }).select(PROPERTY_COLUMNS).single();
   if (error || !data) throw new Error(error?.message ?? "Unable to create property.");
+  const { error: partnersError } = await supabase.rpc("replace_property_co_owners", {
+    p_property_id: data.id,
+    p_owner_ids: values.co_owner_ids,
+    p_actor_id: user.userId,
+  });
+  if (partnersError) throw new Error(`Property was created, but partner owners could not be saved: ${partnersError.message}`);
   await saveRooms(supabase, data.id, rooms);
   revalidatePropertyViews();
-  return data as PropertyRecord;
+  return { ...data, co_owner_ids: values.co_owner_ids } as PropertyRecord;
 }
 
 export async function updateProperty(id: string, updates: PropertyInput & { is_active?: boolean }): Promise<PropertyRecord> {
-  const supabase = await requireAdmin("edit");
+  const { user, supabase } = await requireAdmin("edit");
   if (!id) throw new Error("Property id is required.");
   if (updates.is_active !== undefined && typeof updates.is_active !== "boolean") {
     throw new Error("Property active status must be true or false.");
   }
-  const { values: rawValues, rooms } = await validateProperty(supabase, updates);
+  const { values: rawValues, rooms } = await validateProperty({ user, supabase }, updates);
   const values = updates.is_active === undefined
     ? await resolveRequiredCoordinates(rawValues)
     : rawValues;
   const { data, error } = await supabase.from("hotels").update({
-    ...values,
+    name: values.name,
+    location: values.location,
+    owner_id: values.owner_id,
+    manager_id: values.manager_id,
+    latitude: values.latitude,
+    longitude: values.longitude,
+    floors_sections: values.floors_sections,
+    total_rooms: values.total_rooms,
     ...(updates.is_active === undefined ? {} : { is_active: updates.is_active }),
   }).eq("id", id).is("archived_at", null).select(PROPERTY_COLUMNS).maybeSingle();
   if (error || !data) throw new Error(error?.message ?? "Property was not found.");
+  const { error: partnersError } = await supabase.rpc("replace_property_co_owners", {
+    p_property_id: id,
+    p_owner_ids: values.co_owner_ids,
+    p_actor_id: user.userId,
+  });
+  if (partnersError) throw new Error(`Property was updated, but partner owners could not be saved: ${partnersError.message}`);
   await saveRooms(supabase, id, rooms);
   revalidatePropertyViews();
-  return data as PropertyRecord;
+  return { ...data, co_owner_ids: values.co_owner_ids } as PropertyRecord;
 }

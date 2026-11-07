@@ -1,6 +1,7 @@
 import "server-only";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { dispatchPushNotification } from "@/lib/notifications/notificationDispatcher";
+import { getPropertyOwnerIds, getPropertyWorkforceIds } from "@/lib/propertyOwnership";
 
 type StatusNotificationInput = {
   workLogId: string;
@@ -41,41 +42,30 @@ export async function notifyWorkLogStatusChange(input: StatusNotificationInput) 
   }
 
   const recipients = new Set<string>();
+  const propertyOwnerIds = await getPropertyOwnerIds(supabase, [task.hotel_id]);
+  const ownerIds = propertyOwnerIds.get(task.hotel_id) ?? [];
   const actorIsCleaner = actor.role === "cleaner";
   const actorIsHKAdmin = actor.role === "housekeeping_admin" || actor.role === "hk_admin";
-  if (actorIsCleaner) {
-    const [{ data: assignments, error: assignmentError }, { data: primaryHKAdmins, error: primaryError }] = await Promise.all([
-      supabase.from("user_hotel_assignments").select("user_id").eq("hotel_id", task.hotel_id),
-      supabase.from("users").select("id").in("role", ["housekeeping_admin", "hk_admin"]).eq("primary_hotel_id", task.hotel_id),
-    ]);
-    if (assignmentError || primaryError) {
-      throw new Error(`Unable to load task notification recipients: ${assignmentError?.message ?? primaryError?.message}`);
-    }
-    const candidateIds = [...new Set([...(assignments ?? []).map((assignment) => assignment.user_id), ...(primaryHKAdmins ?? []).map((user) => user.id)])];
-    if (candidateIds.length) {
-      const { data: candidates, error: candidatesError } = await supabase.from("users")
-        .select("id, role, is_active")
-        .in("id", candidateIds);
-      if (candidatesError) throw new Error(`Unable to load housekeeping notification recipients: ${candidatesError.message}`);
-      for (const candidate of candidates ?? []) {
-        if (candidate.is_active && (candidate.role === "housekeeping_admin" || candidate.role === "hk_admin")) recipients.add(candidate.id);
-      }
-    }
-  }
+  const workforceByProperty = await getPropertyWorkforceIds(
+    supabase,
+    [task.hotel_id],
+    actorIsCleaner ? ["manager", "housekeeping_admin", "hk_admin"] : ["manager"],
+  );
+  (workforceByProperty.get(task.hotel_id) ?? []).forEach((userId) => recipients.add(userId));
   if (actorIsCleaner || actorIsHKAdmin) {
-    if (property.manager_id) recipients.add(property.manager_id);
-    if (property.owner_id) recipients.add(property.owner_id);
-  } else if (actor.role === "manager" && property.owner_id) {
-    recipients.add(property.owner_id);
+    ownerIds.forEach((ownerId) => recipients.add(ownerId));
+  } else if (actor.role === "manager") {
+    ownerIds.forEach((ownerId) => recipients.add(ownerId));
   }
   recipients.delete(actor.id);
   if (!recipients.size) return;
 
   const recipientIds = [...recipients];
   const { data: activeRecipients, error: recipientsError } = await supabase.from("users")
-    .select("id, role")
+    .select("id, role, email_verified")
     .in("id", recipientIds)
-    .eq("is_active", true);
+    .eq("is_active", true)
+    .eq("email_verified", true);
   if (recipientsError) throw new Error(`Unable to verify task notification recipients: ${recipientsError.message}`);
   const allowedRoles = actorIsCleaner
     ? new Set(["housekeeping_admin", "hk_admin", "manager", "owner"])
@@ -84,7 +74,9 @@ export async function notifyWorkLogStatusChange(input: StatusNotificationInput) 
       : actor.role === "manager"
         ? new Set(["owner"])
         : new Set<string>();
-  const verifiedRecipients = (activeRecipients ?? []).filter((recipient) => allowedRoles.has(recipient.role));
+  const verifiedRecipients = (activeRecipients ?? []).filter((recipient) =>
+    allowedRoles.has(recipient.role)
+  );
   if (!verifiedRecipients.length) return;
 
   const taskName = task.service_name_snapshot?.trim() || "Work task";

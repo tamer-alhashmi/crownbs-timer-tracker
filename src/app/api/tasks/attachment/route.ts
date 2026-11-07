@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { isHousekeepingAdmin, normalizeUserRole, type UserRole } from "@/lib/roles";
+import { getManagerPropertyIds, hasPropertyOwnerAccess } from "@/lib/propertyOwnership";
 
 export const dynamic = "force-dynamic";
 
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Could not verify the property." }, { status: 500 });
   }
   if (!hotel || !hotel.is_active
-    || (actor.role === "owner" && hotel.owner_id !== actor.id)) {
+    || (actor.role === "owner" && !await hasPropertyOwnerAccess(supabase, hotel.id, actor.id))) {
     return NextResponse.json({ error: "That property is outside your assignment scope." }, { status: 403 });
   }
   if (actor.role === "manager" || isHousekeepingAdmin(session.role)) {
@@ -71,7 +72,7 @@ export async function POST(request: NextRequest) {
       console.error("Task photo assignment lookup failed:", assignmentError.message);
       return NextResponse.json({ error: "Could not verify your hotel assignment." }, { status: 500 });
     }
-    const managerPropertyMatch = actor.role !== "manager" || hotel.manager_id === actor.id;
+    const managerPropertyMatch = actor.role !== "manager" || (await getManagerPropertyIds(supabase, actor.id)).includes(hotel.id);
     if (actor.role === "manager" && !managerPropertyMatch && actor.primary_hotel_id !== hotel.id && !assignment) {
       return NextResponse.json({ error: "That property is outside your assignment scope." }, { status: 403 });
     }

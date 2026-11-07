@@ -23,7 +23,7 @@ type Service = {
 };
 type Props = {
   role: UserRole;
-  hotels: { id: string; name: string; ownerId?: string | null }[];
+  hotels: { id: string; name: string; ownerId?: string | null; ownerIds?: string[] }[];
   users: { id: string; full_name: string; role: UserRole; assignedHotels: { id: string; name: string }[] }[];
   services: Service[];
   rooms: { id: string; hotel_id: string; room_name: string; category: string; floor_section: string | null }[];
@@ -98,8 +98,8 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
   const selectedService = services.find((service) => service.id === serviceId);
   const activeServices = useMemo(() => services.filter((service) =>
     service.is_active &&
-    (service.hotel_id === hotelId || (service.hotel_id === null && (service.owner_id === null || service.owner_id === selectedHotel?.ownerId)))
-  ), [hotelId, selectedHotel?.ownerId, services]);
+    (service.hotel_id === hotelId || (service.hotel_id === null && (service.owner_id === null || Boolean(service.owner_id && selectedHotel?.ownerIds?.includes(service.owner_id)))))
+  ), [hotelId, selectedHotel?.ownerIds, services]);
   const allowedRoles: UserRole[] = role === "manager"
     ? ["housekeeping_admin", "hk_admin", "cleaner"]
     : role === "housekeeping_admin" || role === "hk_admin"
@@ -353,7 +353,7 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
       )}
       {taskListStatus && <TaskManagementDialog
         status={taskListStatus}
-        tasks={tasks.filter((task) => task.status === taskListStatus)}
+        tasks={tasks.filter((task) => task.status === taskListStatus || (taskListStatus === "active" && task.status === "paused"))}
         users={users}
         rooms={rooms}
         onClose={() => setTaskListStatus(null)}

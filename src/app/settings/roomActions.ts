@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireFeatureAccess, type FeatureAction } from "@/lib/featureAccess";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { isPlatformAdmin, normalizeUserRole, type UserRole } from "@/lib/roles";
+import { getOwnerPropertyIds } from "@/lib/propertyOwnership";
 
 export type ManagedRoom = {
   id: string;
@@ -54,9 +55,10 @@ async function getRoomContext(action: FeatureAction = "view") {
     .is("archived_at", null)
     .order("id");
   if (error) throw new Error(`Unable to load property access: ${error.message}`);
+  const ownerHotelIds = profile.role === "owner" ? new Set(await getOwnerPropertyIds(supabase, profile.id)) : null;
   const visibleHotels = (hotels ?? []).filter((hotel) =>
     isPlatformAdmin(session.role) ||
-    (profile.role === "owner" ? hotel.owner_id === profile.id : hotel.manager_id === profile.id)
+    (ownerHotelIds ? ownerHotelIds.has(hotel.id) : hotel.manager_id === profile.id)
   );
   return { supabase, visibleHotels };
 }

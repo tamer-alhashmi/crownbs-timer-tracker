@@ -18,6 +18,8 @@ export type ManagementAuditRecord = {
   action: string;
   actor_id: string;
   actor_name: string;
+  property_id: string | null;
+  is_co_owner_action: boolean;
   target_label: string;
   override_reason: string;
   previous_details: AuditDetail[];
@@ -46,6 +48,7 @@ export type ManagementHistoryRecord = {
   assigneeRole: string;
   start_time: string;
   end_time: string | null;
+  paused_at?: string | null;
   task_date: string;
   status: string;
   cancelled_at: string | null;
@@ -125,6 +128,8 @@ function parseAuditPage(value: unknown, requestedPage: number, pageSize: number)
       || typeof item.action !== "string"
       || typeof item.actor_id !== "string"
       || typeof item.actor_name !== "string"
+      || (item.property_id !== null && typeof item.property_id !== "string")
+      || typeof item.is_co_owner_action !== "boolean"
       || typeof item.override_reason !== "string"
       || typeof item.created_at !== "string") {
       throw new Error("The audit page query returned a malformed record.");
@@ -136,6 +141,8 @@ function parseAuditPage(value: unknown, requestedPage: number, pageSize: number)
       action: item.action,
       actor_id: item.actor_id,
       actor_name: item.actor_name,
+      property_id: item.property_id ?? null,
+      is_co_owner_action: item.is_co_owner_action,
       target_label: typeof item.target_label === "string" ? item.target_label : item.entity_type === "task" ? "Task" : "Shift",
       override_reason: item.override_reason,
       previous_details: snapshotDetails(item.previous_values),
@@ -161,7 +168,7 @@ export async function fetchManagementAuditPage(
 ): Promise<ManagementAuditPage> {
   const page = Number.isInteger(request.page) ? Math.max(1, request.page) : 1;
   const pageSize = Number.isInteger(request.pageSize) ? Math.min(50, Math.max(1, request.pageSize)) : 20;
-  const action = ["force_clock_out", "force_complete_task", "cancel_task"].includes(request.action ?? "")
+  const action = ["force_clock_out", "force_complete_task", "cancel_task", "created", "edited", "approved", "rejected", "unapproved", "deleted"].includes(request.action ?? "")
     ? request.action!
     : null;
   const actor = request.actor?.trim().slice(0, 100) || null;

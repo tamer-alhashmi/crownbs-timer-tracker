@@ -19,7 +19,7 @@ export default async function SettingsPage() {
   const supabase = createPrivilegedServerSupabaseClient();
   const { data: profile, error: profileError } = await supabase
     .from("users")
-    .select("full_name, email, phone_number, avatar_url, language_preference, email_verified, weekly_digest_enabled, monthly_digest_enabled")
+    .select("full_name, email, phone_number, avatar_url, language_preference, email_verified, weekly_digest_enabled")
     .eq("id", user.userId)
     .maybeSingle();
   if (profileError) throw new Error(`Unable to load profile settings: ${profileError.message}`);
@@ -27,7 +27,6 @@ export default async function SettingsPage() {
   const emailSettings = {
     emailVerified: profile?.email_verified ?? false,
     weeklyDigestEnabled: profile?.weekly_digest_enabled ?? true,
-    monthlyDigestEnabled: profile?.monthly_digest_enabled ?? true,
     pushPublicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? null,
   };
   const backHref = user.role === "cleaner" ? "/dashboard" : user.role === "owner" ? "/owner" : user.role === "manager" ? "/manager" : isHousekeepingAdmin(user.role) ? "/hk-admin" : "/admin";

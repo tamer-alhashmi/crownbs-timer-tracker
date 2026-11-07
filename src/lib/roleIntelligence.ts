@@ -3,6 +3,7 @@ import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import type { UserRole } from "@/lib/roles";
 import { isPlatformAdmin } from "@/lib/roles";
 import { calculateWorkforceEfficiency } from "@/lib/workforceEfficiency";
+import { getManagerPropertyIds, getOwnerPropertyIds } from "@/lib/propertyOwnership";
 
 export type IntelligenceViewer = {
   userId: string;
@@ -154,22 +155,27 @@ export async function getRoleScopedIntelligenceData(
         .range(from, to)
     );
   } else if (viewer.role === "owner") {
+    const ownerHotelIds = await getOwnerPropertyIds(supabase, viewer.userId);
     hotels = await readAllRows<Hotel>("owned properties", (from, to) =>
       supabase.from("hotels")
         .select("id, name, owner_id, manager_id, room_count, floors_sections, is_active")
-        .eq("owner_id", viewer.userId)
+        .in("id", ownerHotelIds.length ? ownerHotelIds : ["00000000-0000-0000-0000-000000000000"])
         .order("id")
         .range(from, to)
     );
   } else {
-    const assignments = await readAllRows<Assignment>("viewer property assignments", (from, to) =>
-      supabase.from("user_hotel_assignments")
-        .select("user_id, hotel_id")
-        .eq("user_id", viewer.userId)
-        .order("hotel_id")
-        .range(from, to)
-    );
-    let assignedIds = [...new Set(assignments.map((assignment) => assignment.hotel_id))];
+    const assignments = viewer.role === "manager"
+      ? []
+      : await readAllRows<Assignment>("viewer property assignments", (from, to) =>
+        supabase.from("user_hotel_assignments")
+          .select("user_id, hotel_id")
+          .eq("user_id", viewer.userId)
+          .order("hotel_id")
+          .range(from, to)
+      );
+    let assignedIds = viewer.role === "manager"
+      ? await getManagerPropertyIds(supabase, viewer.userId)
+      : [...new Set(assignments.map((assignment) => assignment.hotel_id))];
     if (viewer.assignedHotelIds.length) {
       const permittedIds = new Set(viewer.assignedHotelIds);
       assignedIds = assignedIds.filter((hotelId) => permittedIds.has(hotelId));
@@ -413,7 +419,7 @@ export async function getRoleScopedIntelligenceData(
       ? [
           { label: "Your Properties", value: String(hotelIds.length), detail: "Properties owned by your account." },
           { label: "Rooms in Portfolio", value: roomTotal.toLocaleString(), detail: "Configured room counts across your properties." },
-          { label: "Team Members", value: String(workforce), detail: "Managers, housekeeping admins, and cleaners assigned to your properties." },
+          { label: "Team Members", value: String(workforce), detail: "Managers, Housekeeping Leaders, and cleaners assigned to your properties." },
           { label: "Active Shifts", value: String(activeShifts), detail: "Team shifts currently in progress." },
         ]
       : viewer.role === "manager"

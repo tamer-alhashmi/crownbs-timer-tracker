@@ -74,6 +74,8 @@ export type TenantDetails = {
   properties: {
     id: string;
     managerId: string | null;
+    managerIds: string[];
+    housekeepingLeaderIds: string[];
     name: string;
     location: string;
     createdAt: string;
@@ -290,7 +292,7 @@ export async function getTenantDetails(
   if (hotelsError) throw new Error(`Unable to load tenant properties: ${hotelsError.message}`);
   const hotels = hotelRows ?? [];
   const hotelIds = hotels.map((hotel) => hotel.id);
-  const managerIds = [...new Set(hotels.map((hotel) => hotel.manager_id).filter((id): id is string => Boolean(id)))];
+  const legacyManagerIds = [...new Set(hotels.map((hotel) => hotel.manager_id).filter((id): id is string => Boolean(id)))];
   const [assignmentResult, roomResult, settlementResult, managerResult, candidateResult, ownerCandidateResult] = await Promise.all([
     hotelIds.length
       ? supabase.from("user_hotel_assignments").select("user_id, hotel_id").in("hotel_id", hotelIds)
@@ -302,8 +304,8 @@ export async function getTenantDetails(
       .select("id, cycle_start, cycle_end, settled_task_count, settled_amount, settled_at")
       .eq("owner_id", ownerId)
       .order("cycle_start", { ascending: false }),
-    managerIds.length
-      ? supabase.from("users").select("id, full_name, email, role, is_active").in("id", managerIds)
+    legacyManagerIds.length
+      ? supabase.from("users").select("id, full_name, email, role, is_active").in("id", legacyManagerIds)
       : Promise.resolve({ data: [], error: null }),
     supabase.from("users")
       .select("id, full_name, email, role, is_active")
@@ -326,7 +328,7 @@ export async function getTenantDetails(
     if (room.status === "active") roomCounts.set(room.hotel_id, (roomCounts.get(room.hotel_id) ?? 0) + 1);
   });
 
-  const workforceIds = [...new Set([...assignmentIds, ...managerIds])];
+  const workforceIds = [...new Set([...assignmentIds, ...legacyManagerIds])];
   const [{ data: assignedProfiles, error: assignedProfilesError }, { data: primaryProfiles, error: primaryProfilesError }] = await Promise.all([
     workforceIds.length
       ? supabase.from("users").select("id, full_name, email, role, is_active, primary_hotel_id").in("id", workforceIds)
@@ -442,9 +444,20 @@ export async function getTenantDetails(
     },
     properties: hotels.map((hotel) => {
       const manager = hotel.manager_id ? managerById.get(hotel.manager_id) : null;
+      const propertyStaff = [...profilesById.values()].filter((profile) =>
+        propertyIdsByUser.get(profile.id)?.has(hotel.id)
+        || profile.primary_hotel_id === hotel.id
+        || profile.id === hotel.manager_id
+      );
+      const propertyManagerIds = propertyStaff.filter((profile) => profile.role === "manager").map((profile) => profile.id);
+      const propertyHousekeepingLeaderIds = propertyStaff
+        .filter((profile) => ["housekeeping_admin", "hk_admin"].includes(profile.role))
+        .map((profile) => profile.id);
       return {
         id: hotel.id,
         managerId: hotel.manager_id,
+        managerIds: [...new Set([...propertyManagerIds, ...(hotel.manager_id ? [hotel.manager_id] : [])])],
+        housekeepingLeaderIds: [...new Set(propertyHousekeepingLeaderIds)],
         name: hotel.name,
         location: hotel.location,
         createdAt: hotel.created_at,
@@ -738,33 +751,28 @@ function revalidateTenantPropertyViews() {
 export async function updateTenantPropertyAssignments(
   ownerId: string,
   propertyId: string,
-  managerId: string | null,
-  housekeepingAdminId: string | null,
+  managerIds: string[],
+  housekeepingLeaderIds: string[],
   cleanerIds: string[],
 ) {
   if (!ownerId || !propertyId) throw new Error("Tenant and property are required.");
-  if (managerId !== null && typeof managerId !== "string") throw new Error("Choose a valid property manager.");
-  if (housekeepingAdminId !== null && typeof housekeepingAdminId !== "string") throw new Error("Choose a valid Housekeeping Admin.");
-  if (!Array.isArray(cleanerIds) || cleanerIds.length > 500 || cleanerIds.some((id) => typeof id !== "string" || !id)) {
-    throw new Error("Choose a valid set of cleaners.");
+  if ([managerIds, housekeepingLeaderIds, cleanerIds].some((ids) => !Array.isArray(ids) || ids.some((id) => typeof id !== "string" || !id))) {
+    throw new Error("Choose valid property workforce assignments.");
   }
+  const uniqueManagerIds = [...new Set(managerIds)];
+  const uniqueLeaderIds = [...new Set(housekeepingLeaderIds)];
   const uniqueCleanerIds = [...new Set(cleanerIds)];
-  if (managerId && (uniqueCleanerIds.includes(managerId) || managerId === housekeepingAdminId)) {
-    throw new Error("A Property Manager cannot also be assigned to another workforce role.");
-  }
-  if (housekeepingAdminId && uniqueCleanerIds.includes(housekeepingAdminId)) {
-    throw new Error("A Housekeeping Admin cannot also be assigned as a cleaner.");
-  }
-  if (new Set([managerId, housekeepingAdminId].filter((id): id is string => Boolean(id))).size !== [managerId, housekeepingAdminId].filter(Boolean).length) {
-    throw new Error("Choose different people for each workforce role.");
+  const allUserIds = [...uniqueManagerIds, ...uniqueLeaderIds, ...uniqueCleanerIds];
+  if (new Set(allUserIds).size !== allUserIds.length) {
+    throw new Error("A team member can only be assigned to one workforce role.");
   }
 
   const { session, supabase } = await requireSuperAdmin();
-  const { error } = await supabase.rpc("update_tenant_property_assignments", {
+  const { error } = await supabase.rpc("replace_property_workforce_assignments", {
     p_owner_id: ownerId,
     p_property_id: propertyId,
-    p_manager_id: managerId,
-    p_housekeeping_admin_id: housekeepingAdminId,
+    p_manager_ids: uniqueManagerIds,
+    p_housekeeping_leader_ids: uniqueLeaderIds,
     p_cleaner_ids: uniqueCleanerIds,
     p_assigned_by: session.userId,
   });

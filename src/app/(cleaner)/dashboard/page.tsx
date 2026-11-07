@@ -4,6 +4,7 @@ import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import CleanerDashboard from "./CleanerDashboard";
 import type { RoomMediaItem } from "./roomMediaActions";
 import { getCleanerOperationalBrief } from "@/lib/operationalBrief";
+import { getPropertyOwnerIds } from "@/lib/propertyOwnership";
 
 export default async function CleanerDashboardPage() {
   const user = await getSessionUser();
@@ -31,6 +32,15 @@ export default async function CleanerDashboardPage() {
     ...(profile.primary_hotel_id ? [profile.primary_hotel_id] : []),
   ])];
   if (!assignedHotelIds.length) throw new Error("Your account does not have an assigned property.");
+  const { data: shift, error: shiftError } = await supabase.from("master_shifts")
+    .select("id, hotel_id, role_at_shift, start_time, end_time, status")
+    .eq("user_id", user.userId)
+    .eq("status", "active")
+    .is("end_time", null)
+    .order("start_time", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (shiftError) throw new Error(shiftError.message);
   const { data: hotels, error: hotelError } = await supabase
     .from("hotels")
     .select("id, name, location, owner_id, latitude, longitude")
@@ -39,17 +49,19 @@ export default async function CleanerDashboardPage() {
     .is("archived_at", null)
     .order("name");
   if (hotelError || !hotels?.length) throw new Error(hotelError?.message ?? "Your assigned properties are unavailable.");
-  const hotel = hotels.find((item) => item.id === user.hotelId)
+  const hotel = hotels.find((item) => item.id === shift?.hotel_id)
+    ?? hotels.find((item) => item.id === user.hotelId)
     ?? hotels.find((item) => item.id === profile.primary_hotel_id)
     ?? hotels[0];
+  const propertyOwners = await getPropertyOwnerIds(supabase, assignedHotelIds);
+  const serviceOwnerIds = propertyOwners.get(hotel.id) ?? [];
   let servicesQuery = supabase.from("services_config").select("id, hotel_id, name, description, default_rate, unit").eq("is_active", true);
-  servicesQuery = hotel.owner_id
-    ? servicesQuery.or(`hotel_id.eq.${hotel.id},owner_id.is.null,owner_id.eq.${hotel.owner_id}`)
-    : servicesQuery.or(`hotel_id.eq.${hotel.id},owner_id.is.null`);
-  const [{ data: services }, { data: rooms }, { data: shift }, { data: logs }, brief] = await Promise.all([
+  const serviceFilters = [`hotel_id.eq.${hotel.id}`, "and(hotel_id.is.null,owner_id.is.null)"];
+  if (serviceOwnerIds.length) serviceFilters.push(`and(hotel_id.is.null,owner_id.in.(${serviceOwnerIds.join(",")}))`);
+  servicesQuery = servicesQuery.or(serviceFilters.join(","));
+  const [{ data: services }, { data: rooms }, { data: logs }, brief] = await Promise.all([
     servicesQuery.order("name"),
     supabase.from("rooms").select("id, hotel_id, room_name, category, floor_section").in("hotel_id", assignedHotelIds).eq("status", "active").order("floor_section").order("room_name"),
-    supabase.from("master_shifts").select("id, hotel_id, role_at_shift, start_time, end_time, status").eq("user_id", user.userId).eq("status", "active").is("end_time", null).order("start_time", { ascending: false }).limit(1).maybeSingle(),
     supabase
       .from("work_logs")
       .select("id, shift_id, hotel_id, service_id, start_time, end_time, task_date, status, rooms_completed, room_ids, room_number, room_numbers, notes, cost_override, manager_approved, owner_approved, is_locked, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, service_name_snapshot, service_description_snapshot, dispatch_metadata")

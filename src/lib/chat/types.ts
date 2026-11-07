@@ -46,7 +46,7 @@ export type UnreadMessage = ChatMessage & {
 };
 
 export function roleLabel(role: ChatRole): string {
-  return role === "hk_admin" || role === "housekeeping_admin" ? "Housekeeping Admin" : role.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return role === "hk_admin" || role === "housekeeping_admin" ? "Housekeeping Leader" : role.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 export function canMessageRole(sender: ChatRole, recipient: ChatRole): boolean {

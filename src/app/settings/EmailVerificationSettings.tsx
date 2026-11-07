@@ -16,7 +16,6 @@ type Props = {
   email: string;
   emailVerified: boolean;
   weeklyDigestEnabled: boolean;
-  monthlyDigestEnabled: boolean;
   pushPublicKey: string | null;
 };
 
@@ -24,12 +23,10 @@ export function EmailVerificationSettings({
   email,
   emailVerified,
   weeklyDigestEnabled,
-  monthlyDigestEnabled,
   pushPublicKey,
 }: Props) {
   const [requestedEmail, setRequestedEmail] = useState(email);
   const [weekly, setWeekly] = useState(weeklyDigestEnabled);
-  const [monthly, setMonthly] = useState(monthlyDigestEnabled);
   const [code, setCode] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [notice, setNotice] = useState("");
@@ -70,16 +67,14 @@ export function EmailVerificationSettings({
     }
   });
 
-  const toggleDigest = (cadence: "weekly" | "monthly") => {
-    const nextWeekly = cadence === "weekly" ? !weekly : weekly;
-    const nextMonthly = cadence === "monthly" ? !monthly : monthly;
+  const toggleWeeklyDigest = () => {
+    const nextWeekly = !weekly;
     startTransition(async () => {
       setNotice("");
       setNoticeIsError(false);
       try {
-        await saveDigestPreferences({ weekly: nextWeekly, monthly: nextMonthly });
+        await saveDigestPreferences({ weekly: nextWeekly });
         setWeekly(nextWeekly);
-        setMonthly(nextMonthly);
         showActionToast("success", "Email digest preferences saved.");
       } catch (error) {
         const message = formatUserMessage(error, "Unable to save digest preferences.");
@@ -110,7 +105,7 @@ export function EmailVerificationSettings({
               <>
                 <h3 className="font-bold text-amber-950">⚠️ Email Not Verified</h3>
                 <p className="mt-1 text-sm leading-6 text-amber-900">
-                  Link your verified email to enable Weekly &amp; Monthly executive summaries.
+                  Verify your email to receive the monthly closing report or enable weekly summaries.
                 </p>
                 <label className="mt-4 block text-sm font-semibold text-ink-secondary">
                   Personal Email Address
@@ -142,18 +137,19 @@ export function EmailVerificationSettings({
             label="Weekly Executive Summary"
             checked={weekly}
             disabled={!emailVerified || isPending}
-            onClick={() => toggleDigest("weekly")}
+            onClick={toggleWeeklyDigest}
           />
-          <DigestSwitch
-            label="Monthly Operations Closure"
-            checked={monthly}
-            disabled={!emailVerified || isPending}
-            onClick={() => toggleDigest("monthly")}
-          />
+          <div className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-line bg-surface px-3 py-2">
+            <div>
+              <p className="text-sm font-semibold text-ink-secondary">Monthly Operations Closure</p>
+              <p className="text-xs text-ink-muted">Sent on the 27th to verified email addresses</p>
+            </div>
+            <span className="shrink-0 rounded-full bg-accent/10 px-2.5 py-1 text-xs font-bold text-accent">Mandatory</span>
+          </div>
         </div>
         {!emailVerified && (
-          <p className="mt-2 text-xs text-ink-secondary" title="Verify your email to manage executive summaries.">
-            Verify your email to enable these options.
+          <p className="mt-2 text-xs text-ink-secondary" title="Email verification is required to receive reports.">
+            Verify your email to receive the monthly closing report and enable weekly summaries.
           </p>
         )}
         {notice && (noticeIsError

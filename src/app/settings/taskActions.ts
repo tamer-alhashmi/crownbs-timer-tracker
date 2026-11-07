@@ -6,6 +6,7 @@ import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { isHousekeepingAdmin, isPlatformAdmin, normalizeUserRole, type UserRole } from "@/lib/roles";
 import { sendTaskAssignmentPush } from "@/lib/push";
 import { notifyWorkLogStatusChange } from "@/lib/notifications/taskStatusNotifications";
+import { getManagerPropertyIds, getOwnerPropertyIds, getPropertyOwnerIds, hasPropertyOwnerAccess } from "@/lib/propertyOwnership";
 
 type TaskResult = { success: true; taskId?: string } | { success: false; error: string };
 type DispatchInput = {
@@ -32,7 +33,11 @@ export async function getTaskDispatchData() {
     throw new Error("Task assignment is not available for this account.");
   }
   let assignedHotelIds: string[] = [];
-  if (actor.role === "manager" || isHousekeepingAdmin(actor.role)) {
+  if (actor.role === "owner") {
+    assignedHotelIds = await getOwnerPropertyIds(supabase, actor.id);
+  } else if (actor.role === "manager") {
+    assignedHotelIds = await getManagerPropertyIds(supabase, actor.id);
+  } else if (isHousekeepingAdmin(actor.role)) {
     const { data: assignments, error: assignmentError } = await supabase
       .from("user_hotel_assignments")
       .select("hotel_id")
@@ -48,8 +53,8 @@ export async function getTaskDispatchData() {
   if (hotelError) throw new Error(hotelError.message);
   const activeHotels = (hotels ?? []).filter((hotel) =>
     hotel.is_active && (
-      isPlatformAdmin(actor.role) ? true : actor.role === "owner" ? hotel.owner_id === actor.id :
-        actor.role === "manager" ? hotel.manager_id === actor.id || hotel.id === actor.primary_hotel_id || assignedHotelIds.includes(hotel.id) :
+      isPlatformAdmin(actor.role) ? true : actor.role === "owner" ? assignedHotelIds.includes(hotel.id) :
+        actor.role === "manager" ? assignedHotelIds.includes(hotel.id) :
           hotel.id === actor.primary_hotel_id || assignedHotelIds.includes(hotel.id)
     )
   );
@@ -69,11 +74,11 @@ export async function getTaskDispatchData() {
     supabase.from("services_config").select("id, hotel_id, name, description, unit, is_active, owner_id").eq("is_active", true),
     supabase.from("rooms").select("id, hotel_id, room_name, category, floor_section").in("hotel_id", activeHotelIds).eq("status", "active").order("floor_section").order("room_name"),
     supabase.from("work_logs").select("id, user_id, assigned_to, hotel_id, service_name_snapshot, service_description_snapshot, room_ids, room_number, room_numbers, start_time, end_time, task_date, status, notes, assigned_at, priority, due_at, dispatch_metadata, cancelled_at")
-      .in("hotel_id", activeHotelIds).in("status", ["assigned", "active", "completed"])
+      .in("hotel_id", activeHotelIds).in("status", ["assigned", "active", "paused", "completed"])
       .is("deleted_at", null).is("cancelled_at", null).order("start_time", { ascending: false }).limit(300),
     Promise.all([
       supabase.from("work_logs").select("id", { count: "exact", head: true }).in("hotel_id", activeHotelIds).eq("status", "assigned").is("deleted_at", null).is("cancelled_at", null),
-      supabase.from("work_logs").select("id", { count: "exact", head: true }).in("hotel_id", activeHotelIds).eq("status", "active").is("end_time", null).is("deleted_at", null).is("cancelled_at", null),
+      supabase.from("work_logs").select("id", { count: "exact", head: true }).in("hotel_id", activeHotelIds).in("status", ["active", "paused"]).is("end_time", null).is("deleted_at", null).is("cancelled_at", null),
       supabase.from("work_logs").select("id", { count: "exact", head: true }).in("hotel_id", activeHotelIds).eq("status", "completed").eq("task_date", today).is("deleted_at", null).is("cancelled_at", null),
     ]),
   ]);
@@ -88,7 +93,7 @@ export async function getTaskDispatchData() {
   }
   const hotelIds = new Set(activeHotelIds);
   const assignmentRows = assignments ?? [];
-  const ownersByHotel = new Map(activeHotels.map((hotel) => [hotel.id, hotel.owner_id]));
+  const propertyOwners = await getPropertyOwnerIds(supabase, activeHotelIds);
   const assignees = (users ?? []).filter((user) => activeHotels.some((hotel) =>
     user.primary_hotel_id === hotel.id ||
     (user.role === "manager" && hotel.manager_id === user.id) ||
@@ -112,7 +117,7 @@ export async function getTaskDispatchData() {
     mediaByTask.set(item.work_log_id, list);
   }));
   return {
-    hotels: activeHotels.map(({ id, name, owner_id }) => ({ id, name, ownerId: owner_id })),
+    hotels: activeHotels.map(({ id, name, owner_id }) => ({ id, name, ownerId: owner_id, ownerIds: propertyOwners.get(id) ?? [] })),
     users: assignees.map((user) => ({
       id: user.id,
       full_name: user.full_name,
@@ -125,7 +130,7 @@ export async function getTaskDispatchData() {
     })),
     services: (services ?? [])
       .filter((service) => service.hotel_id === null || hotelIds.has(service.hotel_id))
-      .filter((service) => service.owner_id === null || activeHotels.some((hotel) => service.owner_id === ownersByHotel.get(hotel.id)))
+      .filter((service) => service.owner_id === null || activeHotels.some((hotel) => (propertyOwners.get(hotel.id) ?? []).includes(service.owner_id!)))
       .map(({ id, hotel_id, name, description, unit, is_active, owner_id }) => ({ id, hotel_id, name, description, unit, is_active, owner_id })),
     rooms: rooms ?? [],
     tasks: taskRowsToday.map((task) => {
@@ -210,7 +215,7 @@ export async function dispatchTask(input: DispatchInput): Promise<TaskResult> {
       .maybeSingle();
     if (hotelError) throw new Error(hotelError.message);
     if (!hotel || !hotel.is_active) throw new Error("Select an active property.");
-    if (actor.role === "owner" && hotel.owner_id !== actor.id) throw new Error("That property is outside your account.");
+    if (actor.role === "owner" && !await hasPropertyOwnerAccess(supabase, hotel.id, actor.id)) throw new Error("That property is outside your account.");
     if (actor.role === "manager" || isHousekeepingAdmin(actor.role)) {
       const { data: assignment, error: assignmentError } = await supabase
         .from("user_hotel_assignments")
@@ -283,9 +288,10 @@ export async function dispatchTask(input: DispatchInput): Promise<TaskResult> {
       .eq("id", input.serviceId)
       .maybeSingle();
     if (serviceError) throw new Error(serviceError.message);
+    const propertyOwnerIds = (await getPropertyOwnerIds(supabase, [hotel.id])).get(hotel.id) ?? [];
     if (!service || !service.is_active
       || (service.hotel_id !== null && service.hotel_id !== hotel.id)
-      || (service.owner_id !== null && service.owner_id !== hotel.owner_id)) {
+      || (service.owner_id !== null && !propertyOwnerIds.includes(service.owner_id))) {
       throw new Error("Select an active service configured for this property.");
     }
     if (roomIds.length) {
@@ -363,7 +369,7 @@ export async function dispatchTask(input: DispatchInput): Promise<TaskResult> {
 
 export async function endOwnManagementTask(taskId: string) {
   const { actor, supabase } = await getVerifiedActor();
-  if (actor.role !== "manager" && !isHousekeepingAdmin(actor.role)) throw new Error("Only managers and housekeeping administrators can end their own assigned tasks here.");
+  if (actor.role !== "manager" && !isHousekeepingAdmin(actor.role)) throw new Error("Only managers and Housekeeping Leaders can end their own assigned tasks here.");
   if (typeof taskId !== "string" || !taskId) throw new Error("An active task is required.");
 
   const { data: task, error: taskError } = await supabase.from("work_logs")
@@ -452,7 +458,7 @@ async function getManagedTask(taskId: string) {
     .select("id, name, owner_id, manager_id").eq("id", task.hotel_id).maybeSingle();
   if (hotelError) throw new Error(`Unable to verify task property: ${hotelError.message}`);
   if (!hotel) throw new Error("Task property was not found.");
-  if (actor.role === "owner" && hotel.owner_id !== actor.id) throw new Error("This task is outside your property scope.");
+  if (actor.role === "owner" && !await hasPropertyOwnerAccess(supabase, hotel.id, actor.id)) throw new Error("This task is outside your property scope.");
   if (actor.role === "manager" || isHousekeepingAdmin(actor.role)) {
     const { data: assignment, error: assignmentError } = await supabase.from("user_hotel_assignments")
       .select("hotel_id").eq("user_id", actor.id).eq("hotel_id", hotel.id).maybeSingle();
@@ -545,7 +551,7 @@ export async function cancelDispatchTask(taskId: string, reason: string) {
   }
   const { actor, supabase, task } = await getManagedTask(taskId);
   if (task.status === "active") {
-    const { error } = await supabase.rpc("record_management_override", {
+    const { data, error } = await supabase.rpc("record_management_override", {
       p_entity_type: "task",
       p_entity_id: task.id,
       p_action: "cancel_task",
@@ -554,6 +560,15 @@ export async function cancelDispatchTask(taskId: string, reason: string) {
       p_end_time: null,
     });
     if (error) throw new Error(`Unable to cancel active task: ${error.message}`);
+    const resumedTaskId = data && typeof data === "object" && "resumed_task_id" in data && typeof data.resumed_task_id === "string"
+      ? data.resumed_task_id
+      : null;
+    try {
+      await notifyWorkLogStatusChange({ workLogId: task.id, actorId: actor.id, previousStatus: "active", newStatus: "cancelled" });
+      if (resumedTaskId) await notifyWorkLogStatusChange({ workLogId: resumedTaskId, actorId: actor.id, previousStatus: "paused", newStatus: "active" });
+    } catch (notificationError) {
+      console.error("Task cancellation or resume succeeded, but status notifications could not be recorded:", notificationError);
+    }
   } else if (task.status === "assigned") {
     const { error } = await supabase.rpc("cancel_pending_dispatch_task", {
       p_task_id: task.id,
@@ -571,7 +586,7 @@ export async function completeDispatchTask(taskId: string, reason: string) {
   if (typeof reason !== "string" || reason.trim().length < 5 || reason.trim().length > 1000) throw new Error("Enter an audit reason between 5 and 1,000 characters.");
   const { actor, supabase, task } = await getManagedTask(taskId);
   if (task.status !== "active") throw new Error("Only active tasks can be force-completed.");
-  const { error } = actor.role === "super_admin"
+  const { data, error } = actor.role === "super_admin"
     ? await supabase.rpc("record_management_override", {
       p_entity_type: "task",
       p_entity_id: task.id,
@@ -586,6 +601,15 @@ export async function completeDispatchTask(taskId: string, reason: string) {
       p_reason: reason.trim(),
     });
   if (error) throw new Error(`Unable to complete active task: ${error.message}`);
+  const resumedTaskId = data && typeof data === "object" && "resumed_task_id" in data && typeof data.resumed_task_id === "string"
+    ? data.resumed_task_id
+    : null;
+  try {
+    await notifyWorkLogStatusChange({ workLogId: task.id, actorId: actor.id, previousStatus: "active", newStatus: "completed" });
+    if (resumedTaskId) await notifyWorkLogStatusChange({ workLogId: resumedTaskId, actorId: actor.id, previousStatus: "paused", newStatus: "active" });
+  } catch (notificationError) {
+    console.error("Task completion or resume succeeded, but status notifications could not be recorded:", notificationError);
+  }
   revalidateTaskViews();
 }
 
@@ -637,6 +661,7 @@ export async function reopenCompletedDispatchTask(taskId: string) {
 export async function startAssignedTask(taskId: string): Promise<TaskResult> {
   try {
     const { actor, supabase } = await getVerifiedActor();
+    if (actor.role !== "cleaner") throw new Error("Only assigned cleaners can accept dispatched tasks.");
     const { data: task, error: taskError } = await supabase
       .from("work_logs")
       .select("id, user_id, assigned_to, status")
@@ -648,55 +673,26 @@ export async function startAssignedTask(taskId: string): Promise<TaskResult> {
       throw new Error("This task is no longer waiting to be started.");
     }
 
-    const { data: activeTask, error: activeError } = await supabase
-      .from("work_logs")
-      .select("id")
-      .eq("user_id", actor.id)
-      .eq("status", "active")
-      .is("end_time", null)
-      .limit(1)
-      .maybeSingle();
-    if (activeError) throw new Error(activeError.message);
-    if (activeTask) {
-      throw new Error("You already have an active running task. Please complete or pause your current task before starting a new one.");
+    const { data: result, error: acceptError } = await supabase.rpc("accept_assigned_work_log", {
+      p_task_id: task.id,
+      p_user_id: actor.id,
+    });
+    if (acceptError) throw new Error(acceptError.message);
+    if (!result || typeof result !== "object" || !("accepted_task_id" in result) || result.accepted_task_id !== task.id) {
+      throw new Error("This task could not be accepted. Refresh and try again.");
     }
-
-    let shiftId: string | null = null;
-    if (actor.role === "cleaner") {
-      const { data: shift, error: shiftError } = await supabase
-        .from("master_shifts")
-        .select("id")
-        .eq("user_id", actor.id)
-        .eq("status", "active")
-        .maybeSingle();
-      if (shiftError) throw new Error(shiftError.message);
-      if (!shift) throw new Error("Clock in before starting an assigned task.");
-      shiftId = shift.id;
-    }
-
-    const { data: started, error: updateError } = await supabase
-      .from("work_logs")
-      .update({
-        status: "active",
-        start_time: new Date().toISOString(),
-        shift_id: shiftId,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", task.id)
-      .eq("assigned_to", actor.id)
-      .eq("status", "assigned")
-      .select("id")
-      .maybeSingle();
-    if (updateError) throw new Error(updateError.message);
-    if (!started) throw new Error("This task was already started or is no longer assigned to you.");
+    const pausedTaskId = "paused_task_id" in result && typeof result.paused_task_id === "string" ? result.paused_task_id : null;
     try {
-      await notifyWorkLogStatusChange({ workLogId: started.id, actorId: actor.id, previousStatus: "assigned", newStatus: "active" });
+      if (pausedTaskId) {
+        await notifyWorkLogStatusChange({ workLogId: pausedTaskId, actorId: actor.id, previousStatus: "active", newStatus: "paused" });
+      }
+      await notifyWorkLogStatusChange({ workLogId: task.id, actorId: actor.id, previousStatus: "assigned", newStatus: "active" });
     } catch (notificationError) {
       console.error("Assigned task started, but task status notifications could not be recorded:", notificationError);
     }
     revalidatePath("/dashboard");
     revalidatePath("/settings");
-    return { success: true, taskId: started.id };
+    return { success: true, taskId: task.id };
   } catch (error) {
     return failure(error, "Assigned task start failed:");
   }

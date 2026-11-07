@@ -4,6 +4,7 @@ import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
 import { isPlatformAdmin } from "@/lib/roles";
 import type { ChatContact, ChatRole } from "./types";
 import { USER_ROLES, isUserRole } from "@/lib/roles";
+import { getOwnerPropertyIds, getPropertyOwnerIds } from "@/lib/propertyOwnership";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CHAT_ROLES = new Set<ChatRole>(USER_ROLES);
@@ -75,7 +76,10 @@ export async function getChatActor() {
   const actorHotelIds = new Set(
     assignments.filter((assignment) => assignment.user_id === profile.id).map((assignment) => assignment.hotel_id)
   );
-  if (profile.primary_hotel_id) actorHotelIds.add(profile.primary_hotel_id);
+  if (profile.primary_hotel_id && profile.role !== "owner") actorHotelIds.add(profile.primary_hotel_id);
+  if (profile.role === "owner") {
+    (await getOwnerPropertyIds(supabase, profile.id)).forEach((hotelId) => actorHotelIds.add(hotelId));
+  }
   if (profile.role === "owner" || profile.role === "manager") {
     (hotels ?? []).filter((hotel) =>
       hotel.is_active && (profile.role === "owner" ? hotel.owner_id === profile.id : hotel.manager_id === profile.id)
@@ -83,13 +87,14 @@ export async function getChatActor() {
   }
 
   const visibleIds = new Set<string>();
+  const ownersByProperty = await getPropertyOwnerIds(supabase, [...actorHotelIds]);
   if (isPlatformAdmin(profile.role)) {
     (users ?? []).forEach((candidate) => visibleIds.add(candidate.id));
   } else {
     const hotelIds = actorHotelIds;
     (users ?? []).filter((candidate) => isPlatformAdmin(candidate.role)).forEach((candidate) => visibleIds.add(candidate.id));
     (hotels ?? []).filter((hotel) => hotel.is_active && hotelIds.has(hotel.id)).forEach((hotel) => {
-      if (hotel.owner_id) visibleIds.add(hotel.owner_id);
+      (ownersByProperty.get(hotel.id) ?? []).forEach((ownerId) => visibleIds.add(ownerId));
       if (hotel.manager_id) visibleIds.add(hotel.manager_id);
     });
     (users ?? []).filter((candidate) => {

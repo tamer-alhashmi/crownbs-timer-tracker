@@ -14,7 +14,7 @@ type ServiceForm = { name: string; default_rate: string; unit: BillingUnit; desc
 type Props = {
   initialServices: ServiceRecord[];
   initialProperties: PropertyRecord[];
-  propertyAssignees: { id: string; name: string; role: "owner" | "manager" }[];
+  propertyAssignees: { id: string; name: string; role: "owner" | "manager"; is_active: boolean; email_verified: boolean }[];
   canManageServices?: boolean;
   canManageProperties?: boolean;
 };
