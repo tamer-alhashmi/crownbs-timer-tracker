@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
-import { Building2, ChevronDown, ChevronLeft, ChevronRight, Loader2, MapPin, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
+import { Building2, ChevronDown, ChevronLeft, ChevronRight, Loader2, MapPin, Pencil, Plus, Search, Trash2, Upload, Users, X } from "lucide-react";
 import { showActionToast } from "@/components/ui/ActionToast";
 import { ActionErrorMessage } from "@/components/ui/ActionErrorMessage";
 import { formatUserMessage } from "@/lib/userMessages";
@@ -14,12 +14,15 @@ import { resolveChecklistBlueprint, resolveServiceBlueprint } from "@/lib/servic
 import {
   archiveOwnedProperty,
   archiveServiceConfiguration,
+  assignManagedUserToHotel,
   createOwnedProperty,
   createServiceConfiguration,
   resolveOwnedPropertyCoordinates,
+  unassignManagedUserFromHotel,
   updateOwnedProperty,
   updateServiceConfiguration,
 } from "./actions";
+import { isPlatformAdmin, type UserRole } from "@/lib/roles";
 import {
   archivePropertyRoom,
   createPropertyRoom,
@@ -57,9 +60,13 @@ type Property = {
   isActive: boolean;
   managerId: string | null;
   managerName: string | null;
+  ownerId: string | null;
+  ownerName: string | null;
+  coOwners: { id: string; name: string }[];
   services: Service[];
 };
 type Manager = { id: string; full_name: string };
+type OwnerCandidate = { id: string; full_name: string; email_verified: boolean };
 const PROPERTY_PAGE_SIZE = 20;
 function getPropertyPageNumbers(pageCount: number, currentPage: number): Array<number | "ellipsis"> {
   const pages: Array<number | "ellipsis"> = [];
@@ -118,8 +125,21 @@ const serviceSchema = z.object({
 });
 type ServiceValues = z.infer<typeof serviceSchema>;
 
-export function PropertySettings({ properties, managers }: { properties: Property[]; managers: Manager[] }) {
+export function PropertySettings({
+  properties,
+  managers,
+  owners,
+  actorRole,
+}: {
+  properties: Property[];
+  managers: Manager[];
+  owners: OwnerCandidate[];
+  actorRole: UserRole;
+}) {
   const [editing, setEditing] = useState<Property | null>(null);
+  const [stakeholderProperty, setStakeholderProperty] = useState<Property | null>(null);
+  const [primaryOwnerDraft, setPrimaryOwnerDraft] = useState("");
+  const [partnerDraft, setPartnerDraft] = useState("");
   const [adding, setAdding] = useState(false);
   const [locationPickerOpen, setLocationPickerOpen] = useState(false);
   const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -129,9 +149,10 @@ export function PropertySettings({ properties, managers }: { properties: Propert
   const [page, setPage] = useState(1);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
+  const canManageOwners = isPlatformAdmin(actorRole);
   const query = propertySearch.trim().toLowerCase();
   const filteredProperties = properties.filter((property) =>
-    !query || `${property.name} ${property.id} ${property.managerName ?? ""}`.toLowerCase().includes(query)
+    !query || `${property.name} ${property.id} ${property.managerName ?? ""} ${property.ownerName ?? ""} ${property.coOwners.map((owner) => owner.name).join(" ")}`.toLowerCase().includes(query)
   );
   const pageCount = Math.max(1, Math.ceil(filteredProperties.length / PROPERTY_PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
@@ -142,6 +163,66 @@ export function PropertySettings({ properties, managers }: { properties: Propert
     defaultValues: { name: "", location: "", roomCount: "0", floorCount: "0", managerId: "" },
   });
   const locationRegistration = form.register("location");
+
+  const openStakeholderManager = (property: Property) => {
+    setStakeholderProperty(property);
+    setPrimaryOwnerDraft(property.ownerId ?? "");
+    setPartnerDraft("");
+  };
+  const savePrimaryOwner = () => {
+    if (!stakeholderProperty) return;
+    const property = stakeholderProperty;
+    const ownerId = primaryOwnerDraft;
+    startTransition(async () => {
+      try {
+        if (ownerId === property.ownerId) return;
+        if (ownerId) {
+          const result = await assignManagedUserToHotel(ownerId, property.id, property.ownerId ? "transfer" : "primary", property.ownerId);
+          if (!result.success) throw new Error(result.error);
+        } else if (property.ownerId) {
+          await unassignManagedUserFromHotel(property.ownerId, property.id);
+        }
+        showActionToast("success", `${property.name} primary owner updated.`);
+        setStakeholderProperty(null);
+        router.refresh();
+      } catch (error) {
+        const ownerMessage = formatUserMessage(error, "Unable to update the primary property owner.");
+        showActionToast("error", ownerMessage);
+      }
+    });
+  };
+  const addPropertyPartner = () => {
+    if (!stakeholderProperty || !partnerDraft) return;
+    const property = stakeholderProperty;
+    const ownerId = partnerDraft;
+    startTransition(async () => {
+      try {
+        const result = await assignManagedUserToHotel(ownerId, property.id, "co_owner");
+        if (!result.success) throw new Error(result.error);
+        showActionToast("success", `${property.name} linked to its new co-owner.`);
+        setStakeholderProperty(null);
+        router.refresh();
+      } catch (error) {
+        const partnerMessage = formatUserMessage(error, "Unable to add this property co-owner.");
+        showActionToast("error", partnerMessage);
+      }
+    });
+  };
+  const removePropertyPartner = (ownerId: string) => {
+    if (!stakeholderProperty) return;
+    const property = stakeholderProperty;
+    startTransition(async () => {
+      try {
+        await unassignManagedUserFromHotel(ownerId, property.id);
+        showActionToast("success", `${property.name} co-owner link removed.`);
+        setStakeholderProperty(null);
+        router.refresh();
+      } catch (error) {
+        const partnerMessage = formatUserMessage(error, "Unable to remove this property co-owner.");
+        showActionToast("error", partnerMessage);
+      }
+    });
+  };
 
   const beginEdit = (property: Property) => {
     setEditing(property);
@@ -290,13 +371,43 @@ export function PropertySettings({ properties, managers }: { properties: Propert
           <li key={property.id} className="overflow-hidden rounded-2xl border border-line bg-surface shadow-sm">
             <div className="flex flex-col gap-4 p-5">
               <div className="flex min-w-0 items-start gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent/10 text-accent"><Building2 className="h-5 w-5" /></span><div className="min-w-0"><h3 className="font-bold text-ink">{property.name}{!property.isActive && <span className="ml-2 rounded-full bg-surface-secondary px-2 py-1 text-xs font-semibold text-ink-secondary">Suspended</span>}</h3><p className="mt-1 text-sm text-ink-secondary">{property.location}</p>{(property.latitude === null || property.longitude === null) && <p role="status" className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300"><MapPin className="h-3.5 w-3.5" />GPS Coordinates Missing - Set Map Location</p>}<p className="mt-1 text-xs text-ink-secondary">{property.roomCount} rooms · {property.floorCount} floors/sections · {property.managerName ?? "No manager assigned"}</p><p className="mt-1 truncate font-mono text-[10px] text-ink-muted" title={property.id}>Property ID: {property.id}</p></div></div>
-              <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-3"><button type="button" onClick={() => beginEdit(property)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-line px-3 text-sm font-semibold"><Pencil className="h-4 w-4" /> Edit</button><button type="button" onClick={() => archive(property)} disabled={isPending} className="min-h-10 rounded-lg border border-amber-200 px-3 text-sm font-semibold text-amber-800 disabled:opacity-50">Archive</button></div>
+            <div className="flex min-w-0 items-start gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent/10 text-accent"><Building2 className="h-5 w-5" /></span><div className="min-w-0"><h3 className="font-bold text-ink">{property.name}{!property.isActive && <span className="ml-2 rounded-full bg-surface-secondary px-2 py-1 text-xs font-semibold text-ink-secondary">Suspended</span>}</h3><p className="mt-1 text-sm text-ink-secondary">{property.location}</p>{(property.latitude === null || property.longitude === null) && <p role="status" className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300"><MapPin className="h-3.5 w-3.5" />GPS Coordinates Missing - Set Map Location</p>}<p className="mt-1 text-xs text-ink-secondary">{property.roomCount} rooms · {property.floorCount} floors/sections · {property.managerName ?? "No manager assigned"}</p><p className="mt-1 text-xs text-ink-secondary">Primary owner: {property.ownerName ?? "Unassigned"}{property.coOwners.length ? ` · Co-owners: ${property.coOwners.map((owner) => owner.name).join(", ")}` : ""}</p><p className="mt-1 truncate font-mono text-[10px] text-ink-muted" title={property.id}>Property ID: {property.id}</p></div></div>
+            <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-3">{canManageOwners && <button type="button" onClick={() => openStakeholderManager(property)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-accent/30 px-3 text-sm font-semibold text-accent"><Users className="h-4 w-4" /> Manage owners</button>}<button type="button" onClick={() => beginEdit(property)} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-line px-3 text-sm font-semibold"><Pencil className="h-4 w-4" /> Edit</button><button type="button" onClick={() => archive(property)} disabled={isPending} className="min-h-10 rounded-lg border border-amber-200 px-3 text-sm font-semibold text-amber-800 disabled:opacity-50">Archive</button></div>
             </div>
             <PropertyRoomManager property={property} />
             <PropertyServiceCatalog property={property} anchorId={property === visibleProperties[0] ? "service-catalog" : undefined} />
           </li>
         )) : <li className="rounded-2xl border border-dashed border-line bg-surface px-5 py-10 text-center text-sm text-ink-secondary md:col-span-2 lg:col-span-3">{properties.length ? "No properties match your search." : "No properties have been created yet. Add a property to configure its services and rates."}</li>}
       </ul>
+      {canManageOwners && stakeholderProperty && <div className="fixed inset-0 z-[70] flex items-center justify-center bg-ink/55 p-4" role="dialog" aria-modal="true" aria-labelledby="property-owners-title">
+        <section className="max-h-[calc(100dvh-2rem)] w-full max-w-lg space-y-5 overflow-y-auto rounded-2xl border border-line bg-surface p-5 text-ink shadow-2xl sm:p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Property stakeholders</p><h2 id="property-owners-title" className="mt-1 text-lg font-bold">{stakeholderProperty.name}</h2></div>
+            <button type="button" onClick={() => setStakeholderProperty(null)} aria-label="Close owner management" className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-line text-ink-secondary"><X className="h-4 w-4" /></button>
+          </div>
+          <section className="space-y-3 rounded-xl border border-line p-4">
+            <div><h3 className="text-sm font-semibold">Primary owner</h3><p className="mt-1 text-xs text-ink-secondary">Changing the primary owner is separate from linking co-owners.</p></div>
+            <select value={primaryOwnerDraft} onChange={(event) => setPrimaryOwnerDraft(event.target.value)} className={fieldClass}>
+              <option value="">No primary owner</option>
+              {owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.full_name}</option>)}
+            </select>
+            <button type="button" onClick={savePrimaryOwner} disabled={isPending || primaryOwnerDraft === stakeholderProperty.ownerId} className="min-h-10 rounded-lg bg-accent px-4 text-sm font-semibold text-white disabled:opacity-50">{stakeholderProperty.ownerId ? "Save primary owner" : "Assign primary owner"}</button>
+          </section>
+          <section className="space-y-3 rounded-xl border border-line p-4">
+            <div><h3 className="text-sm font-semibold">Co-owners</h3><p className="mt-1 text-xs text-ink-secondary">Co-owners must be active, verified Owner accounts. Existing primary ownership is not replaced.</p></div>
+            {stakeholderProperty.coOwners.length ? <ul className="space-y-2">{stakeholderProperty.coOwners.map((owner) => <li key={owner.id} className="flex items-center justify-between gap-3 rounded-lg bg-surface-secondary px-3 py-2"><span className="text-sm font-medium">{owner.name}</span><button type="button" onClick={() => removePropertyPartner(owner.id)} disabled={isPending} className="min-h-9 rounded-md border border-amber-500/30 px-3 text-xs font-semibold text-amber-800 disabled:opacity-50">Remove</button></li>)}</ul> : <p className="text-sm text-ink-secondary">No co-owners linked.</p>}
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <select value={partnerDraft} onChange={(event) => setPartnerDraft(event.target.value)} className={`${fieldClass} sm:flex-1`}>
+                <option value="">Select verified Owner</option>
+                {owners.filter((owner) => owner.email_verified && owner.id !== stakeholderProperty.ownerId && !stakeholderProperty.coOwners.some((partner) => partner.id === owner.id)).map((owner) => <option key={owner.id} value={owner.id}>{owner.full_name}</option>)}
+              </select>
+              <button type="button" onClick={addPropertyPartner} disabled={isPending || !partnerDraft} className="min-h-10 rounded-lg bg-accent px-4 text-sm font-semibold text-white disabled:opacity-50">Add co-owner</button>
+            </div>
+          </section>
+          {isPending && <p role="status" className="inline-flex items-center gap-2 text-sm text-ink-secondary"><Loader2 className="h-4 w-4 animate-spin" />Updating property owners…</p>}
+          <div className="flex justify-end"><button type="button" onClick={() => setStakeholderProperty(null)} disabled={isPending} className="min-h-10 rounded-lg border border-line px-4 text-sm font-semibold text-ink-secondary">Close</button></div>
+        </section>
+      </div>}
       {filteredProperties.length > 0 && <div className="flex flex-col gap-3 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-ink-secondary">Showing {(currentPage - 1) * PROPERTY_PAGE_SIZE + 1}-{Math.min(currentPage * PROPERTY_PAGE_SIZE, filteredProperties.length)} of {filteredProperties.length} properties</p>
         <div className="flex items-center gap-1">

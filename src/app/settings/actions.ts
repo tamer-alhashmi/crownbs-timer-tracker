@@ -23,6 +23,7 @@ export type ManagedUser = {
   is_clocked_in?: boolean;
   hotelName: string;
   assignedHotels: { id: string; name: string }[];
+  partnerHotels: { id: string; name: string }[];
 };
 
 type UserInput = {
@@ -136,7 +137,7 @@ function assertHotelSlotsAvailable(role: ManagedUser["role"], hotelIds: string[]
 export async function getSettingsData() {
   const context = await requireSettingsAccess();
   const [{ data: users, error }, { data: activeShifts, error: shiftsError }] = await Promise.all([
-    context.supabase.from("users").select("id, full_name, email, phone_number, avatar_url, role, has_pin, primary_hotel_id, is_active, deactivated_at").order("full_name"),
+    context.supabase.from("users").select("id, full_name, email, phone_number, avatar_url, role, has_pin, primary_hotel_id, is_active, deactivated_at, email_verified").order("full_name"),
     context.supabase.from("master_shifts").select("user_id").eq("status", "active").is("end_time", null),
   ]);
   if (error) throw new Error(error.message);
@@ -170,17 +171,33 @@ export async function getSettingsData() {
       isActive: hotel.is_active,
       managerId: hotel.manager_id,
       managerName: hotel.manager_id ? managerNames.get(hotel.manager_id) ?? "Assigned manager" : null,
+      ownerId: hotel.owner_id,
+      ownerName: hotel.owner_id ? (users ?? []).find((user) => user.id === hotel.owner_id)?.full_name ?? "Assigned owner" : null,
+      coOwners: (propertyOwners.get(hotel.id) ?? [])
+        .filter((ownerId) => ownerId !== hotel.owner_id)
+        .map((ownerId) => ({
+          id: ownerId,
+          name: (users ?? []).find((user) => user.id === ownerId)?.full_name ?? "Owner account",
+        })),
       services: (services ?? []).filter((service) => service.hotel_id === hotel.id || (service.hotel_id === null && (service.owner_id === null || (propertyOwners.get(hotel.id) ?? []).includes(service.owner_id)))),
     };
   }));
+  const ownerCandidates = (users ?? [])
+    .filter((candidate) => candidate.role === "owner" && candidate.is_active)
+    .map(({ id, full_name, email_verified }) => ({ id, full_name, email_verified }));
   return {
     actorRole: context.actor.role,
     actorName: (users ?? []).find((user) => user.id === context.actor.userId)?.full_name ?? context.actor.email,
     actorEmail: context.actor.email,
     actorPhoneNumber: (users ?? []).find((user) => user.id === context.actor.userId)?.phone_number ?? null,
     actorAvatarUrl: (users ?? []).find((user) => user.id === context.actor.userId)?.avatar_url ?? null,
-    hotels: context.visibleHotels.filter((hotel) => hotel.is_active).map((hotel) => ({ id: hotel.id, name: hotel.name })),
+    hotels: context.visibleHotels.filter((hotel) => hotel.is_active).map((hotel) => ({
+      id: hotel.id,
+      name: hotel.name,
+      ownerId: hotel.owner_id,
+    })),
     properties,
+    ownerCandidates,
     services: (services ?? []).filter((service) => isPlatformAdmin(context.actor.role)
       || Boolean(service.hotel_id && hotelsById.has(service.hotel_id))
       || Boolean(service.hotel_id === null && service.owner_id && [...propertyOwners.values()].some((ownerIds) => ownerIds.includes(service.owner_id!)))),
@@ -195,12 +212,26 @@ export async function getSettingsData() {
         .map((assignment) => assignment.hotel_id);
       const assignedHotels = context.visibleHotels.filter((hotel) =>
         assignedHotelIds.includes(hotel.id) ||
-        hotel.id === user.primary_hotel_id ||
-        (user.role === "owner" && hotel.owner_id === user.id) ||
+        (user.role === "owner"
+          ? hotel.owner_id === user.id
+          : hotel.id === user.primary_hotel_id) ||
         (user.role === "manager" && hotel.manager_id === user.id)
       ).map((hotel) => ({ id: hotel.id, name: hotel.name }));
+      const partnerHotels = user.role === "owner"
+        ? context.visibleHotels
+          .filter((hotel) => hotel.owner_id !== user.id && (propertyOwners.get(hotel.id) ?? []).includes(user.id))
+          .map((hotel) => ({ id: hotel.id, name: hotel.name }))
+        : [];
       const { has_pin: hasPin, ...safeUser } = user;
-      return { ...safeUser, hasPin, role: normalizeUserRole(user.role as UserRole), is_clocked_in: activeUserIds.has(user.id), hotelName: assignedHotels[0]?.name ?? "Unassigned", assignedHotels };
+      return {
+        ...safeUser,
+        hasPin,
+        role: normalizeUserRole(user.role as UserRole),
+        is_clocked_in: activeUserIds.has(user.id),
+        hotelName: assignedHotels[0]?.name ?? partnerHotels[0]?.name ?? "Unassigned",
+        assignedHotels,
+        partnerHotels,
+      };
     }),
     permissions: (permissions ?? []).filter((permission) => visibleUsers.some((user) => user.id === permission.user_id)).map((permission) => ({ ...permission, feature_key: permission.feature_key as FeatureKey })),
   };
@@ -536,7 +567,12 @@ export async function deleteManagedUser(userId: string) {
   revalidatePath("/settings");
 }
 
-export async function assignManagedUserToHotel(userId: string, hotelId: string): Promise<ActionResult> {
+export async function assignManagedUserToHotel(
+  userId: string,
+  hotelId: string,
+  assignmentType: "primary" | "co_owner" | "transfer" = "primary",
+  expectedOwnerId?: string | null,
+): Promise<ActionResult> {
   try {
     const context = await requireSettingsAccess("edit");
     const { data: target, error: targetError } = await context.supabase
@@ -555,7 +591,23 @@ export async function assignManagedUserToHotel(userId: string, hotelId: string):
     const hotel = context.visibleHotels.find((item) => item.id === hotelId);
     if (!hotel) throw new Error("That hotel is outside your management scope.");
     if (!hotel.is_active) throw new Error("You cannot assign staff to an archived property.");
-    assertHotelSlotsAvailable(targetRole, [hotelId], context, userId);
+    const ownershipAssignment = ["primary", "co_owner", "transfer"].includes(assignmentType)
+      ? assignmentType
+      : null;
+    if (!ownershipAssignment) throw new Error("Choose a valid owner assignment.");
+    if (targetRole !== "owner" && ownershipAssignment !== "primary") {
+      throw new Error("Only Owner accounts can be linked to or transferred between property owners.");
+    }
+    if (targetRole === "owner" && !isPlatformAdmin(context.actor.role)) {
+      throw new Error("Only a Platform Admin can manage property owner assignments.");
+    }
+    if (ownershipAssignment === "transfer" && !isPlatformAdmin(context.actor.role)) {
+      throw new Error("Only a Platform Admin can transfer primary property ownership.");
+    }
+    if (ownershipAssignment === "transfer" && expectedOwnerId !== hotel.owner_id) {
+      throw new Error(`${hotel.name} ownership changed. Refresh and try again.`);
+    }
+    if (targetRole !== "owner") assertHotelSlotsAvailable(targetRole, [hotelId], context, userId);
 
     if (["manager", "hk_admin", "housekeeping_admin", "cleaner"].includes(targetRole)) {
       const { error } = await context.supabase
@@ -599,26 +651,18 @@ export async function assignManagedUserToHotel(userId: string, hotelId: string):
         }
       }
     } else {
-      if (hotel.owner_id !== userId) {
-        const { data: updated, error } = await context.supabase.from("hotels")
-          .update({ owner_id: userId })
-          .eq("id", hotelId)
-          .is("owner_id", null)
-          .select("id")
-          .maybeSingle();
-        if (error) {
-          if (error.code !== "23505") throw new Error(error.message);
-          const { data: current } = await context.supabase.from("hotels")
-            .select("owner_id")
-            .eq("id", hotelId)
-            .maybeSingle();
-          if (current?.owner_id !== userId) throw new Error(`${hotel.name} is already assigned to another owner.`);
-        } else if (!updated) {
-          throw new Error(`${hotel.name} is already assigned to another owner.`);
-        }
-      }
+      const { error: ownerAssignmentError } = await context.supabase.rpc("manage_property_owner_assignment", {
+        p_property_id: hotelId,
+        p_owner_id: userId,
+        p_actor_id: context.actor.userId,
+        p_assignment: ownershipAssignment === "co_owner" ? "co_owner_add" : ownershipAssignment,
+        p_expected_owner_id: ownershipAssignment === "transfer" ? expectedOwnerId : null,
+      });
+      if (ownerAssignmentError) throw new Error(ownerAssignmentError.message);
       if (!target.primary_hotel_id) {
-        const { error: primaryError } = await context.supabase.from("users")
+        const { error: primaryError } = ownershipAssignment === "co_owner"
+          ? { error: null }
+          : await context.supabase.from("users")
           .update({ primary_hotel_id: hotelId, updated_at: new Date().toISOString() })
           .eq("id", userId);
         if (primaryError) throw new Error(primaryError.message);
@@ -640,11 +684,14 @@ export async function unassignManagedUserFromHotel(userId: string, hotelId: stri
   const context = await requireSettingsAccess("edit");
   const { data: target, error: targetError } = await context.supabase.from("users").select("id, role, primary_hotel_id").eq("id", userId).maybeSingle();
   if (targetError || !target) throw new Error("User was not found.");
-  const targetRole = target.role as ManagedUser["role"];
+  const targetRole = normalizeUserRole(target.role as ManagedUser["role"]);
+  if (!["owner", "manager", "housekeeping_admin", "cleaner"].includes(targetRole)) {
+    throw new Error("This account type cannot be unassigned from a property.");
+  }
   await assertTargetScope(userId, targetRole, [hotelId], context);
   const hotel = context.visibleHotels.find((item) => item.id === hotelId);
   if (!hotel) throw new Error("That hotel is outside your management scope.");
-  if (["manager", "hk_admin", "cleaner"].includes(targetRole)) {
+  if (["manager", "housekeeping_admin", "hk_admin", "cleaner"].includes(targetRole)) {
     const { data: assignment, error: assignmentError } = await context.supabase
       .from("user_hotel_assignments")
       .delete()
@@ -678,11 +725,21 @@ export async function unassignManagedUserFromHotel(userId: string, hotelId: stri
       const { error } = await context.supabase.from("hotels").update({ manager_id: null }).eq("id", hotelId);
       if (error) throw new Error(error.message);
     }
+  } else if (targetRole === "owner") {
+    if (!isPlatformAdmin(context.actor.role)) throw new Error("Only a Platform Admin can manage property owner assignments.");
+    const assignment = hotel.owner_id === userId ? "primary_remove" : "co_owner_remove";
+    const { error } = await context.supabase.rpc("manage_property_owner_assignment", {
+      p_property_id: hotelId,
+      p_owner_id: userId,
+      p_actor_id: context.actor.userId,
+      p_assignment: assignment,
+      p_expected_owner_id: null,
+    });
+    if (error) throw new Error(error.message);
   } else {
-    const column = targetRole === "owner" ? "owner_id" : "manager_id";
-    const currentAssignee = column === "owner_id" ? hotel.owner_id : hotel.manager_id;
+    const currentAssignee = hotel.manager_id;
     if (currentAssignee !== userId) throw new Error("This hotel is not assigned to that user.");
-    const { error } = await context.supabase.from("hotels").update({ [column]: null }).eq("id", hotelId);
+    const { error } = await context.supabase.from("hotels").update({ manager_id: null }).eq("id", hotelId);
     if (error) throw new Error(error.message);
   }
   revalidatePath("/settings");

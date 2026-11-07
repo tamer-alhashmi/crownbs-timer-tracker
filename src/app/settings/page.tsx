@@ -93,7 +93,7 @@ export default async function SettingsPage() {
       ) : null}
       profile={<PersonalProfileSettings fullName={profile?.full_name ?? user.email} email={profile?.email ?? user.email} phoneNumber={profile?.phone_number ?? null} avatarUrl={profile?.avatar_url ?? null} languagePreference={profile?.language_preference ?? "en"} role={user.role} {...emailSettings} />}
       users={<><UserSettingsClient actorRole={data.actorRole} hotels={data.hotels} users={data.users} />{isPlatformAdmin(data.actorRole) && <SystemAccessPanel users={data.users} permissions={data.permissions} />}</>}
-      properties={<PropertySettings properties={data.properties} managers={data.managers} />}
+      properties={<PropertySettings properties={data.properties} managers={data.managers} owners={data.ownerCandidates} actorRole={data.actorRole} />}
     />
   );
 }

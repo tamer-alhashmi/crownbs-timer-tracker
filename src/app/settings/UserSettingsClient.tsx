@@ -18,7 +18,7 @@ import { formatUserMessage } from "@/lib/userMessages";
 
 type Props = {
   actorRole: string;
-  hotels: { id: string; name: string }[];
+  hotels: { id: string; name: string; ownerId: string | null }[];
   users: ManagedUser[];
 };
 type FormState = {
@@ -82,7 +82,7 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
     const query = search.trim().toLowerCase();
     const roleOrder: Record<string, number> = { manager: 0, housekeeping_admin: 1, hk_admin: 1, cleaner: 2, owner: 3, admin: 4, super_admin: 5 };
     return users
-      .filter((user) => (propertyFilter === "all" || user.assignedHotels.some((hotel) => hotel.id === propertyFilter))
+      .filter((user) => (propertyFilter === "all" || [...user.assignedHotels, ...user.partnerHotels].some((hotel) => hotel.id === propertyFilter))
         && (!query || `${user.full_name} ${user.email} ${user.phone_number ?? ""} ${user.role}`.toLowerCase().includes(query)))
       .sort((left, right) => (roleOrder[left.role] ?? 10) - (roleOrder[right.role] ?? 10) || left.full_name.localeCompare(right.full_name));
   }, [propertyFilter, search, users]);
@@ -90,6 +90,7 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
   const currentPage = Math.min(page, pageCount);
   const visibleUsers = filteredUsers.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
   const editingUser = users.find((user) => user.id === editingId);
+  const getUserHotels = (user: ManagedUser) => [...user.assignedHotels, ...user.partnerHotels];
   const save = form.handleSubmit((values) => startTransition(async () => {
     try {
       setMessage("");
@@ -169,7 +170,9 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
       role: normalizeUserRole(user.role),
       pinCode: "",
       hotelIds: user.assignedHotels.map((hotel) => hotel.id),
-      primaryHotelId: user.primary_hotel_id ?? user.assignedHotels[0]?.id ?? "",
+      primaryHotelId: user.assignedHotels.some((hotel) => hotel.id === user.primary_hotel_id)
+        ? user.primary_hotel_id ?? ""
+        : user.assignedHotels[0]?.id ?? "",
       password: "",
     });
     setIsAccordionOpen(true);
@@ -236,7 +239,7 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
     });
   };
 
-  const assignHotel = (userId: string) => startTransition(async () => {
+  const assignHotel = (userId: string, assignmentType: "primary" | "co_owner" | "transfer" = "primary") => startTransition(async () => {
     try {
       if (!assignmentHotelId) {
         const errorMessage = "Select a property first.";
@@ -245,7 +248,13 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
         showActionToast("error", errorMessage);
         return;
       }
-      const result = await assignManagedUserToHotel(userId, assignmentHotelId);
+      const selectedHotel = hotels.find((hotel) => hotel.id === assignmentHotelId);
+      const result = await assignManagedUserToHotel(
+        userId,
+        assignmentHotelId,
+        assignmentType,
+        assignmentType === "transfer" ? selectedHotel?.ownerId : null,
+      );
       if (!result.success) {
         const errorMessage = getAssignmentErrorMessage(result.error);
         setMessage(errorMessage);
@@ -255,9 +264,14 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
       }
       const user = users.find((item) => item.id === userId);
       const hotel = hotels.find((item) => item.id === assignmentHotelId);
-      setMessage("Property assignment updated.");
+      const message = assignmentType === "co_owner"
+        ? "Property linked as a co-owner."
+        : assignmentType === "transfer"
+          ? "Primary property ownership transferred."
+          : "Property assignment updated.";
+      setMessage(message);
       setMessageIsError(false);
-      showActionToast("success", `${hotel?.name ?? "Property"} assigned to ${user?.full_name ?? "user"}.`);
+      showActionToast("success", `${hotel?.name ?? "Property"} ${assignmentType === "co_owner" ? "linked as a co-owned property for" : assignmentType === "transfer" ? "transferred to" : "assigned to"} ${user?.full_name ?? "user"}.`);
       setAssigningId(null);
       setAssignmentHotelId("");
       router.refresh();
@@ -432,7 +446,7 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
                   <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-ink">{user.full_name}</span><span className="block truncate text-xs text-ink-secondary">{user.email}</span></span>
                   <span className="hidden shrink-0 rounded-full bg-surface-secondary px-2 py-1 text-[11px] font-semibold text-ink-secondary sm:inline-flex">{ROLE_LABELS[user.role]}</span>
                   <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${user.is_clocked_in ? "bg-emerald-500" : "bg-ink-muted/40"}`} title={user.is_clocked_in ? "On active shift" : "Not on shift"} />
-                  <span className="hidden max-w-36 truncate rounded-full bg-accent/10 px-2 py-1 text-[11px] font-medium text-accent sm:inline-flex">{user.assignedHotels.find((hotel) => hotel.id === propertyFilter)?.name ?? user.assignedHotels[0]?.name ?? "Unassigned"}</span>
+                  <span className="hidden max-w-36 truncate rounded-full bg-accent/10 px-2 py-1 text-[11px] font-medium text-accent sm:inline-flex">{getUserHotels(user).find((hotel) => hotel.id === propertyFilter)?.name ?? getUserHotels(user)[0]?.name ?? "Unassigned"}</span>
                   {expandedUserId === user.id ? <ChevronUp className="h-4 w-4 shrink-0 text-ink-muted" /> : <ChevronDown className="h-4 w-4 shrink-0 text-ink-muted" />}
                 </button>
                 {expandedUserId === user.id && <div className="border-t border-line bg-surface-secondary/50 p-3 sm:p-4">
@@ -443,17 +457,27 @@ export default function UserSettingsClient({ actorRole, hotels, users }: Props) 
                     {user.phone_number && <span className="text-xs text-ink-secondary">{user.phone_number}</span>}
                   </div>
                   <div className="mt-3"><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-secondary">Assigned properties</p><div className="flex flex-wrap gap-1.5">
-                    {user.assignedHotels.length ? user.assignedHotels.map((hotel) => <span key={hotel.id} className="rounded-full bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent">{hotel.name}</span>) : <span className="text-xs text-ink-secondary">No assigned property</span>}
+                    {getUserHotels(user).length ? <>
+                      {user.assignedHotels.map((hotel) => <span key={hotel.id} className="rounded-full bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent">{hotel.name}</span>)}
+                      {user.partnerHotels.map((hotel) => <span key={hotel.id} className="rounded-full border border-accent/30 px-2.5 py-1 text-xs font-medium text-accent">{hotel.name} · Co-owner</span>)}
+                    </> : <span className="text-xs text-ink-secondary">No assigned property</span>}
                   </div></div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button type="button" onClick={() => { setAssigningId(assigningId === user.id ? null : user.id); setAssignmentHotelId(""); }} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-lg border border-accent/30 bg-surface px-3 text-xs font-semibold text-accent"><Plus className="h-4 w-4" /> Assign hotel</button>
-                    {user.assignedHotels.length > 0 && <button type="button" onClick={() => { setUnlinkTarget({ userId: user.id, userName: user.full_name, hotels: user.assignedHotels }); setUnlinkHotelId(user.assignedHotels[0].id); }} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-lg border border-amber-500/30 bg-surface px-3 text-xs font-semibold text-amber-700 dark:text-amber-300"><ShieldAlert className="h-3.5 w-3.5" /> Unlink</button>}
+                    {getUserHotels(user).length > 0 && <button type="button" onClick={() => { const assignedHotels = getUserHotels(user); setUnlinkTarget({ userId: user.id, userName: user.full_name, hotels: assignedHotels }); setUnlinkHotelId(assignedHotels[0].id); }} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-lg border border-amber-500/30 bg-surface px-3 text-xs font-semibold text-amber-700 dark:text-amber-300"><ShieldAlert className="h-3.5 w-3.5" /> Unlink</button>}
                     <button type="button" onClick={() => edit(user)} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-lg border border-line bg-surface px-3 text-xs font-semibold text-ink-secondary"><Pencil className="h-3.5 w-3.5" /> Edit</button>
                     {actorRole === "super_admin" && user.is_active && <button type="button" onClick={() => deactivate(user)} disabled={isPending} className="inline-flex min-h-10 items-center justify-center gap-1 rounded-lg border border-rose-500/30 bg-surface px-3 text-xs font-semibold text-rose-700 disabled:opacity-50"><UserX className="h-4 w-4" /> Deactivate</button>}
                   </div>
-                  {assigningId === user.id && <div className="mt-3 flex flex-col gap-2 rounded-xl border border-accent/30 bg-accent/5 p-3 sm:flex-row">
-                    <select value={assignmentHotelId} onChange={(event) => setAssignmentHotelId(event.target.value)} className="min-h-10 w-full min-w-0 rounded-lg border border-line bg-surface px-3 text-sm text-ink sm:flex-1"><option value="">Select hotel</option>{hotels.filter((hotel) => !user.assignedHotels.some((assigned) => assigned.id === hotel.id)).map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select>
-                    <button type="button" onClick={() => assignHotel(user.id)} disabled={isPending} className="min-h-10 rounded-lg bg-accent px-4 text-sm font-semibold text-white disabled:opacity-50">Assign</button>
+                  {assigningId === user.id && <div className="mt-3 flex flex-col gap-2 rounded-xl border border-accent/30 bg-accent/5 p-3 sm:flex-row sm:flex-wrap">
+                    <select value={assignmentHotelId} onChange={(event) => setAssignmentHotelId(event.target.value)} className="min-h-10 w-full min-w-0 rounded-lg border border-line bg-surface px-3 text-sm text-ink sm:flex-1"><option value="">Select property</option>{hotels.filter((hotel) => !getUserHotels(user).some((assigned) => assigned.id === hotel.id)).map((hotel) => {
+                      const currentOwner = users.find((candidate) => candidate.id === hotel.ownerId);
+                      const ownerLabel = hotel.ownerId ? ` — primary owner: ${currentOwner?.full_name ?? "another Owner"}` : " — no primary owner";
+                      return <option key={hotel.id} value={hotel.id}>{hotel.name}{user.role === "owner" ? ownerLabel : ""}</option>;
+                    })}</select>
+                    {user.role === "owner" && assignmentHotelId && hotels.find((hotel) => hotel.id === assignmentHotelId)?.ownerId && hotels.find((hotel) => hotel.id === assignmentHotelId)?.ownerId !== user.id ? <>
+                      <button type="button" onClick={() => assignHotel(user.id, "co_owner")} disabled={isPending} className="min-h-10 rounded-lg bg-accent px-4 text-sm font-semibold text-white disabled:opacity-50">Add as co-owner</button>
+                      {isPlatformAdmin(actorRole) && <button type="button" onClick={() => assignHotel(user.id, "transfer")} disabled={isPending} className="min-h-10 rounded-lg border border-amber-500/40 bg-surface px-4 text-sm font-semibold text-amber-800 disabled:opacity-50">Transfer primary ownership</button>}
+                    </> : <button type="button" onClick={() => assignHotel(user.id)} disabled={isPending} className="min-h-10 rounded-lg bg-accent px-4 text-sm font-semibold text-white disabled:opacity-50">{user.role === "owner" ? "Assign as primary owner" : "Assign"}</button>}
                   </div>}
                 </div>}
               </article>

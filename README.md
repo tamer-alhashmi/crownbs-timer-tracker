@@ -49,7 +49,7 @@ Apply `supabase/migrations/20261022_room_availability_status.sql` after the exis
 
 Apply `supabase/migrations/20261105_pin_login_hardening.sql` before enabling PIN sign-in; it adds the safe PIN-presence field and service-role-only rate-limit functions used by the login action.
 
-Apply `supabase/migrations/20261110_multi_owner_partnerships.sql` after the existing property, workforce, and audit migrations to enable verified property partnerships, co-owner access policies, and partnership-aware operational audit records.
+Apply `supabase/migrations/20261110_multi_owner_partnerships.sql` after the existing property, workforce, and audit migrations to enable verified property partnerships, co-owner access policies, and partnership-aware operational audit records. Then apply `supabase/migrations/20261116_platform_admin_property_owner_assignments.sql` to enable atomic primary-owner transfers and platform-admin co-owner assignment from Settings.
 
 ---
 
