@@ -4,12 +4,13 @@ import { useEffect, useState, useTransition, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { Building2, ChevronDown, ChevronLeft, ChevronRight, Loader2, MapPin, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import { showActionToast } from "@/components/ui/ActionToast";
 import { ActionErrorMessage } from "@/components/ui/ActionErrorMessage";
 import { formatUserMessage } from "@/lib/userMessages";
+import { resolveChecklistBlueprint, resolveServiceBlueprint } from "@/lib/serviceBlueprint";
 import {
   archiveOwnedProperty,
   archiveServiceConfiguration,
@@ -34,6 +35,13 @@ type Service = {
   name: string;
   description: string;
   unit: "hourly" | "per_room" | "fixed";
+  service_category: string | null;
+  billing_model: string | null;
+  billing_unit_label: string | null;
+  benchmark_quantity: number | string | null;
+  spatial_mode: string | null;
+  requires_asset_reference: boolean;
+  checklist_blueprint: unknown;
   default_rate: number | string;
   is_active: boolean;
   owner_id: string | null;
@@ -86,9 +94,27 @@ type PropertyValues = z.infer<typeof propertySchema>;
 const serviceSchema = z.object({
   name: z.string().trim().min(1, "Enter a service name.").max(120),
   description: z.string().max(1000, "Use 1,000 characters or fewer."),
-  unit: z.enum(["per_room", "hourly", "fixed"]),
+  serviceCategory: z.string().max(80, "Use 80 characters or fewer."),
+  billingModel: z.enum(["duration", "quantity", "fixed"]),
+  billingUnitLabel: z.string().max(40, "Use 40 characters or fewer."),
   rate: z.string().regex(/^\d{1,7}(\.\d{1,2})?$/, "Enter a valid non-negative rate."),
+  benchmarkQuantity: z.string(),
+  spatialMode: z.enum(["units", "open_zone", "general"]),
+  requiresAssetReference: z.boolean(),
+  checklistText: z.string(),
+  requirePhoto: z.boolean(),
   isActive: z.boolean(),
+}).superRefine((value, context) => {
+  if (value.billingModel === "quantity" && !value.billingUnitLabel.trim()) {
+    context.addIssue({ code: "custom", path: ["billingUnitLabel"], message: "Enter the measurable unit name." });
+  }
+  if (value.benchmarkQuantity && (!/^\d{1,9}(\.\d{1,3})?$/.test(value.benchmarkQuantity) || Number(value.benchmarkQuantity) < 0)) {
+    context.addIssue({ code: "custom", path: ["benchmarkQuantity"], message: "Enter a valid benchmark quantity." });
+  }
+  const checklistItems = value.checklistText.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+  if (checklistItems.length > 20 || checklistItems.some((item) => item.length > 160)) {
+    context.addIssue({ code: "custom", path: ["checklistText"], message: "Use up to 20 checklist items, each 160 characters or fewer." });
+  }
 });
 type ServiceValues = z.infer<typeof serviceSchema>;
 
@@ -576,20 +602,43 @@ function PropertyServiceCatalog({ property, anchorId }: { property: Property; an
   const router = useRouter();
   const form = useForm<ServiceValues>({
     resolver: zodResolver(serviceSchema),
-    defaultValues: { name: "", description: "", unit: "per_room", rate: "0", isActive: true },
+    defaultValues: {
+      name: "", description: "", serviceCategory: "", billingModel: "quantity", billingUnitLabel: "rooms",
+      rate: "0", benchmarkQuantity: "", spatialMode: "units", requiresAssetReference: false,
+      checklistText: "", requirePhoto: false, isActive: true,
+    },
   });
+  const billingModel = useWatch({ control: form.control, name: "billingModel" });
   const services = property.services ?? [];
   const beginNew = () => {
     setEditing(null);
     setShowForm(true);
-    form.reset({ name: "", description: "", unit: "per_room", rate: "0", isActive: true });
+    form.reset({
+      name: "", description: "", serviceCategory: "", billingModel: "quantity", billingUnitLabel: "rooms",
+      rate: "0", benchmarkQuantity: "", spatialMode: "units", requiresAssetReference: false,
+      checklistText: "", requirePhoto: false, isActive: true,
+    });
     setMessage("");
     setMessageError(false);
   };
   const edit = (service: Service) => {
     setEditing(service);
     setShowForm(true);
-    form.reset({ name: service.name, description: service.description, unit: service.unit, rate: String(service.default_rate), isActive: service.is_active });
+    const blueprint = resolveServiceBlueprint(service);
+    form.reset({
+      name: service.name,
+      description: service.description,
+      serviceCategory: service.service_category ?? "",
+      billingModel: blueprint.billingModel,
+      billingUnitLabel: blueprint.unitLabel ?? "",
+      rate: String(service.default_rate),
+      benchmarkQuantity: blueprint.benchmarkQuantity === null ? "" : String(blueprint.benchmarkQuantity),
+      spatialMode: blueprint.spatialMode,
+      requiresAssetReference: blueprint.requiresAssetReference,
+      checklistText: blueprint.checklist.items.join("\n"),
+      requirePhoto: blueprint.checklist.requirePhoto,
+      isActive: service.is_active,
+    });
     setMessage("");
     setMessageError(false);
   };
@@ -597,9 +646,23 @@ function PropertyServiceCatalog({ property, anchorId }: { property: Property; an
     setMessage("");
     setMessageError(false);
     try {
+      const { checklistText, requirePhoto, benchmarkQuantity, ...serviceValues } = values;
+      const checklistItems = checklistText.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
       const result = await (editing
-        ? updateServiceConfiguration(editing.id, { hotelId: property.id, ...values, defaultRate: Number(values.rate) })
-        : createServiceConfiguration({ hotelId: property.id, ...values, defaultRate: Number(values.rate) }));
+        ? updateServiceConfiguration(editing.id, {
+          hotelId: property.id,
+          ...serviceValues,
+          benchmarkQuantity: benchmarkQuantity ? Number(benchmarkQuantity) : null,
+          checklist: { items: checklistItems, requirePhoto },
+          defaultRate: Number(values.rate),
+        })
+        : createServiceConfiguration({
+          hotelId: property.id,
+          ...serviceValues,
+          benchmarkQuantity: benchmarkQuantity ? Number(benchmarkQuantity) : null,
+          checklist: { items: checklistItems, requirePhoto },
+          defaultRate: Number(values.rate),
+        }));
       if (!result.success) {
         const message = formatUserMessage(result.error, "Unable to save this service.");
         setMessage(message);
@@ -611,7 +674,11 @@ function PropertyServiceCatalog({ property, anchorId }: { property: Property; an
       showActionToast("success", editing ? "Service updated." : "Service added.");
       setEditing(null);
       setShowForm(false);
-      form.reset({ name: "", description: "", unit: "per_room", rate: "0", isActive: true });
+      form.reset({
+        name: "", description: "", serviceCategory: "", billingModel: "quantity", billingUnitLabel: "rooms",
+        rate: "0", benchmarkQuantity: "", spatialMode: "units", requiresAssetReference: false,
+        checklistText: "", requirePhoto: false, isActive: true,
+      });
       router.refresh();
     } catch (error) {
       const message = formatUserMessage(error, "Unable to save this service.");
@@ -622,12 +689,19 @@ function PropertyServiceCatalog({ property, anchorId }: { property: Property; an
   }));
   const toggleActive = (service: Service) => startTransition(async () => {
     try {
+      const blueprint = resolveServiceBlueprint(service);
       const result = await updateServiceConfiguration(service.id, {
         hotelId: property.id,
         name: service.name,
         description: service.description,
-        unit: service.unit,
+        serviceCategory: service.service_category ?? "",
+        billingModel: blueprint.billingModel,
+        billingUnitLabel: blueprint.unitLabel ?? "",
         defaultRate: Number(service.default_rate),
+        benchmarkQuantity: blueprint.benchmarkQuantity,
+        spatialMode: blueprint.spatialMode,
+        requiresAssetReference: blueprint.requiresAssetReference,
+        checklist: resolveChecklistBlueprint(service.checklist_blueprint),
         isActive: !service.is_active,
       });
       const message = result.success
@@ -676,7 +750,7 @@ function PropertyServiceCatalog({ property, anchorId }: { property: Property; an
         <p className="text-sm text-ink-secondary">Create property-specific task types and rates. Shared catalog entries remain available to this property.</p>
         {services.length > 0 && <ul className="divide-y divide-line rounded-xl border border-line bg-surface">
           {services.map((service) => <li key={service.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-            <div><p className="font-semibold text-ink">{service.name}{!service.is_active && <span className="ml-2 text-xs text-ink-secondary">Inactive</span>}{service.hotel_id === null && <span className="ml-2 text-xs text-accent">Shared catalog</span>}</p><p className="text-xs text-ink-secondary">{service.description || service.unit.replace("_", " ")} · {service.unit.replace("_", " ")} · £{Number(service.default_rate).toFixed(2)}</p></div>
+            <div><p className="font-semibold text-ink">{service.name}{!service.is_active && <span className="ml-2 text-xs text-ink-secondary">Inactive</span>}{service.hotel_id === null && <span className="ml-2 text-xs text-accent">Shared catalog</span>}</p><p className="text-xs text-ink-secondary">{service.service_category ? `${service.service_category} · ` : ""}{service.description || service.unit.replace("_", " ")} · {resolveServiceBlueprint(service).billingModel}{resolveServiceBlueprint(service).billingModel === "quantity" ? ` (${resolveServiceBlueprint(service).unitLabel})` : ""} · £{Number(service.default_rate).toFixed(2)}</p></div>
             {service.hotel_id === property.id && <div className="flex items-center gap-2"><label className="inline-flex items-center gap-2 text-xs font-semibold text-ink-secondary"><input type="checkbox" checked={service.is_active} onChange={() => toggleActive(service)} disabled={isPending} />Active</label><button type="button" onClick={() => edit(service)} className="min-h-9 rounded-lg border border-line px-2.5 text-xs font-semibold">Edit</button><button type="button" onClick={() => remove(service)} disabled={isPending} aria-label={`Delete ${service.name}`} className="grid h-9 w-9 place-items-center rounded-lg border border-rose-200 text-rose-700"><Trash2 className="h-4 w-4" /></button></div>}
           </li>)}
         </ul>}
@@ -686,9 +760,21 @@ function PropertyServiceCatalog({ property, anchorId }: { property: Property; an
             <h4 className="font-bold text-ink">{editing ? "Edit service" : "Add custom service"}</h4>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Input label="Service name" error={form.formState.errors.name?.message}><input {...form.register("name")} className={fieldClass} placeholder="Cleaning Per Room" /></Input>
-              <Input label="Billing mode"><select {...form.register("unit")} className={fieldClass}><option value="per_room">Per Room</option><option value="hourly">Hourly</option><option value="fixed">Fixed</option></select></Input>
+              <Input label="Open service category"><input {...form.register("serviceCategory")} className={fieldClass} placeholder="e.g. Operations, Maintenance, Hygiene" /></Input>
+              <Input label="Billing model"><select {...form.register("billingModel")} className={fieldClass}><option value="duration">Duration / time-tracked</option><option value="quantity">Quantity / measurable unit</option><option value="fixed">Fixed / flat agreement</option></select></Input>
+              {billingModel === "quantity" && <Input label="Unit descriptor" error={form.formState.errors.billingUnitLabel?.message}><input {...form.register("billingUnitLabel")} className={fieldClass} placeholder="e.g. rooms, boxes, square metres" /></Input>}
               <Input label="Rate / cost (£)" error={form.formState.errors.rate?.message}><input {...form.register("rate")} type="number" min="0" step="0.01" className={fieldClass} /></Input>
+              {billingModel === "quantity" && <Input label="Benchmark quantity"><input {...form.register("benchmarkQuantity")} type="number" min="0" step="0.001" className={fieldClass} placeholder="Optional" /></Input>}
               <Input label="Description"><input {...form.register("description")} className={fieldClass} placeholder="Optional task details" /></Input>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <Input label="Task location model"><select {...form.register("spatialMode")} className={fieldClass}><option value="units">Discrete spaces / units</option><option value="open_zone">Open zone / section</option><option value="general">General property work</option></select></Input>
+              <label className="flex min-h-11 items-center gap-2 text-sm font-medium text-ink-secondary"><input type="checkbox" {...form.register("requiresAssetReference")} />Require an asset identifier</label>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <Input label="Optional inspection checklist"><textarea {...form.register("checklistText")} className={`${fieldClass} min-h-24`} placeholder={"One required inspection point per line"} /></Input>
+              <label className="flex items-start gap-2 pt-2 text-sm font-medium text-ink-secondary"><input type="checkbox" {...form.register("requirePhoto")} className="mt-0.5" />Require photo evidence before task completion</label>
+              {form.formState.errors.checklistText?.message && <p role="alert" className="text-xs text-rose-700">{form.formState.errors.checklistText.message}</p>}
             </div>
             <label className="mt-3 inline-flex min-h-9 items-center gap-2 text-sm font-medium text-ink-secondary"><input type="checkbox" {...form.register("isActive")} />Active service</label>
             <div className="mt-3 flex gap-2"><button type="submit" disabled={isPending} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-ink px-4 text-sm font-semibold text-white">{isPending && <Loader2 className="h-4 w-4 animate-spin" />}{isPending ? "Saving…" : editing ? "Save service" : "Add service"}</button><button type="button" onClick={() => { setEditing(null); setShowForm(false); setMessage(""); setMessageError(false); }} className="min-h-10 rounded-lg border border-line px-4 text-sm font-semibold">Cancel</button></div>

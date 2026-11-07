@@ -11,6 +11,7 @@ import { TaskManagementDialog } from "./TaskManagementDialog";
 import { showActionToast } from "@/components/ui/ActionToast";
 import { ActionErrorMessage } from "@/components/ui/ActionErrorMessage";
 import { formatUserMessage } from "@/lib/userMessages";
+import { resolveServiceBlueprint } from "@/lib/serviceBlueprint";
 
 type Service = {
   id: string;
@@ -18,6 +19,13 @@ type Service = {
   name: string;
   description: string;
   unit: "hourly" | "per_room" | "fixed";
+  service_category: string | null;
+  billing_model: string | null;
+  billing_unit_label: string | null;
+  benchmark_quantity: number | string | null;
+  spatial_mode: string | null;
+  requires_asset_reference: boolean;
+  checklist_blueprint: unknown;
   is_active: boolean;
   owner_id: string | null;
 };
@@ -26,7 +34,7 @@ type Props = {
   hotels: { id: string; name: string; ownerId?: string | null; ownerIds?: string[] }[];
   users: { id: string; full_name: string; role: UserRole; assignedHotels: { id: string; name: string }[] }[];
   services: Service[];
-  rooms: { id: string; hotel_id: string; room_name: string; category: string; floor_section: string | null }[];
+  rooms: { id: string; hotel_id: string; room_name: string; category: string; floor_section: string | null; level_id: string | null }[];
   tasks: Awaited<ReturnType<typeof getTaskDispatchData>>["tasks"];
   stats: { pending: number; active: number; completedToday: number };
   compact?: boolean;
@@ -38,8 +46,9 @@ const schema = z.object({
   assignedTo: z.string().min(1, "Choose a team member."),
   priority: z.enum(["low", "medium", "high", "urgent"]),
   roomIds: z.array(z.string()).max(100, "Select no more than 100 rooms."),
+  levelId: z.string(),
   floorSection: z.string().max(120, "Use 120 characters or fewer."),
-  linenChecklist: z.array(z.enum(["sheets", "towels", "robes"])),
+  quantityValue: z.string(),
   durationHours: z.string(),
   issueDescription: z.string().max(2000, "Use 2,000 characters or fewer."),
   assetId: z.string().max(120, "Use 120 characters or fewer."),
@@ -48,6 +57,9 @@ const schema = z.object({
 }).superRefine((value, context) => {
   if (value.durationHours && (!Number.isFinite(Number(value.durationHours)) || Number(value.durationHours) <= 0 || Number(value.durationHours) > 168)) {
     context.addIssue({ code: "custom", path: ["durationHours"], message: "Enter a duration between 0 and 168 hours." });
+  }
+  if (value.quantityValue && (!Number.isFinite(Number(value.quantityValue)) || Number(value.quantityValue) <= 0 || Number(value.quantityValue) > 1_000_000_000)) {
+    context.addIssue({ code: "custom", path: ["quantityValue"], message: "Enter a measurable quantity greater than zero." });
   }
   if (value.dueAt && (!Number.isFinite(Date.parse(value.dueAt)) || Date.parse(value.dueAt) <= Date.now())) {
     context.addIssue({ code: "custom", path: ["dueAt"], message: "Choose a due time in the future." });
@@ -60,8 +72,9 @@ const defaultValues: DispatchValues = {
   assignedTo: "",
   priority: "low",
   roomIds: [],
+  levelId: "",
   floorSection: "",
-  linenChecklist: [],
+  quantityValue: "",
   durationHours: "",
   issueDescription: "",
   assetId: "",
@@ -70,6 +83,7 @@ const defaultValues: DispatchValues = {
 };
 const fieldClass = "min-h-11 w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink";
 const MAX_ATTACHMENT_SIZE = 4.5 * 1024 * 1024;
+const UNASSIGNED_LEVEL_ID = "__unassigned__";
 const IMAGE_TOO_LARGE_MESSAGE = "The selected image exceeds 4.5MB. Please choose a smaller photo or compress it before attaching.";
 const IMAGE_TOO_LARGE_NOTICE = `Image Too Large: ${IMAGE_TOO_LARGE_MESSAGE}`;
 const priorities = [
@@ -94,6 +108,7 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
   });
   const hotelId = useWatch({ control: form.control, name: "hotelId" });
   const serviceId = useWatch({ control: form.control, name: "serviceId" });
+  const levelId = useWatch({ control: form.control, name: "levelId" });
   const selectedHotel = hotels.find((hotel) => hotel.id === hotelId);
   const selectedService = services.find((service) => service.id === serviceId);
   const activeServices = useMemo(() => services.filter((service) =>
@@ -109,9 +124,16 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
     allowedRoles.includes(user.role) && user.assignedHotels.some((hotel) => hotel.id === hotelId)
   );
   const propertyRooms = rooms.filter((room) => room.hotel_id === hotelId);
-  const perRoom = selectedService?.unit === "per_room";
-  const hourly = selectedService?.unit === "hourly" || /shift|deep clean/i.test(selectedService?.name ?? "");
-  const maintenance = selectedService?.unit === "fixed" || /maintenance|repair/i.test(selectedService?.name ?? "");
+  const selectedBlueprint = resolveServiceBlueprint(selectedService ?? {});
+  const levels = [...new Map(propertyRooms.filter((room) => room.level_id).map((room) => [room.level_id!, { id: room.level_id!, name: room.floor_section ?? "Level" }])).values()];
+  if (propertyRooms.some((room) => !room.level_id)) levels.push({ id: UNASSIGNED_LEVEL_ID, name: "Unassigned level" });
+  const selectedLevel = levels.find((level) => level.id === levelId);
+  const levelRooms = propertyRooms.filter((room) => levelId === UNASSIGNED_LEVEL_ID ? !room.level_id : room.level_id === levelId);
+  const usesUnits = selectedBlueprint.spatialMode === "units";
+  const usesDuration = selectedBlueprint.billingModel === "duration";
+  const usesQuantity = selectedBlueprint.billingModel === "quantity";
+  const showIssueDetails = selectedBlueprint.requiresAssetReference || /maintenance|repair/i.test(selectedService?.name ?? "");
+  const maintenance = selectedBlueprint.requiresAssetReference;
   const errors = form.formState.errors;
 
   useEffect(() => {
@@ -181,8 +203,9 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
       notes: values.notes,
       metadata: {
         roomIds: values.roomIds,
-        floorSection: values.floorSection,
-        linenChecklist: values.linenChecklist,
+        levelId: values.levelId && values.levelId !== UNASSIGNED_LEVEL_ID ? values.levelId : null,
+        floorSection: usesUnits ? selectedLevel?.name ?? "" : values.floorSection,
+        quantityValue: usesQuantity && !usesUnits ? Number(values.quantityValue) : null,
         durationHours: values.durationHours ? Number(values.durationHours) : null,
         issueDescription: values.issueDescription,
         assetId: values.assetId,
@@ -274,9 +297,9 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
             </div>
             <form onSubmit={submit} className="space-y-5" noValidate>
               <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Property" error={errors.hotelId?.message}><select {...form.register("hotelId", { onChange: () => { form.setValue("serviceId", ""); form.setValue("assignedTo", ""); form.setValue("roomIds", []); } })} className={fieldClass}><option value="">Select property</option>{hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select></Field>
+                <Field label="Property" error={errors.hotelId?.message}><select {...form.register("hotelId", { onChange: () => { form.setValue("serviceId", ""); form.setValue("assignedTo", ""); form.setValue("roomIds", []); form.setValue("levelId", ""); } })} className={fieldClass}><option value="">Select property</option>{hotels.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select></Field>
                 <Field label="Assignee" error={errors.assignedTo?.message}><select {...form.register("assignedTo")} className={fieldClass}><option value="">Choose team member</option>{assignees.map((user) => <option key={user.id} value={user.id}>{user.full_name} · {user.role.replace("_", " ")}</option>)}</select></Field>
-                <Field label="Task / service type" error={errors.serviceId?.message}><select {...form.register("serviceId", { onChange: () => { form.setValue("roomIds", []); } })} className={fieldClass}><option value="">Choose service</option>{activeServices.map((service) => <option key={service.id} value={service.id}>{service.name} · {service.unit.replace("_", " ")}</option>)}</select></Field>
+                <Field label="Task / service type" error={errors.serviceId?.message}><select {...form.register("serviceId", { onChange: () => { form.setValue("roomIds", []); form.setValue("levelId", ""); form.setValue("floorSection", ""); form.setValue("quantityValue", ""); } })} className={fieldClass}><option value="">Choose service</option>{activeServices.map((service) => <option key={service.id} value={service.id}>{service.name} · {resolveServiceBlueprint(service).billingModel}</option>)}</select></Field>
                 <Field label="Target due time" error={errors.dueAt?.message}><input {...form.register("dueAt")} type="datetime-local" min={new Date().toISOString().slice(0, 16)} className={fieldClass} /></Field>
               </div>
 
@@ -285,32 +308,33 @@ export function TaskDispatchClient({ role, hotels, users, services, rooms, tasks
                 <div className="flex flex-wrap gap-2">{priorities.map((priority) => <label key={priority.value} className={`cursor-pointer rounded-full border px-3 py-2 text-xs font-bold ${priority.classes} has-[:checked]:ring-2 has-[:checked]:ring-offset-1 has-[:checked]:ring-accent`}><input type="radio" className="sr-only" value={priority.value} {...form.register("priority")} />{priority.label}</label>)}</div>
               </fieldset>
 
-              {perRoom && (
+              {usesUnits && (
                 <section className="rounded-2xl border border-line bg-surface-elevated p-4 text-ink">
-                  <h3 className="text-sm font-bold text-ink">Room assignment</h3>
+                  <h3 className="text-sm font-bold text-ink">Level and space assignment</h3>
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <Field label="Floor / section" error={errors.floorSection?.message}><input {...form.register("floorSection")} className={fieldClass} placeholder="e.g. Floor 2, east wing" /></Field>
+                    <Field label="Floor / level" error={errors.levelId?.message}><select {...form.register("levelId", { onChange: () => form.setValue("roomIds", []) })} className={fieldClass}><option value="">Select a floor / level</option>{levels.map((level) => <option key={level.id} value={level.id}>{level.name}</option>)}</select></Field>
                     <div>
-                      <p className="mb-2 text-sm font-medium text-ink">Rooms</p>
+                      <p className="mb-2 text-sm font-medium text-ink">Units / spaces</p>
                       <div className="max-h-32 overflow-y-auto rounded-xl border border-line bg-surface-elevated p-2">
-                        {propertyRooms.length ? propertyRooms.map((room) => <label key={room.id} className="flex min-h-9 items-center gap-2 px-2 text-sm text-ink"><input type="checkbox" value={room.id} {...form.register("roomIds")} className="h-4 w-4 rounded border-line text-accent focus:ring-accent" /><span>{room.room_name}{room.category ? ` · ${room.category}` : ""}{room.floor_section ? <span className="ml-1 text-xs text-ink-secondary">({room.floor_section})</span> : ""}</span></label>) : <p className="px-2 py-2 text-sm text-ink-secondary">No rooms are configured for this property.</p>}
+                        {levelRooms.length ? levelRooms.map((room) => <label key={room.id} className="flex min-h-9 items-center gap-2 px-2 text-sm text-ink"><input type="checkbox" value={room.id} {...form.register("roomIds")} className="h-4 w-4 rounded border-line text-accent focus:ring-accent" /><span>{room.room_name}{room.category ? ` · ${room.category}` : ""}</span></label>) : <p className="px-2 py-2 text-sm text-ink-secondary">{propertyRooms.length ? "Choose a level to list its spaces." : "No spaces are configured for this property."}</p>}
                       </div>
                       {errors.roomIds?.message && <p role="alert" className="mt-1 text-xs text-rose-700">{errors.roomIds.message}</p>}
                     </div>
                   </div>
-                  <fieldset className="mt-3"><legend className="mb-2 text-sm font-medium text-ink">Linen checklist</legend><div className="flex flex-wrap gap-3">{(["sheets", "towels", "robes"] as const).map((item) => <label key={item} className="inline-flex items-center gap-2 text-sm capitalize text-ink"><input type="checkbox" value={item} {...form.register("linenChecklist")} className="h-4 w-4 rounded border-line text-accent focus:ring-accent" />{item}</label>)}</div></fieldset>
                 </section>
               )}
 
-              {hourly && <div className="rounded-2xl border border-accent/20 bg-accent/5 p-4"><Field label="Estimated duration / target shift hours" error={errors.durationHours?.message}><input {...form.register("durationHours")} type="number" min="0.25" max="168" step="0.25" className={fieldClass} placeholder="e.g. 3.5 hours" /></Field></div>}
+              {selectedBlueprint.spatialMode !== "units" && <div className="rounded-2xl border border-line bg-surface-elevated p-4"><Field label={selectedBlueprint.spatialMode === "open_zone" ? "Zone / section context" : "Operational context (optional)"} error={errors.floorSection?.message}><input {...form.register("floorSection")} required={selectedBlueprint.spatialMode === "open_zone"} className={fieldClass} placeholder="e.g. loading area, east wing, or distribution route" /></Field></div>}
+              {usesDuration && <div className="rounded-2xl border border-accent/20 bg-accent/5 p-4"><Field label="Estimated duration / target hours" error={errors.durationHours?.message}><input {...form.register("durationHours")} type="number" min="0.25" max="168" step="0.25" className={fieldClass} placeholder="e.g. 3.5 hours" /></Field></div>}
+              {usesQuantity && !usesUnits && <div className="rounded-2xl border border-accent/20 bg-accent/5 p-4"><Field label={`Target quantity${selectedBlueprint.unitLabel ? ` (${selectedBlueprint.unitLabel})` : ""}`} error={errors.quantityValue?.message}><input {...form.register("quantityValue")} type="number" min="0.001" step="0.001" className={fieldClass} placeholder={selectedBlueprint.benchmarkQuantity === null ? "Enter target quantity" : `Benchmark: ${selectedBlueprint.benchmarkQuantity}`} /></Field></div>}
 
-              {maintenance && (
+              {showIssueDetails && (
                 <section className="rounded-2xl border border-line bg-surface-elevated p-4 text-ink">
                   <h3 className="text-sm font-bold text-ink">Issue details</h3>
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <Field label="Issue description" error={errors.issueDescription?.message}><textarea {...form.register("issueDescription")} className={`${fieldClass} min-h-20`} placeholder="Describe the issue or repair needed" /></Field>
                     <div className="space-y-3">
-                      <Field label="Fixture / asset ID" error={errors.assetId?.message}><input {...form.register("assetId")} className={fieldClass} placeholder="Optional asset reference" /></Field>
+                      {maintenance && <Field label="Asset ID" error={errors.assetId?.message}><input {...form.register("assetId")} required={selectedBlueprint.requiresAssetReference} className={fieldClass} placeholder="Enter the required asset identifier" /></Field>}
                       <label className="block text-sm font-medium text-ink">Photo attachment <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => {
                         const file = event.target.files?.[0] ?? null;
                         if (file && file.size > MAX_ATTACHMENT_SIZE) {

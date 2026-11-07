@@ -138,7 +138,7 @@ export async function getHKAdminDashboardData(): Promise<HousekeepingDashboardDa
     supabase.from("users").select("id, full_name, role, primary_hotel_id").eq("role", "cleaner").order("full_name"),
     supabase.from("master_shifts").select("id, user_id, start_time").eq("status", "active").is("end_time", null).order("start_time"),
     supabase.from("work_logs").select("id, user_id, hotel_id, service_name_snapshot, room_number, room_numbers, start_time").in("hotel_id", hotelIds).eq("status", "active").is("end_time", null).is("deleted_at", null).is("cancelled_at", null),
-    supabase.from("work_logs").select("id, hotel_id, service_name_snapshot, room_number, room_numbers, room_ids, start_time").eq("user_id", actor.id).in("hotel_id", hotelIds).eq("status", "active").is("end_time", null).is("deleted_at", null).is("cancelled_at", null).order("start_time", { ascending: false }).limit(1).maybeSingle(),
+    supabase.from("work_logs").select("id, hotel_id, service_name_snapshot, room_number, room_numbers, room_ids, start_time, service_blueprint_snapshot, execution_checklist").eq("user_id", actor.id).in("hotel_id", hotelIds).eq("status", "active").is("end_time", null).is("deleted_at", null).is("cancelled_at", null).order("start_time", { ascending: false }).limit(1).maybeSingle(),
     supabase.from("work_logs").select("id, user_id, hotel_id, service_name_snapshot, room_number, room_numbers, start_time, end_time, task_date, notes").in("hotel_id", hotelIds).eq("status", "completed").is("deleted_at", null).is("cancelled_at", null).order("start_time", { ascending: false }).limit(100),
     supabase.rpc("get_workforce_attendance_summary", { p_property_ids: hotelIds }),
   ]);
@@ -221,6 +221,8 @@ export async function getHKAdminDashboardData(): Promise<HousekeepingDashboardDa
       startTime: activeOwnTask.start_time,
       status: "active",
       pausedAt: null,
+      serviceBlueprintSnapshot: activeOwnTask.service_blueprint_snapshot,
+      executionChecklist: activeOwnTask.execution_checklist ?? [],
     } : null,
     hotels: activeHotels.map((hotel) => ({
       id: hotel.id,

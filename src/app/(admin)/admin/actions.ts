@@ -8,6 +8,7 @@ import { getManagementOperationalBrief } from "@/lib/operationalBrief";
 import { requireFeatureAccess } from "@/lib/featureAccess";
 import { isPlatformAdmin } from "@/lib/roles";
 import { getManagerPropertyIds, getOwnerPropertyIds, getPropertyOwnerIds, hasPropertyOwnerAccess } from "@/lib/propertyOwnership";
+import { resolveTaskChecklist } from "@/lib/serviceBlueprint";
 import {
   fetchManagementAuditPage,
   fetchManagementHistoryPage,
@@ -255,7 +256,7 @@ async function loadManagementOverview(period?: { from: string; to: string }) {
   const attendanceSummaryPromise = supabase.rpc("get_workforce_attendance_summary", { p_property_ids: hotelIds });
   const cleanersQuery = supabase.from("users").select("id, full_name, email, role, primary_hotel_id").eq("role", "cleaner").order("full_name").order("id");
   const assigneesQuery = supabase.from("users").select("id, full_name, email, role, is_active, email_verified").in("role", ["owner", "manager"]).order("full_name").order("id");
-  const logsQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, shift_id, start_time, end_time, paused_at, task_date, status, rooms_completed, room_ids, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, cost_override, deleted_at, cancelled_at, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, rejection_notes, hotels(name), users!work_logs_user_id_fkey(full_name, email, role), services_config(name, description, default_rate, unit)").is("deleted_at", null).is("cancelled_at", null).in("status", ["active", "paused"]).is("end_time", null).order("start_time", { ascending: false }).order("id");
+  const logsQuery = supabase.from("work_logs").select("id, user_id, hotel_id, service_id, shift_id, start_time, end_time, paused_at, task_date, status, rooms_completed, room_ids, room_number, room_numbers, service_name_snapshot, service_description_snapshot, service_blueprint_snapshot, billable_quantity, execution_checklist, notes, cost_override, deleted_at, cancelled_at, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, rejection_notes, hotels(name), users!work_logs_user_id_fkey(full_name, email, role), services_config(name, description, default_rate, unit, billing_model, billing_unit_label)").is("deleted_at", null).is("cancelled_at", null).in("status", ["active", "paused"]).is("end_time", null).order("start_time", { ascending: false }).order("id");
   const shiftsQuery = supabase.from("master_shifts").select("id, user_id, start_time, end_time, status").eq("status", "active").is("end_time", null).order("start_time").order("id");
   if (hotelFilter) {
     const scopedHotelIds = hotelIds.length ? hotelIds : ["00000000-0000-0000-0000-000000000000"];
@@ -397,7 +398,7 @@ export async function getManagementWorkLogPage(request: ManagementWorkLogPageReq
     hotelIds = hotelIds.filter((id) => scopedHotels?.some((hotel) => hotel.id === id && hotel.owner_id === request.tenant));
   }
   const scopedHotelIds = hotelIds.length ? hotelIds : ["00000000-0000-0000-0000-000000000000"];
-  const columns = "id, user_id, hotel_id, service_id, shift_id, start_time, end_time, task_date, status, rooms_completed, room_ids, room_number, room_numbers, service_name_snapshot, service_description_snapshot, notes, cost_override, deleted_at, cancelled_at, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, rejection_notes, hotels(name), users!work_logs_user_id_fkey(full_name, email, role), services_config(name, description, default_rate, unit)";
+  const columns = "id, user_id, hotel_id, service_id, shift_id, start_time, end_time, task_date, status, rooms_completed, room_ids, room_number, room_numbers, service_name_snapshot, service_description_snapshot, service_blueprint_snapshot, billable_quantity, notes, cost_override, deleted_at, cancelled_at, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, manager_approved, owner_approved, manager_rejected, owner_rejected, is_locked, rejection_notes, hotels(name), users!work_logs_user_id_fkey(full_name, email, role), services_config(name, description, default_rate, unit, billing_model, billing_unit_label)";
   const buildQuery = () => {
     let query = supabase.from("work_logs").select(columns, { count: "exact" }).is("deleted_at", null).in("hotel_id", scopedHotelIds);
     if (request.from) query = query.gte("task_date", request.from);
@@ -478,6 +479,8 @@ export async function getManagementWorkLogPage(request: ManagementWorkLogPageReq
         description: record.service_description_snapshot ?? service.description ?? "",
         default_rate: service.default_rate ?? 0,
         unit: service.unit ?? "hourly",
+        billing_model: service.billing_model ?? null,
+        billing_unit_label: service.billing_unit_label ?? null,
       }] : [],
     };
   });
@@ -503,7 +506,7 @@ export async function getManagementPayrollPage(request: ManagementPayrollPageReq
     hotelIds = [...new Set([...hotelIds, ...await getOwnerPropertyIds(supabase, user.userId)])];
   }
   const scopedHotelIds = hotelIds.length ? hotelIds : ["00000000-0000-0000-0000-000000000000"];
-  const columns = "id, user_id, hotel_id, service_id, shift_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, room_ids, service_name_snapshot, service_description_snapshot, notes, cost_override, deleted_at, cancelled_at, travel_time_included, manager_approved, owner_approved, manager_approved_at, owner_approved_at, manager_rejected, owner_rejected, manager_rejected_at, owner_rejected_at, rejection_notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, import_key, is_locked, created_at, updated_at, hotels(name, location), users!work_logs_user_id_fkey(full_name, email), services_config(name, description, default_rate, unit)";
+  const columns = "id, user_id, hotel_id, service_id, shift_id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, room_ids, service_name_snapshot, service_description_snapshot, service_blueprint_snapshot, billable_quantity, notes, cost_override, deleted_at, cancelled_at, travel_time_included, manager_approved, owner_approved, manager_approved_at, owner_approved_at, manager_rejected, owner_rejected, manager_rejected_at, owner_rejected_at, rejection_notes, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, import_key, is_locked, created_at, updated_at, hotels(name, location), users!work_logs_user_id_fkey(full_name, email), services_config(name, description, default_rate, unit, billing_model, billing_unit_label)";
   const buildQuery = () => {
     let query = supabase.from("work_logs").select(columns, { count: "exact" })
       .eq("is_locked", true).eq("status", "completed").is("deleted_at", null).is("cancelled_at", null)
@@ -557,6 +560,8 @@ export async function getManagementPayrollPage(request: ManagementPayrollPageReq
         description: record.service_description_snapshot ?? service.description ?? "",
         default_rate: service.default_rate ?? 0,
         unit: service.unit ?? "hourly",
+        billing_model: service.billing_model ?? null,
+        billing_unit_label: service.billing_unit_label ?? null,
       }] : [],
     };
   });
@@ -844,6 +849,19 @@ export async function approveWorkLog(logId: string, role: ApprovalRole) {
   if (log.status !== "completed" || !log.end_time) {
     if (assignee.role === "cleaner" || !["active", "completed"].includes(log.status)) {
       throw new Error("The cleaner must clock out before this log can be approved.");
+    }
+    const checklist = resolveTaskChecklist(log.service_blueprint_snapshot);
+    const progress = Array.isArray(log.execution_checklist) ? log.execution_checklist : [];
+    if (progress.length !== checklist.items.length || progress.some((completed: unknown) => completed !== true)) {
+      throw new Error("The assignee must complete every required inspection item before this task can be approved.");
+    }
+    if (checklist.requirePhoto) {
+      const { count, error: mediaError } = await supabase.from("room_media")
+        .select("id", { count: "exact", head: true })
+        .eq("work_log_id", logId)
+        .eq("media_type", "image");
+      if (mediaError) throw new Error(`Unable to verify required photo evidence: ${mediaError.message}`);
+      if (!count) throw new Error("The assignee must add required photo evidence before this task can be approved.");
     }
     const finalizedAt = getFinalizationTime(log.start_time);
     const autoApproveManager = assignee.role === "manager";

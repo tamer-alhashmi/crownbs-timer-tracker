@@ -39,7 +39,7 @@ export default async function SettingsPage() {
   if (user.role === "cleaner") {
     const [, { data: payroll }] = await Promise.all([
       user.hotelId ? supabase.from("hotels").select("name, location").eq("id", user.hotelId).maybeSingle() : Promise.resolve({ data: null }),
-      supabase.from("work_logs").select("id, start_time, end_time, task_date, rooms_completed, is_locked, cost_override, deleted_at, cancelled_at, services_config(name, default_rate, unit)").eq("user_id", user.userId).eq("status", "completed").is("deleted_at", null).is("cancelled_at", null).order("start_time", { ascending: false }),
+      supabase.from("work_logs").select("id, start_time, end_time, task_date, rooms_completed, is_locked, cost_override, service_blueprint_snapshot, billable_quantity, deleted_at, cancelled_at, services_config(name, default_rate, unit, billing_model, billing_unit_label)").eq("user_id", user.userId).eq("status", "completed").is("deleted_at", null).is("cancelled_at", null).order("start_time", { ascending: false }),
     ]);
     return (
       <SettingsHub

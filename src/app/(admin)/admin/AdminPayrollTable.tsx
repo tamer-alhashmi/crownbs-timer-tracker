@@ -5,7 +5,7 @@ import { ChevronDown, Download, FileSpreadsheet, FileText, Loader2, Pencil, Tras
 import { strToU8, zipSync } from "fflate";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { calculateTaskCost, resolveBillingUnit, resolveServiceRate } from "@/lib/servicePricing";
+import { calculateWorkLogCost, resolveBillingUnit, resolveServiceRate } from "@/lib/servicePricing";
 import type { ServiceRecord } from "./serviceActions";
 import { deletePayrollTask, getManagementPayrollPage, updatePayrollTask } from "./actions";
 import { DashboardPagination, useUrlPage, useUrlPageSize } from "@/components/dashboard/DashboardPagination";
@@ -14,7 +14,7 @@ import { formatUserMessage } from "@/lib/userMessages";
 import { WorkspaceFilterBar, useWorkspaceFilters } from "@/components/dashboard/WorkspaceFilterBar";
 
 const PAYROLL_PAGE_SIZE = 15;
-type PayrollService = { name?: string | null; description?: string | null; default_rate?: number | string | null; unit?: string | null };
+type PayrollService = { name?: string | null; description?: string | null; default_rate?: number | string | null; unit?: string | null; billing_model?: string | null; billing_unit_label?: string | null };
 const EXPORT_COLUMNS = [
   "Work log ID", "User ID", "Hotel ID", "Service ID", "Shift ID", "Task date/time", "Started at (UTC)", "Ended at (UTC)", "Task date", "Status", "Payroll locked",
   "Cleaner", "Cleaner email", "Hotel", "Hotel location", "Service", "Service description", "Billing unit", "Rate (GBP)",
@@ -65,6 +65,8 @@ export type PayrollLog = {
   import_key?: string | null;
   is_locked?: boolean;
   cost_override?: number | string | null;
+  service_blueprint_snapshot?: unknown;
+  billable_quantity?: number | string | null;
   created_at?: string;
   updated_at?: string;
   services_config: PayrollService[];
@@ -171,7 +173,7 @@ export function AdminPayrollTable({ services, hotels, cleaners, tenants = [], sh
       return {
         hours: total.hours + hours,
         rooms: total.rooms + log.rooms_completed,
-        cost: total.cost + calculateTaskCost(hours, log.rooms_completed, service, log.cost_override),
+        cost: total.cost + calculateWorkLogCost(hours, log.rooms_completed, service, log, log.cost_override),
       };
     }, { hours: 0, rooms: 0, cost: 0 });
     const rows: ExportRow[] = records.map((log) => {
@@ -224,7 +226,7 @@ export function AdminPayrollTable({ services, hotels, cleaners, tenants = [], sh
         "Created at": log.created_at ?? "",
         "Updated at": log.updated_at ?? "",
         "Import key": log.import_key ?? "",
-        "Cost (GBP)": Number(calculateTaskCost(hours, log.rooms_completed, { ...service, default_rate: rate, unit }, log.cost_override).toFixed(2)),
+        "Cost (GBP)": Number(calculateWorkLogCost(hours, log.rooms_completed, { ...service, default_rate: rate, unit }, log, log.cost_override).toFixed(2)),
       };
     });
     const summary = Object.fromEntries(EXPORT_COLUMNS.map((column) => [column, ""])) as ExportRow;
@@ -244,7 +246,7 @@ export function AdminPayrollTable({ services, hotels, cleaners, tenants = [], sh
     const service = log.services_config[0] ?? {};
     const key = `${log.user_id}:${log.hotel_id}`;
     const existing = earningsByCleanerAndHotel.get(key);
-    const cost = calculateTaskCost(durationHours(log), log.rooms_completed, service, log.cost_override);
+    const cost = calculateWorkLogCost(durationHours(log), log.rooms_completed, service, log, log.cost_override);
     earningsByCleanerAndHotel.set(key, {
       cleanerName: log.cleanerName,
       hotelName: log.hotelName,
@@ -257,7 +259,7 @@ export function AdminPayrollTable({ services, hotels, cleaners, tenants = [], sh
   const startEditingTask = (log: PayrollLog) => {
     const service = log.services_config[0] ?? {};
     const hours = durationHours(log);
-    const cost = calculateTaskCost(hours, log.rooms_completed, service, log.cost_override);
+    const cost = calculateWorkLogCost(hours, log.rooms_completed, service, log, log.cost_override);
     setEditingTask(log);
     setTaskForm({
       serviceId: log.service_id ?? "",
@@ -437,7 +439,7 @@ export function AdminPayrollTable({ services, hotels, cleaners, tenants = [], sh
             const service = log.services_config[0] ?? {};
             const rate = resolveServiceRate(service);
             const unit = resolveBillingUnit(service.unit, service.name ?? "");
-            const cost = calculateTaskCost(hours, log.rooms_completed, { ...service, default_rate: rate, unit }, log.cost_override);
+            const cost = calculateWorkLogCost(hours, log.rooms_completed, { ...service, default_rate: rate, unit }, log, log.cost_override);
             const unitLabel = unit === "hourly" ? "/hr" : unit === "per_room" ? "/room" : "fixed";
             return <tr key={log.id} className="hover:bg-surface-secondary">
               <td data-label="Cleaner" className="sticky-column-start break-words px-3 py-3 font-medium text-ink">{log.cleanerName}</td>

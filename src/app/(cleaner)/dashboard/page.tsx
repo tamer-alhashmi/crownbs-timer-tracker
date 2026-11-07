@@ -55,16 +55,17 @@ export default async function CleanerDashboardPage() {
     ?? hotels[0];
   const propertyOwners = await getPropertyOwnerIds(supabase, assignedHotelIds);
   const serviceOwnerIds = propertyOwners.get(hotel.id) ?? [];
-  let servicesQuery = supabase.from("services_config").select("id, hotel_id, name, description, default_rate, unit").eq("is_active", true);
+  let servicesQuery = supabase.from("services_config").select("id, hotel_id, name, description, default_rate, unit, service_category, billing_model, billing_unit_label, benchmark_quantity, spatial_mode, requires_asset_reference, checklist_blueprint").eq("is_active", true);
   const serviceFilters = [`hotel_id.eq.${hotel.id}`, "and(hotel_id.is.null,owner_id.is.null)"];
   if (serviceOwnerIds.length) serviceFilters.push(`and(hotel_id.is.null,owner_id.in.(${serviceOwnerIds.join(",")}))`);
   servicesQuery = servicesQuery.or(serviceFilters.join(","));
-  const [{ data: services }, { data: rooms }, { data: logs }, brief] = await Promise.all([
+  const [{ data: services, error: servicesError }, { data: rooms, error: roomsError }, { data: levels, error: levelsError }, { data: logs }, brief] = await Promise.all([
     servicesQuery.order("name"),
-    supabase.from("rooms").select("id, hotel_id, room_name, category, floor_section").in("hotel_id", assignedHotelIds).eq("status", "active").order("floor_section").order("room_name"),
+    supabase.from("rooms").select("id, hotel_id, room_name, category, floor_section, level_id").in("hotel_id", assignedHotelIds).eq("status", "active").order("floor_section").order("room_name"),
+    supabase.from("property_levels").select("id, hotel_id, name, sort_order").in("hotel_id", assignedHotelIds).order("sort_order").order("name"),
     supabase
       .from("work_logs")
-      .select("id, shift_id, hotel_id, service_id, start_time, end_time, task_date, status, rooms_completed, room_ids, room_number, room_numbers, notes, cost_override, manager_approved, owner_approved, is_locked, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, service_name_snapshot, service_description_snapshot, dispatch_metadata")
+      .select("id, shift_id, hotel_id, service_id, start_time, end_time, task_date, status, rooms_completed, room_ids, room_number, room_numbers, notes, cost_override, manager_approved, owner_approved, is_locked, owner_id, owner_name, manager_id, manager_name, responsibility_recorded_at, service_name_snapshot, service_description_snapshot, dispatch_metadata, service_blueprint_snapshot, billable_quantity, execution_checklist")
       .eq("user_id", user.userId)
       .is("deleted_at", null)
       .is("cancelled_at", null)
@@ -72,6 +73,9 @@ export default async function CleanerDashboardPage() {
       .order("start_time", { ascending: false }),
     getCleanerOperationalBrief(user.userId),
   ]);
+  if (servicesError) throw new Error(servicesError.message);
+  if (roomsError) throw new Error(roomsError.message);
+  if (levelsError && levelsError.code !== "PGRST205") throw new Error(levelsError.message);
 
   const activeLog = (logs ?? []).find((log) => log.status === "active");
   let roomMediaConfigured = true;
@@ -111,6 +115,7 @@ export default async function CleanerDashboardPage() {
       hotels={hotels}
       services={services ?? []}
       rooms={rooms ?? []}
+      levels={levels ?? []}
       shift={shift}
       logs={logsWithNames}
       brief={brief}

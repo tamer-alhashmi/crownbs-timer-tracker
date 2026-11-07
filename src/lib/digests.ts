@@ -3,7 +3,7 @@ import { render } from "@react-email/render";
 import { BrandedEmail } from "@/components/email/BrandedEmail";
 import { isUserRole, normalizeUserRole, type UserRole } from "@/lib/roles";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
-import { calculateTaskCost, resolveBillingUnit, resolveServiceRate } from "@/lib/servicePricing";
+import { calculateWorkLogCost, resolveBillingUnit, resolveServiceRate } from "@/lib/servicePricing";
 import { getPropertyOwnerIds } from "@/lib/propertyOwnership";
 
 type Cadence = "weekly" | "monthly";
@@ -34,7 +34,9 @@ type DigestWorkLog = {
   manager_approved: boolean;
   owner_approved: boolean;
   cost_override: number | string | null;
-  services_config: { name: string | null; unit: string | null; default_rate: number | string | null } | { name: string | null; unit: string | null; default_rate: number | string | null }[] | null;
+  service_blueprint_snapshot: unknown;
+  billable_quantity: number | string | null;
+  services_config: { name: string | null; unit: string | null; default_rate: number | string | null; billing_model: string | null; billing_unit_label: string | null } | { name: string | null; unit: string | null; default_rate: number | string | null; billing_model: string | null; billing_unit_label: string | null }[] | null;
   deleted_at: string | null;
   cancelled_at: string | null;
 };
@@ -97,11 +99,13 @@ function costFor(log: DigestWorkLog) {
   const hours = log.end_time
     ? Math.max(0, (Date.parse(log.end_time) - Date.parse(log.start_time)) / 3_600_000)
     : 0;
-  return calculateTaskCost(hours, log.rooms_completed ?? 0, {
+  return calculateWorkLogCost(hours, log.rooms_completed ?? 0, {
     name,
     unit: resolveBillingUnit(service?.unit, name),
     default_rate: rate,
-  }, log.cost_override);
+    billing_model: service?.billing_model,
+    billing_unit_label: service?.billing_unit_label,
+  }, log, log.cost_override);
 }
 
 function generateRoleScopedDigest(
@@ -284,7 +288,7 @@ export async function dispatchRoleScopedDigests(cadence: Cadence) {
       .select("user_id, hotel_id")
       .range(from, to), "property assignments"),
     fetchAllRows<DigestWorkLog>((from, to) => supabase.from("work_logs")
-      .select("id, user_id, assigned_to, assigned_by, hotel_id, status, start_time, end_time, due_at, rooms_completed, room_ids, manager_approved, owner_approved, cost_override, deleted_at, cancelled_at, services_config(name, unit, default_rate)")
+      .select("id, user_id, assigned_to, assigned_by, hotel_id, status, start_time, end_time, due_at, rooms_completed, room_ids, manager_approved, owner_approved, cost_override, service_blueprint_snapshot, billable_quantity, deleted_at, cancelled_at, services_config(name, unit, default_rate, billing_model, billing_unit_label)")
       .gte("task_date", fromDate)
       .lte("task_date", toDate)
       .range(from, to), "work records"),

@@ -10,14 +10,14 @@ import { formatUserMessage } from "@/lib/userMessages";
 import { createRoomMediaUploadUrl, deleteRoomMedia, saveRoomMediaRecord, type RoomMediaItem } from "./roomMediaActions";
 
 type RoomOption = { id: string; room_name: string };
-type Props = { workLogId: string; rooms: RoomOption[]; initialMedia: RoomMediaItem[]; storageConfigured: boolean; uploadsEnabled?: boolean };
+type Props = { workLogId: string; rooms: RoomOption[]; initialMedia: RoomMediaItem[]; storageConfigured: boolean; uploadsEnabled?: boolean; taskEvidenceRequired?: boolean; onEvidenceChange?: (count: number) => void };
 const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
 
 function formatSize(bytes: number) {
   return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function RoomMediaCapture({ workLogId, rooms, initialMedia, storageConfigured, uploadsEnabled = true }: Props) {
+export function RoomMediaCapture({ workLogId, rooms, initialMedia, storageConfigured, uploadsEnabled = true, taskEvidenceRequired = false, onEvidenceChange }: Props) {
   const [locallyAddedMedia, setLocallyAddedMedia] = useState<RoomMediaItem[]>([]);
   const [locallyDeletedIds, setLocallyDeletedIds] = useState<Set<string>>(() => new Set());
   const [pendingRoomId, setPendingRoomId] = useState<string | null>(null);
@@ -28,7 +28,10 @@ export function RoomMediaCapture({ workLogId, rooms, initialMedia, storageConfig
   for (const item of locallyAddedMedia) mediaById.set(item.id, item);
   const media = [...mediaById.values()].filter((item) => !locallyDeletedIds.has(item.id));
 
-  const appendMedia = (item: RoomMediaItem) => setLocallyAddedMedia((current) => [item, ...current.filter((existing) => existing.id !== item.id)]);
+  const appendMedia = (item: RoomMediaItem) => {
+    setLocallyAddedMedia((current) => [item, ...current.filter((existing) => existing.id !== item.id)]);
+    onEvidenceChange?.(media.length + 1);
+  };
 
   const removeMedia = async (mediaId: string) => {
     setDeletingId(mediaId);
@@ -36,6 +39,7 @@ export function RoomMediaCapture({ workLogId, rooms, initialMedia, storageConfig
     try {
       await deleteRoomMedia(mediaId);
       setLocallyDeletedIds((current) => new Set(current).add(mediaId));
+      onEvidenceChange?.(Math.max(0, media.length - 1));
     } catch (cause) {
       setError(formatUserMessage(cause, "Unable to delete this file."));
     } finally {
@@ -50,7 +54,14 @@ export function RoomMediaCapture({ workLogId, rooms, initialMedia, storageConfig
   return <section className="mt-4 border-t border-emerald-200 pt-4" aria-label="Room photo and video evidence">
     <div className="mb-3 flex items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Digital proof of work</p><p className="mt-0.5 text-xs text-emerald-900/70">Capture photos or short videos for each selected room.</p></div><Camera className="h-5 w-5 shrink-0 text-emerald-800" /></div>
     {!uploadsEnabled && <p className="mb-2 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-900">Save the room selection before adding evidence to newly selected rooms.</p>}
-    <div className="space-y-2">{rooms.map((room) => <RoomMediaRoom key={room.id} room={room} items={media.filter((item) => item.room_id === room.id)} pending={pendingRoomId === room.id} disabled={!uploadsEnabled} deletingId={deletingId} onUploadStart={() => { setPendingRoomId(room.id); setError(""); }} onUploadEnd={() => setPendingRoomId(null)} onUploaded={appendMedia} onDelete={removeMedia} uploadFile={async (roomId, file, originalName) => {
+    <div className="space-y-2">{taskEvidenceRequired && <RoomMediaRoom key="task-evidence" room={{ id: null, room_name: "Task evidence" }} items={media.filter((item) => item.room_id === null)} pending={pendingRoomId === "task-evidence"} disabled={!uploadsEnabled} deletingId={deletingId} onUploadStart={() => { setPendingRoomId("task-evidence"); setError(""); }} onUploadEnd={() => setPendingRoomId(null)} onUploaded={appendMedia} onDelete={removeMedia} uploadFile={async (roomId, file, originalName) => {
+      const metadata = { workLogId, roomId, contentType: file.type, originalName, fileSizeBytes: file.size };
+      const signedUpload = await createRoomMediaUploadUrl(metadata);
+      const { error: uploadError } = await createClient().storage.from(signedUpload.bucketId).uploadToSignedUrl(signedUpload.storagePath, signedUpload.token, file, { contentType: file.type, upsert: false });
+      if (uploadError) throw new Error(uploadError.message);
+      return saveRoomMediaRecord({ ...metadata, storagePath: signedUpload.storagePath });
+    }} onError={setError} />}
+      {rooms.map((room) => <RoomMediaRoom key={room.id} room={room} items={media.filter((item) => item.room_id === room.id)} pending={pendingRoomId === room.id} disabled={!uploadsEnabled} deletingId={deletingId} onUploadStart={() => { setPendingRoomId(room.id); setError(""); }} onUploadEnd={() => setPendingRoomId(null)} onUploaded={appendMedia} onDelete={removeMedia} uploadFile={async (roomId, file, originalName) => {
       const metadata = { workLogId, roomId, contentType: file.type, originalName, fileSizeBytes: file.size };
       const signedUpload = await createRoomMediaUploadUrl(metadata);
       const { error: uploadError } = await createClient().storage.from(signedUpload.bucketId).uploadToSignedUrl(signedUpload.storagePath, signedUpload.token, file, { contentType: file.type, upsert: false });
@@ -62,7 +73,7 @@ export function RoomMediaCapture({ workLogId, rooms, initialMedia, storageConfig
 }
 
 function RoomMediaRoom({ room, items, pending, disabled, deletingId, onUploadStart, onUploadEnd, onUploaded, onDelete, onError, uploadFile }: {
-  room: RoomOption;
+  room: { id: string | null; room_name: string };
   items: RoomMediaItem[];
   pending: boolean;
   disabled: boolean;
@@ -72,7 +83,7 @@ function RoomMediaRoom({ room, items, pending, disabled, deletingId, onUploadSta
   onUploaded: (item: RoomMediaItem) => void;
   onDelete: (id: string) => Promise<void>;
   onError: (message: string) => void;
-  uploadFile: (roomId: string, file: File, originalName: string) => Promise<RoomMediaItem>;
+  uploadFile: (roomId: string | null, file: File, originalName: string) => Promise<RoomMediaItem>;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
 

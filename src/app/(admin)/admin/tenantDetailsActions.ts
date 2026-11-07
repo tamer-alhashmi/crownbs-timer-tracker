@@ -53,6 +53,8 @@ export type TenantLog = {
   serviceName: string;
   service: ServicePricing;
   cost_override: number | string | null;
+  service_blueprint_snapshot: unknown;
+  billable_quantity: number | string | null;
 };
 
 export type TenantDetails = {
@@ -211,6 +213,8 @@ function toTenantLog(row: {
   rejection_notes: string | null;
   cost_override: number | string | null;
   service_name_snapshot: string | null;
+  service_blueprint_snapshot: unknown;
+  billable_quantity: number | string | null;
   users: { full_name: string | null; email: string } | { full_name: string | null; email: string }[] | null;
   hotels: { name: string } | { name: string }[] | null;
   services_config: ServicePricing | ServicePricing[] | null;
@@ -261,6 +265,8 @@ function toTenantLog(row: {
     serviceName: service?.name ?? row.service_name_snapshot ?? "Service",
     service: service ?? { name: row.service_name_snapshot },
     cost_override: row.cost_override,
+    service_blueprint_snapshot: row.service_blueprint_snapshot,
+    billable_quantity: row.billable_quantity,
   };
 }
 
@@ -356,7 +362,7 @@ export async function getTenantDetails(
 
   let logsQuery = hotelIds.length
     ? supabase.from("work_logs")
-      .select("id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, room_ids, shift_id, service_description_snapshot, notes, travel_time_included, owner_id, owner_name, manager_id, manager_name, assigned_by, assigned_to, assigned_at, created_at, updated_at, due_at, priority, dispatch_metadata, responsibility_recorded_at, import_key, is_locked, manager_approved, owner_approved, manager_approved_at, owner_approved_at, manager_rejected, owner_rejected, manager_rejected_at, owner_rejected_at, rejection_notes, cost_override, service_name_snapshot, users!work_logs_user_id_fkey(full_name, email), hotels(name), services_config(name, description, unit, default_rate)", { count: "exact" })
+      .select("id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, room_ids, shift_id, service_description_snapshot, service_blueprint_snapshot, billable_quantity, notes, travel_time_included, owner_id, owner_name, manager_id, manager_name, assigned_by, assigned_to, assigned_at, created_at, updated_at, due_at, priority, dispatch_metadata, responsibility_recorded_at, import_key, is_locked, manager_approved, owner_approved, manager_approved_at, owner_approved_at, manager_rejected, owner_rejected, manager_rejected_at, owner_rejected_at, rejection_notes, cost_override, service_name_snapshot, users!work_logs_user_id_fkey(full_name, email), hotels(name), services_config(name, description, unit, default_rate, billing_model, billing_unit_label)", { count: "exact" })
       .in("hotel_id", hotelIds)
       .is("deleted_at", null)
       .is("cancelled_at", null)
@@ -531,7 +537,7 @@ export async function getTenantWorkLogExport(ownerId: string, filter: DateFilter
   const exported: TenantLog[] = [];
   for (let from = 0; ; from += EXPORT_PAGE_SIZE) {
     let query = supabase.from("work_logs")
-      .select("id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, room_ids, shift_id, service_description_snapshot, notes, travel_time_included, owner_id, owner_name, manager_id, manager_name, assigned_by, assigned_to, assigned_at, created_at, updated_at, due_at, priority, dispatch_metadata, responsibility_recorded_at, import_key, is_locked, manager_approved, owner_approved, manager_approved_at, owner_approved_at, manager_rejected, owner_rejected, manager_rejected_at, owner_rejected_at, rejection_notes, cost_override, service_name_snapshot, users!work_logs_user_id_fkey(full_name, email), hotels(name), services_config(name, description, unit, default_rate)")
+      .select("id, start_time, end_time, task_date, status, rooms_completed, room_number, room_numbers, room_ids, shift_id, service_description_snapshot, service_blueprint_snapshot, billable_quantity, notes, travel_time_included, owner_id, owner_name, manager_id, manager_name, assigned_by, assigned_to, assigned_at, created_at, updated_at, due_at, priority, dispatch_metadata, responsibility_recorded_at, import_key, is_locked, manager_approved, owner_approved, manager_approved_at, owner_approved_at, manager_rejected, owner_rejected, manager_rejected_at, owner_rejected_at, rejection_notes, cost_override, service_name_snapshot, users!work_logs_user_id_fkey(full_name, email), hotels(name), services_config(name, description, unit, default_rate, billing_model, billing_unit_label)")
       .in("hotel_id", hotelIds)
       .is("deleted_at", null)
       .is("cancelled_at", null);

@@ -7,6 +7,7 @@ import { requireFeatureAccess, type FeatureAction } from "@/lib/featureAccess";
 import { isPlatformAdmin, isSuperAdmin, isUserRole, normalizeUserRole, USER_ROLES, type UserRole } from "@/lib/roles";
 import { geocodePropertyAddress } from "@/lib/propertyGeocoding";
 import { getManagerPropertyIds, getOwnerPropertyIds, getPropertyOwnerIds } from "@/lib/propertyOwnership";
+import type { BillingModel, ChecklistBlueprint, SpatialMode } from "@/lib/serviceBlueprint";
 
 export type ManagedUser = {
   id: string;
@@ -148,7 +149,7 @@ export async function getSettingsData() {
   if (permissionsError && permissionsError.code !== "PGRST205") throw new Error(permissionsError.message);
   const { data: services, error: servicesError } = await context.supabase
     .from("services_config")
-    .select("id, hotel_id, name, description, unit, default_rate, is_active, owner_id")
+    .select("id, hotel_id, name, description, unit, default_rate, is_active, owner_id, service_category, billing_model, billing_unit_label, benchmark_quantity, spatial_mode, requires_asset_reference, checklist_blueprint")
     .order("name");
   if (servicesError) throw new Error(servicesError.message);
   const hotelsById = new Map(context.visibleHotels.map((hotel) => [hotel.id, hotel.name]));
@@ -695,8 +696,14 @@ export type ServiceInput = {
   hotelId: string;
   name: string;
   description: string;
-  unit: "hourly" | "per_room" | "fixed";
+  serviceCategory: string;
+  billingModel: BillingModel;
+  billingUnitLabel: string;
   defaultRate: number;
+  benchmarkQuantity: number | null;
+  spatialMode: SpatialMode;
+  requiresAssetReference: boolean;
+  checklist: ChecklistBlueprint;
   isActive: boolean;
 };
 
@@ -792,15 +799,50 @@ async function validateManagerAssignment(
 function validateService(input: ServiceInput) {
   const name = input.name.trim();
   const description = input.description.trim();
+  const serviceCategory = input.serviceCategory.trim();
+  const billingUnitLabel = input.billingUnitLabel.trim();
   if (!name || name.length > 120) throw new Error("Enter a service name up to 120 characters.");
   if (description.length > 1000) throw new Error("Service description must be 1,000 characters or fewer.");
-  if (!["hourly", "per_room", "fixed"].includes(input.unit)) throw new Error("Choose a valid service unit.");
+  if (serviceCategory.length > 80) throw new Error("Service category must be 80 characters or fewer.");
+  if (!["duration", "quantity", "fixed"].includes(input.billingModel)) throw new Error("Choose a valid billing model.");
+  if (!["units", "open_zone", "general"].includes(input.spatialMode)) throw new Error("Choose a valid work area mode.");
+  if (billingUnitLabel.length > 40 || (input.billingModel === "quantity" && !billingUnitLabel)) {
+    throw new Error("Enter a unit label of 1 to 40 characters for quantity-based services.");
+  }
+  if (input.benchmarkQuantity !== null
+    && (!Number.isFinite(input.benchmarkQuantity) || input.benchmarkQuantity < 0 || input.benchmarkQuantity > 1_000_000_000)) {
+    throw new Error("Enter a valid non-negative benchmark quantity.");
+  }
+  if (typeof input.requiresAssetReference !== "boolean" || typeof input.isActive !== "boolean") {
+    throw new Error("Choose valid service options.");
+  }
+  if (!input.checklist || !Array.isArray(input.checklist.items) || input.checklist.items.length > 20
+    || input.checklist.items.some((item) => typeof item !== "string" || !item.trim() || item.trim().length > 160)
+    || typeof input.checklist.requirePhoto !== "boolean") {
+    throw new Error("Checklist blueprints allow up to 20 items of 160 characters each.");
+  }
   if (!Number.isFinite(input.defaultRate) || input.defaultRate < 0 || input.defaultRate > 1_000_000) {
     throw new Error("Enter a valid non-negative service rate.");
   }
   if (typeof input.hotelId !== "string" || !input.hotelId) throw new Error("Choose a property for this service.");
-  if (typeof input.isActive !== "boolean") throw new Error("Choose whether this service is active.");
-  return { hotelId: input.hotelId, name, description, unit: input.unit, defaultRate: input.defaultRate, isActive: input.isActive };
+  return {
+    hotelId: input.hotelId,
+    name,
+    description,
+    serviceCategory: serviceCategory || null,
+    billingModel: input.billingModel,
+    billingUnitLabel: billingUnitLabel || null,
+    defaultRate: input.defaultRate,
+    benchmarkQuantity: input.benchmarkQuantity,
+    spatialMode: input.spatialMode,
+    requiresAssetReference: input.requiresAssetReference,
+    checklist: {
+      items: [...new Set(input.checklist.items.map((item) => item.trim()).filter(Boolean))],
+      requirePhoto: input.checklist.requirePhoto,
+    },
+    isActive: input.isActive,
+    unit: input.billingModel === "duration" ? "hourly" : input.billingModel === "fixed" ? "fixed" : "per_room",
+  };
 }
 
 export async function createOwnedProperty(input: PropertyInput): Promise<ActionResult> {
@@ -889,6 +931,13 @@ export async function createServiceConfiguration(input: ServiceInput): Promise<A
       description: values.description,
       unit: values.unit,
       default_rate: values.defaultRate,
+      service_category: values.serviceCategory,
+      billing_model: values.billingModel,
+      billing_unit_label: values.billingUnitLabel,
+      benchmark_quantity: values.benchmarkQuantity,
+      spatial_mode: values.spatialMode,
+      requires_asset_reference: values.requiresAssetReference,
+      checklist_blueprint: values.checklist.items.length || values.checklist.requirePhoto ? values.checklist : null,
       is_active: values.isActive,
       owner_id: hotel.owner_id,
     });
@@ -910,7 +959,22 @@ export async function updateServiceConfiguration(serviceId: string, input: Servi
     if (!hotel || (!isPlatformAdmin(context.actor.role) && !context.visibleHotels.some((property) => property.id === hotel.id))) throw new Error("Property not found in your account.");
     let query = context.supabase
       .from("services_config")
-      .update({ hotel_id: hotel.id, name: values.name, description: values.description, unit: values.unit, default_rate: values.defaultRate, is_active: values.isActive, updated_at: new Date().toISOString() })
+      .update({
+        hotel_id: hotel.id,
+        name: values.name,
+        description: values.description,
+        unit: values.unit,
+        default_rate: values.defaultRate,
+        service_category: values.serviceCategory,
+        billing_model: values.billingModel,
+        billing_unit_label: values.billingUnitLabel,
+        benchmark_quantity: values.benchmarkQuantity,
+        spatial_mode: values.spatialMode,
+        requires_asset_reference: values.requiresAssetReference,
+        checklist_blueprint: values.checklist.items.length || values.checklist.requirePhoto ? values.checklist : null,
+        is_active: values.isActive,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", serviceId);
     query = query.eq("hotel_id", values.hotelId);
     const { data, error } = await query.select("id").maybeSingle();

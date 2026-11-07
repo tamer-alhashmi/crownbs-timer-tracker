@@ -59,6 +59,9 @@ export type ManagementHistoryRecord = {
   roomDetails: { name: string; floor: string }[];
   service_name_snapshot: string | null;
   service_description_snapshot: string | null;
+  service_blueprint_snapshot: unknown;
+  billable_quantity: number | string | null;
+  execution_checklist?: boolean[];
   notes: string | null;
   cost_override: number | string | null;
   owner_id: string | null;
@@ -72,7 +75,7 @@ export type ManagementHistoryRecord = {
   owner_rejected: boolean;
   is_locked: boolean;
   rejection_notes: string | null;
-  services_config: { name: string; description: string; default_rate: number; unit: string }[];
+  services_config: { name: string; description: string; default_rate: number; unit: string; billing_model: string | null; billing_unit_label: string | null }[];
 };
 export type ManagementHistoryPage = {
   records: ManagementHistoryRecord[];
@@ -261,6 +264,11 @@ function parseHistoryRecord(value: unknown): ManagementHistoryRecord {
     roomDetails: roomRows.map((room) => ({ name: room.name as string, floor: room.floor as string })),
     service_name_snapshot: nullableString("service_name_snapshot"),
     service_description_snapshot: nullableString("service_description_snapshot"),
+    service_blueprint_snapshot: value.service_blueprint_snapshot ?? null,
+    billable_quantity: value.billable_quantity === null || value.billable_quantity === undefined ? null : number("billable_quantity"),
+    execution_checklist: Array.isArray(value.execution_checklist)
+      ? value.execution_checklist.map((item) => item === true)
+      : [],
     notes: nullableString("notes"),
     cost_override: costOverride ?? null,
     owner_id: nullableString("owner_id"),
@@ -279,6 +287,8 @@ function parseHistoryRecord(value: unknown): ManagementHistoryRecord {
       description: service.description as string,
       default_rate: Number(service.default_rate),
       unit: service.unit as string,
+      billing_model: typeof service.billing_model === "string" ? service.billing_model : null,
+      billing_unit_label: typeof service.billing_unit_label === "string" ? service.billing_unit_label : null,
     })),
   };
 }

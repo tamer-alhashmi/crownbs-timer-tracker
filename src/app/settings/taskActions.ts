@@ -7,6 +7,7 @@ import { isHousekeepingAdmin, isPlatformAdmin, normalizeUserRole, type UserRole 
 import { sendTaskAssignmentPush } from "@/lib/push";
 import { notifyWorkLogStatusChange } from "@/lib/notifications/taskStatusNotifications";
 import { getManagerPropertyIds, getOwnerPropertyIds, getPropertyOwnerIds, hasPropertyOwnerAccess } from "@/lib/propertyOwnership";
+import { createServiceBlueprintSnapshot, resolveTaskChecklist } from "@/lib/serviceBlueprint";
 
 type TaskResult = { success: true; taskId?: string } | { success: false; error: string };
 type DispatchInput = {
@@ -17,8 +18,9 @@ type DispatchInput = {
   dueAt?: string | null;
   metadata?: {
     roomIds?: string[];
+    levelId?: string | null;
     floorSection?: string;
-    linenChecklist?: string[];
+    quantityValue?: number | null;
     durationHours?: number | null;
     issueDescription?: string;
     assetId?: string;
@@ -71,8 +73,8 @@ export async function getTaskDispatchData() {
   const [{ data: users, error: usersError }, { data: assignments, error: usersAssignmentsError }, { data: services, error: servicesError }, { data: rooms, error: roomsError }, { data: taskRows, error: taskRowsError }, stats] = await Promise.all([
     supabase.from("users").select("id, full_name, email, avatar_url, role, primary_hotel_id").in("role", ["manager", "housekeeping_admin", "hk_admin", "cleaner"]).order("full_name"),
     supabase.from("user_hotel_assignments").select("user_id, hotel_id"),
-    supabase.from("services_config").select("id, hotel_id, name, description, unit, is_active, owner_id").eq("is_active", true),
-    supabase.from("rooms").select("id, hotel_id, room_name, category, floor_section").in("hotel_id", activeHotelIds).eq("status", "active").order("floor_section").order("room_name"),
+    supabase.from("services_config").select("id, hotel_id, name, description, unit, is_active, owner_id, service_category, billing_model, billing_unit_label, benchmark_quantity, spatial_mode, requires_asset_reference, checklist_blueprint, default_rate").eq("is_active", true),
+    supabase.from("rooms").select("id, hotel_id, room_name, category, floor_section, level_id").in("hotel_id", activeHotelIds).eq("status", "active").order("floor_section").order("room_name"),
     supabase.from("work_logs").select("id, user_id, assigned_to, hotel_id, service_name_snapshot, service_description_snapshot, room_ids, room_number, room_numbers, start_time, end_time, task_date, status, notes, assigned_at, priority, due_at, dispatch_metadata, cancelled_at")
       .in("hotel_id", activeHotelIds).in("status", ["assigned", "active", "paused", "completed"])
       .is("deleted_at", null).is("cancelled_at", null).order("start_time", { ascending: false }).limit(300),
@@ -131,7 +133,10 @@ export async function getTaskDispatchData() {
     services: (services ?? [])
       .filter((service) => service.hotel_id === null || hotelIds.has(service.hotel_id))
       .filter((service) => service.owner_id === null || activeHotels.some((hotel) => (propertyOwners.get(hotel.id) ?? []).includes(service.owner_id!)))
-      .map(({ id, hotel_id, name, description, unit, is_active, owner_id }) => ({ id, hotel_id, name, description, unit, is_active, owner_id })),
+      .map(({ id, hotel_id, name, description, unit, is_active, owner_id, service_category, billing_model, billing_unit_label, benchmark_quantity, spatial_mode, requires_asset_reference, checklist_blueprint }) => ({
+        id, hotel_id, name, description, unit, is_active, owner_id, service_category, billing_model,
+        billing_unit_label, benchmark_quantity, spatial_mode, requires_asset_reference, checklist_blueprint,
+      })),
     rooms: rooms ?? [],
     tasks: taskRowsToday.map((task) => {
       const staffId = task.assigned_to ?? task.user_id;
@@ -254,6 +259,10 @@ export async function dispatchTask(input: DispatchInput): Promise<TaskResult> {
       && (!Number.isFinite(metadata.durationHours) || metadata.durationHours <= 0 || metadata.durationHours > 168)) {
       throw new Error("Estimated duration must be between 0 and 168 hours.");
     }
+    if (metadata.quantityValue !== undefined && metadata.quantityValue !== null
+      && (!Number.isFinite(metadata.quantityValue) || metadata.quantityValue <= 0 || metadata.quantityValue > 1_000_000_000)) {
+      throw new Error("Enter a valid target quantity.");
+    }
     if (metadata.photoPath && !new RegExp(`^${actor.id}/task-dispatch/[0-9a-f-]{36}\\.(jpg|png|webp)$`, "i").test(metadata.photoPath)) {
       throw new Error("The task photo could not be verified.");
     }
@@ -284,7 +293,7 @@ export async function dispatchTask(input: DispatchInput): Promise<TaskResult> {
 
     const { data: service, error: serviceError } = await supabase
       .from("services_config")
-      .select("id, hotel_id, name, description, owner_id, is_active")
+      .select("id, hotel_id, name, description, owner_id, is_active, unit, default_rate, service_category, billing_model, billing_unit_label, benchmark_quantity, spatial_mode, requires_asset_reference, checklist_blueprint")
       .eq("id", input.serviceId)
       .maybeSingle();
     if (serviceError) throw new Error(serviceError.message);
@@ -294,15 +303,49 @@ export async function dispatchTask(input: DispatchInput): Promise<TaskResult> {
       || (service.owner_id !== null && !propertyOwnerIds.includes(service.owner_id))) {
       throw new Error("Select an active service configured for this property.");
     }
+    const blueprint = createServiceBlueprintSnapshot(service);
+    if (blueprint.requiresAssetReference && !metadata.assetId?.trim()) {
+      throw new Error("An asset identifier is required for this service.");
+    }
+    const quantityValue = blueprint.billingModel === "quantity"
+      ? blueprint.spatialMode === "units" ? roomIds.length : metadata.quantityValue ?? null
+      : null;
+    if (blueprint.billingModel === "quantity" && (!quantityValue || quantityValue <= 0)) {
+      throw new Error(`Enter a target quantity${blueprint.unitLabel ? ` in ${blueprint.unitLabel}` : ""}.`);
+    }
+    if (blueprint.spatialMode === "open_zone" && !metadata.floorSection?.trim()) {
+      throw new Error("Describe the zone or section for this task.");
+    }
+    if (blueprint.spatialMode === "units" && roomIds.length === 0) {
+      throw new Error("Select at least one unit or space for this service.");
+    }
+    if (blueprint.spatialMode !== "units" && roomIds.length > 0) {
+      throw new Error("This service uses a zone or general work area; do not select individual units.");
+    }
+    if (metadata.levelId !== undefined && metadata.levelId !== null && (typeof metadata.levelId !== "string" || metadata.levelId.length > 64)) {
+      throw new Error("Choose a valid floor or level.");
+    }
     if (roomIds.length) {
       const { data: rooms, error: roomsError } = await supabase
         .from("rooms")
-        .select("id, room_name")
+        .select("id, room_name, level_id")
         .eq("hotel_id", hotel.id)
         .eq("status", "active")
         .in("id", roomIds);
       if (roomsError) throw new Error(roomsError.message);
       if ((rooms ?? []).length !== roomIds.length) throw new Error("Every selected room must belong to this property.");
+      if ((rooms ?? []).some((room) => room.level_id !== (metadata.levelId || null))) {
+        throw new Error("Selected units must belong to the chosen floor or level.");
+      }
+    }
+    if (metadata.levelId) {
+      const { data: level, error: levelError } = await supabase.from("property_levels")
+        .select("id")
+        .eq("id", metadata.levelId)
+        .eq("hotel_id", hotel.id)
+        .maybeSingle();
+      if (levelError) throw new Error(levelError.message);
+      if (!level) throw new Error("Choose a floor or level belonging to this property.");
     }
     const assignedAt = new Date();
     const { data: task, error: insertError } = await supabase
@@ -321,19 +364,22 @@ export async function dispatchTask(input: DispatchInput): Promise<TaskResult> {
         due_at: input.dueAt || null,
         dispatch_metadata: {
           roomIds,
+          levelId: metadata.levelId ?? null,
           floorSection: metadata.floorSection?.trim() ?? "",
-          linenChecklist: Array.isArray(metadata.linenChecklist)
-            ? metadata.linenChecklist.filter((item) => ["sheets", "towels", "robes"].includes(item))
-            : [],
+          zoneContext: blueprint.spatialMode !== "units" ? metadata.floorSection?.trim() ?? "" : "",
           durationHours: metadata.durationHours ?? null,
+          quantityValue,
           issueDescription: metadata.issueDescription?.trim() ?? "",
           assetId: metadata.assetId?.trim() ?? "",
           photoPath: metadata.photoPath ?? null,
         },
+        service_blueprint_snapshot: blueprint,
+        execution_checklist: blueprint.checklist.items.map(() => false),
+        billable_quantity: quantityValue,
         room_ids: roomIds,
         room_number: "",
         room_numbers: [],
-        rooms_completed: 0,
+        rooms_completed: blueprint.spatialMode === "units" ? roomIds.length : 0,
         task_date: assignedAt.toISOString().slice(0, 10),
         service_name_snapshot: service.name,
         service_description_snapshot: service.description || service.name,
@@ -367,10 +413,13 @@ export async function dispatchTask(input: DispatchInput): Promise<TaskResult> {
   }
 }
 
-export async function endOwnManagementTask(taskId: string) {
+export async function endOwnManagementTask(taskId: string, checklistProgress: boolean[]) {
   const { actor, supabase } = await getVerifiedActor();
   if (actor.role !== "manager" && !isHousekeepingAdmin(actor.role)) throw new Error("Only managers and Housekeeping Leaders can end their own assigned tasks here.");
   if (typeof taskId !== "string" || !taskId) throw new Error("An active task is required.");
+  if (!Array.isArray(checklistProgress) || checklistProgress.length > 20 || checklistProgress.some((completed: unknown) => typeof completed !== "boolean")) {
+    throw new Error("Inspection progress is invalid.");
+  }
 
   const { data: task, error: taskError } = await supabase.from("work_logs")
     .select("*")
@@ -384,6 +433,18 @@ export async function endOwnManagementTask(taskId: string) {
   if (taskError) throw new Error(`Unable to verify your active task: ${taskError.message}`);
   if (!task) throw new Error("This active task is no longer assigned to you.");
   if (task.is_locked) throw new Error("Locked tasks cannot be ended.");
+  const checklist = resolveTaskChecklist(task.service_blueprint_snapshot);
+  if (checklistProgress.length !== checklist.items.length || checklistProgress.some((completed) => completed !== true)) {
+    throw new Error("Complete every required inspection item before ending this task.");
+  }
+  if (checklist.requirePhoto) {
+    const { count, error: mediaError } = await supabase.from("room_media")
+      .select("id", { count: "exact", head: true })
+      .eq("work_log_id", taskId)
+      .eq("media_type", "image");
+    if (mediaError) throw new Error(`Unable to verify required photo evidence: ${mediaError.message}`);
+    if (!count) throw new Error("Add required photo evidence before ending this task.");
+  }
 
   const { data: hotel, error: hotelError } = await supabase.from("hotels")
     .select("id, manager_id")
@@ -418,6 +479,7 @@ export async function endOwnManagementTask(taskId: string) {
     .update({
       status: "completed",
       end_time: now,
+      execution_checklist: checklistProgress,
       rooms_completed: Math.max(0, task.rooms_completed ?? 0),
       ...(autoApproveManager ? {
         manager_approved: true,

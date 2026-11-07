@@ -9,7 +9,7 @@ import { AttendanceSummaryWidget } from "@/components/dashboard/AttendanceSummar
 import { ServiceCard } from "@/components/dashboard/ServiceCard";
 import { OperationalAuditTable } from "@/components/dashboard/OperationalAuditTable";
 import type { BriefTask, ManagementBrief } from "@/lib/operationalBrief";
-import { calculateTaskCost, resolveBillingUnit, resolveServiceRate } from "@/lib/servicePricing";
+import { calculateWorkLogCost, resolveBillingUnit, resolveServiceRate } from "@/lib/servicePricing";
 import { approveWorkLog as approveWorkLogAction, forceEndAndApproveManagerTask, getManagementDashboardSummary, getManagementOverrideAuditPage, getManagementResponsibilityHistoryPage, getManagementWorkLogPage, rejectWorkLog, updateWorkLog } from "./actions";
 import { importRoomsFromGoogleSheet } from "./roomImportActions";
 import { FullEditPanel } from "./FullEditPanel";
@@ -93,7 +93,7 @@ function getLogLaborCost(log: Log) {
   const serviceName = log.service_name_snapshot ?? service?.name ?? "Service";
   const rate = resolveServiceRate({ name: serviceName, default_rate: service?.default_rate });
   const unit = resolveBillingUnit(service?.unit, serviceName);
-  return calculateTaskCost(hours, log.rooms_completed, { name: serviceName, default_rate: rate, unit }, log.cost_override);
+  return calculateWorkLogCost(hours, log.rooms_completed, { name: serviceName, default_rate: rate, unit, billing_model: service?.billing_model, billing_unit_label: service?.billing_unit_label }, log, log.cost_override);
 }
 
 function toBriefTask(log: Log): BriefTask {
@@ -103,7 +103,7 @@ function toBriefTask(log: Log): BriefTask {
   const rate = resolveServiceRate({ name: serviceName, default_rate: service?.default_rate });
   const unit = resolveBillingUnit(service?.unit, serviceName);
   const roomNumbers = Array.isArray(log.room_numbers) ? log.room_numbers.filter((room): room is string => typeof room === "string") : [];
-  return { id: log.id, cleaner: log.cleanerName, hotel: log.hotelName, service: serviceName, serviceDescription: log.service_description_snapshot ?? serviceName, taskDate: log.task_date,   status: log.cancelled_at ? "cancelled" : log.status, startTime: log.start_time, endTime: log.end_time, ownerId: log.owner_id, ownerName: log.owner_name ?? "Unassigned owner", managerId: log.manager_id, managerName: log.manager_name ?? "Unassigned manager", responsibilityRecordedAt: log.responsibility_recorded_at ?? log.start_time, room: roomNumbers.join(", ") || log.room_number || "", rooms: log.rooms_completed, hours, rate, cost: calculateTaskCost(hours, log.rooms_completed, { name: serviceName, unit, default_rate: rate }, log.cost_override), notes: log.notes ?? "", managerApproved: log.manager_approved, ownerApproved: log.owner_approved, managerRejected: log.manager_rejected, ownerRejected: log.owner_rejected, isLocked: log.is_locked, rejectionNotes: log.rejection_notes ?? "" };
+  return { id: log.id, cleaner: log.cleanerName, hotel: log.hotelName, service: serviceName, serviceDescription: log.service_description_snapshot ?? serviceName, taskDate: log.task_date,   status: log.cancelled_at ? "cancelled" : log.status, startTime: log.start_time, endTime: log.end_time, ownerId: log.owner_id, ownerName: log.owner_name ?? "Unassigned owner", managerId: log.manager_id, managerName: log.manager_name ?? "Unassigned manager", responsibilityRecordedAt: log.responsibility_recorded_at ?? log.start_time, room: roomNumbers.join(", ") || log.room_number || "", rooms: log.rooms_completed, hours, rate, cost: calculateWorkLogCost(hours, log.rooms_completed, { name: serviceName, unit, default_rate: rate, billing_model: service?.billing_model, billing_unit_label: service?.billing_unit_label }, log, log.cost_override), notes: log.notes ?? "", managerApproved: log.manager_approved, ownerApproved: log.owner_approved, managerRejected: log.manager_rejected, ownerRejected: log.owner_rejected, isLocked: log.is_locked, rejectionNotes: log.rejection_notes ?? "" };
 }
 
 export default function ManagementDashboardClient({ data, dispatchData, tenantIntelligence }: Props) {
@@ -449,6 +449,8 @@ export default function ManagementDashboardClient({ data, dispatchData, tenantIn
               startTime: task.start_time,
               status: task.status === "paused" ? "paused" : "active",
               pausedAt: task.paused_at ?? null,
+              serviceBlueprintSnapshot: task.service_blueprint_snapshot,
+              executionChecklist: task.execution_checklist ?? [],
             }} /> : null;
           })()}
           {dispatchData && <TaskDispatchClient role={data.userRole as UserRole} {...dispatchData} compact />}

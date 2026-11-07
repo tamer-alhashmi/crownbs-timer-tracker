@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getSessionUser } from "@/lib/auth";
 import { createPrivilegedServerSupabaseClient } from "@/lib/supabase/server";
-import { isPlatformAdmin } from "@/lib/roles";
+import { isHousekeepingAdmin, isPlatformAdmin } from "@/lib/roles";
 import { getManagerPropertyIds, hasPropertyOwnerAccess } from "@/lib/propertyOwnership";
 
 const BUCKET = "room-media";
@@ -20,7 +20,7 @@ const mediaTypes: Record<string, { type: "image" | "video"; extension: string }>
 export type RoomMediaItem = {
   id: string;
   work_log_id: string;
-  room_id: string;
+  room_id: string | null;
   bucket_id: string;
   storage_path: string;
   media_type: "image" | "video";
@@ -36,15 +36,17 @@ export type RoomMediaGalleryItem = RoomMediaItem & { room_name: string };
 
 type UploadMetadata = {
   workLogId: string;
-  roomId: string;
+  roomId: string | null;
   contentType: string;
   originalName: string;
   fileSizeBytes: number;
 };
 
-async function requireCleaner() {
+async function requireTaskAssignee() {
   const user = await getSessionUser();
-  if (!user || user.role !== "cleaner") throw new Error("Cleaner access is required to manage task evidence.");
+  if (!user || !["cleaner", "manager"].includes(user.role) && !isHousekeepingAdmin(user.role)) {
+    throw new Error("An assigned operational user is required to manage task evidence.");
+  }
   return user;
 }
 
@@ -57,13 +59,19 @@ function validateMetadata(input: UploadMetadata) {
   return media;
 }
 
-async function validateTaskRoom(workLogId: string, roomId: string, userId: string, requireSelectedRoom = true) {
+async function validateTaskRoom(workLogId: string, roomId: string | null, userId: string, requireSelectedRoom = true) {
   const supabase = createPrivilegedServerSupabaseClient();
-  const [{ data: task, error: taskError }, { data: room, error: roomError }] = await Promise.all([
-    supabase.from("work_logs").select("id, hotel_id, room_ids, user_id, status, is_locked").eq("id", workLogId).eq("user_id", userId).maybeSingle(),
-    supabase.from("rooms").select("id, hotel_id, status").eq("id", roomId).maybeSingle(),
-  ]);
+  const { data: task, error: taskError } = await supabase.from("work_logs")
+    .select("id, hotel_id, room_ids, user_id, status, is_locked")
+    .eq("id", workLogId)
+    .eq("user_id", userId)
+    .maybeSingle();
   if (taskError || !task) throw new Error("The task was not found for your account.");
+  if (!roomId) {
+    if (task.status !== "active" || task.is_locked) throw new Error("Task evidence can only be added to an unlocked active task.");
+    return { supabase, task, room: null };
+  }
+  const { data: room, error: roomError } = await supabase.from("rooms").select("id, hotel_id, status").eq("id", roomId).maybeSingle();
   if (roomError || !room || room.hotel_id !== task.hotel_id || room.status !== "active") {
     throw new Error("This room is not available for the task's hotel.");
   }
@@ -73,10 +81,12 @@ async function validateTaskRoom(workLogId: string, roomId: string, userId: strin
 }
 
 export async function createRoomMediaUploadUrl(input: UploadMetadata) {
-  const user = await requireCleaner();
+  const user = await requireTaskAssignee();
   const media = validateMetadata(input);
   const { supabase, room } = await validateTaskRoom(input.workLogId, input.roomId, user.userId);
-  const storagePath = `${room.id}/${input.workLogId}/${crypto.randomUUID()}.${media.extension}`;
+  const storagePath = room
+    ? `${room.id}/${input.workLogId}/${crypto.randomUUID()}.${media.extension}`
+    : `tasks/${input.workLogId}/${crypto.randomUUID()}.${media.extension}`;
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUploadUrl(storagePath, { upsert: false });
   if (error || !data) {
     throw new Error(error?.message ?? "Unable to prepare upload. Confirm the room-media bucket migration has been applied.");
@@ -85,16 +95,16 @@ export async function createRoomMediaUploadUrl(input: UploadMetadata) {
 }
 
 export async function saveRoomMediaRecord(input: UploadMetadata & { storagePath: string }) {
-  const user = await requireCleaner();
+  const user = await requireTaskAssignee();
   const media = validateMetadata(input);
   const { supabase, room } = await validateTaskRoom(input.workLogId, input.roomId, user.userId);
-  const prefix = `${room.id}/${input.workLogId}/`;
+  const prefix = room ? `${room.id}/${input.workLogId}/` : `tasks/${input.workLogId}/`;
   const fileName = input.storagePath.startsWith(prefix) ? input.storagePath.slice(prefix.length) : "";
   if (!/^[0-9a-f-]{36}\.(jpg|png|webp|mp4|mov|webm)$/i.test(fileName) || !fileName.endsWith(`.${media.extension}`)) {
     throw new Error("The uploaded file path is invalid.");
   }
 
-  const folder = `${room.id}/${input.workLogId}`;
+  const folder = room ? `${room.id}/${input.workLogId}` : `tasks/${input.workLogId}`;
   const { data: storedFiles, error: listError } = await supabase.storage.from(BUCKET).list(folder, { search: fileName });
   if (listError || !storedFiles?.some((file) => file.name === fileName)) {
     throw new Error("The uploaded file could not be verified in private storage.");
@@ -102,7 +112,7 @@ export async function saveRoomMediaRecord(input: UploadMetadata & { storagePath:
 
   const { data: record, error } = await supabase.from("room_media").insert({
     work_log_id: input.workLogId,
-    room_id: room.id,
+    room_id: room?.id ?? null,
     bucket_id: BUCKET,
     storage_path: input.storagePath,
     media_type: media.type,
@@ -124,7 +134,7 @@ export async function saveRoomMediaRecord(input: UploadMetadata & { storagePath:
 }
 
 export async function deleteRoomMedia(mediaId: string) {
-  const user = await requireCleaner();
+  const user = await requireTaskAssignee();
   const supabase = createPrivilegedServerSupabaseClient();
   const { data: record, error: readError } = await supabase.from("room_media").select("id, work_log_id, room_id, bucket_id, storage_path, uploaded_by").eq("id", mediaId).maybeSingle();
   if (readError || !record || record.uploaded_by !== user.userId) throw new Error("This room media item cannot be deleted.");
@@ -143,7 +153,8 @@ export async function getWorkLogRoomMedia(workLogId: string): Promise<RoomMediaG
   const { data: log, error: logError } = await supabase.from("work_logs").select("id, hotel_id, user_id, owner_id, manager_id").eq("id", workLogId).maybeSingle();
   if (logError || !log) throw new Error("Work log was not found.");
 
-  let authorized = isPlatformAdmin(user.role) || (user.role === "cleaner" && log.user_id === user.userId);
+  let authorized = isPlatformAdmin(user.role)
+    || (["cleaner", "manager"].includes(user.role) || isHousekeepingAdmin(user.role)) && log.user_id === user.userId;
   if (!authorized && (user.role === "owner" || user.role === "manager")) {
     if (user.role === "owner") {
       authorized = await hasPropertyOwnerAccess(supabase, log.hotel_id, user.userId);
@@ -161,10 +172,12 @@ export async function getWorkLogRoomMedia(workLogId: string): Promise<RoomMediaG
   const signedItems = await Promise.all((items ?? []).map(async (item) => {
     const [{ data: signed, error: signedError }, { data: room }] = await Promise.all([
       supabase.storage.from(item.bucket_id).createSignedUrl(item.storage_path, 3600),
-      supabase.from("rooms").select("room_name").eq("id", item.room_id).maybeSingle(),
+      item.room_id
+        ? supabase.from("rooms").select("room_name").eq("id", item.room_id).maybeSingle()
+        : Promise.resolve({ data: null }),
     ]);
     if (signedError || !signed) return null;
-    return { ...item, signed_url: signed.signedUrl, room_name: room?.room_name ?? "Room" };
+    return { ...item, signed_url: signed.signedUrl, room_name: room?.room_name ?? "Task evidence" };
   }));
   return signedItems.filter((item): item is NonNullable<typeof item> => item !== null) as RoomMediaGalleryItem[];
 }

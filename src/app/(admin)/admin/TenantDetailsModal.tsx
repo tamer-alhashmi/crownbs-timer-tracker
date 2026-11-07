@@ -8,7 +8,7 @@ import { strToU8, zipSync } from "fflate";
 import { DashboardPagination } from "@/components/dashboard/DashboardPagination";
 import { showActionToast } from "@/components/ui/ActionToast";
 import { formatUserMessage } from "@/lib/userMessages";
-import { calculateTaskCost } from "@/lib/servicePricing";
+import { calculateWorkLogCost } from "@/lib/servicePricing";
 import {
   getTenantDetails,
   getTenantWorkLogExport,
@@ -57,7 +57,7 @@ function duration(log: TenantLog) {
 }
 
 function calculateTenantLogCost(log: TenantLog) {
-  return calculateTaskCost(duration(log), log.rooms_completed, log.service, log.cost_override);
+  return calculateWorkLogCost(duration(log), log.rooms_completed, log.service, log, log.cost_override);
 }
 
 function csvCell(value: string | number | boolean) {
